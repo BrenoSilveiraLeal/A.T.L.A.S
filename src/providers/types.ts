@@ -1,9 +1,17 @@
 export type ProviderName = "brapi" | "bcb" | "ibge";
 
 export type ProviderErrorCode =
-  | "INVALID_INPUT" | "INVALID_RESPONSE" | "EMPTY_DATA" | "FUTURE_DATA"
-  | "TICKER_CHANGED" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND"
-  | "RATE_LIMITED" | "TIMEOUT" | "UNAVAILABLE";
+  | "INVALID_INPUT"
+  | "INVALID_RESPONSE"
+  | "EMPTY_DATA"
+  | "FUTURE_DATA"
+  | "TICKER_CHANGED"
+  | "UNAUTHORIZED"
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "RATE_LIMITED"
+  | "TIMEOUT"
+  | "UNAVAILABLE";
 
 export interface MarketQuote {
   ticker: string;

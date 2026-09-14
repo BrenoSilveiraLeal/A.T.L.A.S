@@ -2,8 +2,18 @@ import type { DecimalString } from "./money";
 
 export type OrderSide = "BUY" | "SELL";
 export type OrderKind = "LIMIT" | "STOP" | "STOP_LIMIT";
-export type MarketSession = "OPEN" | "CLOSED" | "AUCTION" | "CIRCUIT_BREAKER" | "UNKNOWN";
-export type QuoteQuality = "REAL_TIME" | "DELAYED" | "EOD" | "STALE" | "UNKNOWN";
+export type MarketSession =
+  | "OPEN"
+  | "CLOSED"
+  | "AUCTION"
+  | "CIRCUIT_BREAKER"
+  | "UNKNOWN";
+export type QuoteQuality =
+  | "REAL_TIME"
+  | "DELAYED"
+  | "EOD"
+  | "STALE"
+  | "UNKNOWN";
 
 export interface BrokerCapabilities {
   readonly providerId: string;
@@ -62,7 +72,15 @@ export interface BrokerOrder {
   readonly side: OrderSide;
   readonly quantity: number;
   readonly filledQuantity: number;
-  readonly status: "PENDING" | "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED" | "REJECTED" | "EXPIRED" | "UNKNOWN";
+  readonly status:
+    | "PENDING"
+    | "OPEN"
+    | "PARTIALLY_FILLED"
+    | "FILLED"
+    | "CANCELLED"
+    | "REJECTED"
+    | "EXPIRED"
+    | "UNKNOWN";
   readonly observedAt: string;
 }
 
@@ -86,7 +104,11 @@ export interface BrokerExecution {
 export interface BrokerProvider {
   readonly capabilities: BrokerCapabilities;
   connect(): Promise<void>;
-  healthCheck(): Promise<{ healthy: boolean; observedAt: string; reason: string | null }>;
+  healthCheck(): Promise<{
+    healthy: boolean;
+    observedAt: string;
+    reason: string | null;
+  }>;
   getAccount(): Promise<BrokerAccount>;
   getCash(): Promise<BrokerCash>;
   getPositions(): Promise<readonly BrokerPosition[]>;
@@ -94,7 +116,19 @@ export interface BrokerProvider {
   getOrder(brokerOrderId: string): Promise<BrokerOrder | null>;
   getOrderByClientId(clientOrderId: string): Promise<BrokerOrder | null>;
   placeOrder(request: BrokerOrderRequest): Promise<BrokerOrder>;
-  modifyOrder(brokerOrderId: string, changes: Pick<BrokerOrderRequest, "quantity" | "limitPrice" | "stopPrice">, idempotencyKey: string): Promise<BrokerOrder>;
-  cancelOrder(brokerOrderId: string, idempotencyKey: string): Promise<BrokerOrder>;
-  getExecutions(cursor: string | null): Promise<{ executions: readonly BrokerExecution[]; nextCursor: string | null }>;
+  modifyOrder(
+    brokerOrderId: string,
+    changes: Pick<BrokerOrderRequest, "quantity" | "limitPrice" | "stopPrice">,
+    idempotencyKey: string,
+  ): Promise<BrokerOrder>;
+  cancelOrder(
+    brokerOrderId: string,
+    idempotencyKey: string,
+  ): Promise<BrokerOrder>;
+  getExecutions(
+    cursor: string | null,
+  ): Promise<{
+    executions: readonly BrokerExecution[];
+    nextCursor: string | null;
+  }>;
 }

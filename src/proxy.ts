@@ -10,22 +10,46 @@ export async function proxy(request: NextRequest) {
   headers.set("Content-Security-Policy", csp);
   let response = NextResponse.next({ request: { headers } });
   if (process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY) {
-    const client = createServerClient(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
-      cookieOptions: { httpOnly: true, secure: process.env.SESSION_COOKIE_SECURE !== "false" && !dev, sameSite: "strict", path: "/", maxAge: 3600 },
-      cookies: {
-        getAll: () => request.cookies.getAll(),
-        setAll(values) {
-          values.forEach(({ name, value }) => request.cookies.set(name, value));
-          headers.set("cookie", request.cookies.toString());
-          response = NextResponse.next({ request: { headers } });
-          values.forEach(({ name, value, options }) => response.cookies.set(name, value, { ...options, httpOnly: true, secure: process.env.SESSION_COOKIE_SECURE !== "false" && !dev, sameSite: "strict", maxAge: options.maxAge === 0 ? 0 : 3600 }));
+    const client = createServerClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_PUBLISHABLE_KEY,
+      {
+        cookieOptions: {
+          httpOnly: true,
+          secure: process.env.SESSION_COOKIE_SECURE !== "false" && !dev,
+          sameSite: "strict",
+          path: "/",
+          maxAge: 3600,
+        },
+        cookies: {
+          getAll: () => request.cookies.getAll(),
+          setAll(values) {
+            values.forEach(({ name, value }) =>
+              request.cookies.set(name, value),
+            );
+            headers.set("cookie", request.cookies.toString());
+            response = NextResponse.next({ request: { headers } });
+            values.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, {
+                ...options,
+                httpOnly: true,
+                secure: process.env.SESSION_COOKIE_SECURE !== "false" && !dev,
+                sameSite: "strict",
+                maxAge: options.maxAge === 0 ? 0 : 3600,
+              }),
+            );
+          },
         },
       },
-    });
+    );
     await client.auth.getClaims();
   }
   response.headers.set("Content-Security-Policy", csp);
   response.headers.set("Cache-Control", "private, no-store");
   return response;
 }
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|woff2)$).*)"] };
+export const config = {
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|woff2)$).*)",
+  ],
+};

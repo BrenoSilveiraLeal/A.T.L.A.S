@@ -1,0 +1,5 @@
+project_id = "atlas"
+
+[functions.atlas-tick]
+# Custom CRON_SECRET authentication is mandatory in the handler.
+verify_jwt = false

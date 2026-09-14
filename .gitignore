@@ -12,3 +12,5 @@ supabase/.branches/
 .impeccable/
 artifacts/
 *.log
+.playwright-cli/
+output/

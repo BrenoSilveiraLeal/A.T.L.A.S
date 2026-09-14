@@ -94,3 +94,7 @@ Fontes: [Inter — disponibilidade de APIs](https://ajuda.inter.co/conta-digital
 - O fetch de notícias IBGE pela ferramenta web falhou por restrição da ferramenta; documentação foi acessada. Teste de ingestão JSON no runtime de implantação continua PENDING.
 - Rede direta do terminal não estava disponível nesta pesquisa. Não se realizou teste de carga, sandbox bancário, subscrição paga ou transação financeira.
 - Feed confiável para executar, direitos específicos de automação, corporate actions completos, cobertura de notícias empresariais e confirmação de transferência para corretora continuam PENDING.
+
+## Verifica??o posterior de implementa??o ? 14/09/2026
+
+A limita??o inicial de rede acima foi resolvida com execu??o autorizada. Os cinco adaptadores HTTP passaram em smoke p?blico via Node; o IBGE retornou not?cias reais. Um teste separado consumiu quote/history/news/macro, gerou HOLD e persistiu decis?o, mem?ria e auditoria em PostgreSQL tempor?rio. Isso n?o valida feed para ordens, conta do propriet?rio, broker ou SLA.

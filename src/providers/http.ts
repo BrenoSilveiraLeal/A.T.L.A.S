@@ -30,7 +30,10 @@ function httpCode(status: number): ProviderErrorCode {
   return "UNAVAILABLE";
 }
 
-async function limitedJson(response: Response, provider: ProviderName): Promise<unknown> {
+async function limitedJson(
+  response: Response,
+  provider: ProviderName,
+): Promise<unknown> {
   const length = Number(response.headers.get("content-length"));
   if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) {
     await response.body?.cancel();
@@ -56,7 +59,10 @@ async function limitedJson(response: Response, provider: ProviderName): Promise<
   }
   const buffer = new Uint8Array(size);
   let offset = 0;
-  for (const chunk of chunks) { buffer.set(chunk, offset); offset += chunk.length; }
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset);
+    offset += chunk.length;
+  }
   try {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer));
   } catch {
@@ -64,11 +70,16 @@ async function limitedJson(response: Response, provider: ProviderName): Promise<
   }
 }
 
-function retryWait(response: Response | undefined, attempt: number): number | null {
+function retryWait(
+  response: Response | undefined,
+  attempt: number,
+): number | null {
   const header = response?.headers.get("retry-after");
   if (header) {
     const seconds = Number(header);
-    const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+    const delay = Number.isFinite(seconds)
+      ? seconds * 1000
+      : Date.parse(header) - Date.now();
     // Respect long cooldowns by returning the error, rather than retrying too early.
     if (Number.isFinite(delay)) return delay > 2000 ? null : Math.max(0, delay);
   }
@@ -80,13 +91,21 @@ export async function getJson(
   url: URL,
   options: { token?: string; timeoutMs?: number; maxAttempts?: number } = {},
 ): Promise<unknown> {
-  if (url.origin !== ORIGINS[provider] || url.username || url.password || url.searchParams.has("token")) {
+  if (
+    url.origin !== ORIGINS[provider] ||
+    url.username ||
+    url.password ||
+    url.searchParams.has("token")
+  ) {
     throw new ProviderError(provider, "INVALID_INPUT");
   }
   const attempts = Math.min(3, Math.max(1, options.maxAttempts ?? 3));
   for (let attempt = 0; attempt < attempts; attempt++) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 8000);
+    const timer = setTimeout(
+      () => controller.abort(),
+      options.timeoutMs ?? 8000,
+    );
     let response: Response | undefined;
     let error: ProviderError;
     let retryable = false;
@@ -95,21 +114,30 @@ export async function getJson(
         method: "GET",
         headers: {
           Accept: "application/json",
-          ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+          ...(options.token
+            ? { Authorization: `Bearer ${options.token}` }
+            : {}),
         },
         signal: controller.signal,
         cache: "no-store",
         redirect: "error",
       });
       if (response.ok) return await limitedJson(response, provider);
-      error = new ProviderError(provider, httpCode(response.status), response.status);
+      error = new ProviderError(
+        provider,
+        httpCode(response.status),
+        response.status,
+      );
       retryable = RETRYABLE.has(response.status);
       await response.body?.cancel();
     } catch (cause) {
       if (cause instanceof ProviderError) {
         error = cause;
       } else {
-        error = new ProviderError(provider, controller.signal.aborted ? "TIMEOUT" : "UNAVAILABLE");
+        error = new ProviderError(
+          provider,
+          controller.signal.aborted ? "TIMEOUT" : "UNAVAILABLE",
+        );
         retryable = true;
       }
     } finally {
@@ -123,7 +151,11 @@ export async function getJson(
   throw new ProviderError(provider, "UNAVAILABLE");
 }
 
-export function parseResponse<T>(provider: ProviderName, schema: z.ZodType<T>, value: unknown): T {
+export function parseResponse<T>(
+  provider: ProviderName,
+  schema: z.ZodType<T>,
+  value: unknown,
+): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw new ProviderError(provider, "INVALID_RESPONSE");
   return parsed.data;

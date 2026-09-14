@@ -129,3 +129,7 @@ Falhas de risco, DB, broker, sessão, sincronização ou dados interrompem novas
 Implementar primeiro contratos, limites e contabilidade, depois conectores comprovados e execução, e por fim office. Não escolher estratégias intraday antes de provar licenciamento/atraso e não forçar runtime serverless em provider que exija sessão persistente, FIX, IP fixo ou gateway desktop. Se esse for o único caminho oficial viável, registrar nova decisão arquitetural e custo antes de contratar infraestrutura.
 
 Continuam PENDING: aplicação implantada, configuração de contas/segredos, schema aplicado, scheduler cloud, módulos completos, broker, funding, testes reais e fluxo R37. Fontes de produto foram consultadas na fase 0; tentativa de ler `supabase.com/changelog.md` falhou por tipo de conteúdo no leitor e rede indisponível no terminal. Revisar changelog relevante antes de implementação Supabase e registrar qualquer incompatibilidade.
+
+## Estado implementado em 14/09/2026
+
+Mon?lito modular em src/core (risco/OMS/research/an?lise), src/providers (HTTP real), src/lib (Auth BFF/cache/scheduler), src/app e src/components. Tr?s migrations e testes PostgreSQL locais. A observa??o SMA gera somente HOLD; finish_agent_analysis grava evid?ncias e conclui job com fencing na mesma transa??o. BrokerProvider ? contrato sem adapter; execu??o financeira integrada, supervisor, fundamentos CVM completos, sess?o B3 efetiva e PIX seguem PENDING. Auth usa cookies HttpOnly server-side, getUser+getClaims, owner UUID e AAL2. A UI n?o recebe chaves de servi?o.

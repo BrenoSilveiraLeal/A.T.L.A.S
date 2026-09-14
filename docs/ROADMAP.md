@@ -90,3 +90,7 @@ Antes da autorização e execução real, readiness técnica pode ser documentad
 | 2026-09-13 | Planejamento inicial | Leitura integral do pedido; matriz de 37 itens; arquitetura e gates documentados. | Documentação criada; não é validação de código ou serviços. |
 
 Acrescentar resultados executados e limitações reais. Não preencher a tabela com testes planejados como se tivessem passado.
+
+### Registro executado em 14/09/2026
+
+Lint, typecheck e build passaram. Su?te: 163 testes locais passaram; dois smokes de rede s?o opt-in. Smoke adicional com dados p?blicos reais confirmou an?lise ? decis?o/mem?ria/auditoria at?micas, sem ordem. Detalhes e limites em [VALIDATION.md](VALIDATION.md).

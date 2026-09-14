@@ -5,6 +5,12 @@ export { fetchMacro } from "./bcb";
 export { fetchNews } from "./ibge";
 export { ProviderError } from "./http";
 export type {
-  AssetSearchResult, HistoricalBar, MacroObservation, MarketHistory, MarketQuote, NewsArticle,
-  ProviderErrorCode, ProviderName,
+  AssetSearchResult,
+  HistoricalBar,
+  MacroObservation,
+  MarketHistory,
+  MarketQuote,
+  NewsArticle,
+  ProviderErrorCode,
+  ProviderName,
 } from "./types";
