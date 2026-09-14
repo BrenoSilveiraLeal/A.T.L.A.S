@@ -1,0 +1,142 @@
+- generic [ref=e2]:
+  - link "Ir para o conteúdo" [ref=e3] [cursor=pointer]:
+    - /url: "#content"
+  - complementary [ref=e4]:
+    - link "A ATLAS Autonomous Trading System" [ref=e5] [cursor=pointer]:
+      - /url: /app
+      - generic [ref=e6]: A
+      - generic [ref=e7]:
+        - text: ATLAS
+        - generic [ref=e8]: Autonomous Trading System
+    - generic [ref=e9]: ESPAÇO PESSOAL
+    - navigation "Navegação principal" [ref=e11]:
+      - link "Visão geral" [ref=e12] [cursor=pointer]:
+        - /url: /app
+      - link "Trading floor" [ref=e20] [cursor=pointer]:
+        - /url: /app/office
+      - link "Agentes" [ref=e26] [cursor=pointer]:
+        - /url: /app/agents
+      - link "Carteira" [ref=e33] [cursor=pointer]:
+        - /url: /app/portfolio
+      - link "Mercado" [ref=e38] [cursor=pointer]:
+        - /url: /app/market
+      - link "Inteligência" [ref=e44] [cursor=pointer]:
+        - /url: /app/news
+      - link "Ordens" [ref=e49] [cursor=pointer]:
+        - /url: /app/orders
+      - link "Tesouraria" [ref=e54] [cursor=pointer]:
+        - /url: /app/treasury
+      - link "Risco e limites" [ref=e59] [cursor=pointer]:
+        - /url: /app/risk
+      - link "Auditoria" [ref=e64] [cursor=pointer]:
+        - /url: /app/audit
+      - link "Saúde do sistema" [ref=e69] [cursor=pointer]:
+        - /url: /app/health
+      - link "Configuração" [ref=e73] [cursor=pointer]:
+        - /url: /app/settings
+    - generic [ref=e82]:
+      - strong [ref=e83]: Risco tem prioridade
+      - text: Execução real bloqueada
+    - generic [ref=e84]:
+      - generic [ref=e85]: P
+      - generic [ref=e86]:
+        - text: Proprietário
+        - generic [ref=e87]: Conta privada · Brasil
+  - generic [ref=e88]:
+    - banner [ref=e89]:
+      - generic [ref=e90]:
+        - text: Workspace
+        - generic [ref=e91]: /
+        - strong [ref=e92]: Visão geral
+      - generic [ref=e93]:
+        - generic [ref=e94]: CONFIGURAÇÃO
+        - link "Conectar serviços" [ref=e96] [cursor=pointer]:
+          - /url: /app/settings
+    - generic [ref=e100]:
+      - generic [ref=e105]:
+        - strong [ref=e106]: Capital protegido.
+        - text: Operação real aguarda integração e validação.
+      - button "Parar todas as operações" [disabled] [ref=e107]
+    - main [ref=e112]:
+      - generic [ref=e113]:
+        - generic [ref=e114]:
+          - heading "Seu centro de operações." [level=1] [ref=e115]
+          - paragraph [ref=e116]: Uma visão clara dos agentes, do capital e das decisões.
+        - button "Atualizar registros" [disabled] [ref=e118]
+      - generic [ref=e124]:
+        - paragraph [ref=e130]:
+          - strong [ref=e131]: Conecte o primeiro serviço.
+          - generic [ref=e132]: O ambiente local está pronto para configuração. Seus dados financeiros aparecerão após a conexão.
+        - link "Configurar ATLAS" [ref=e133] [cursor=pointer]:
+          - /url: /app/settings
+      - generic [ref=e136]:
+        - generic [ref=e137]:
+          - generic [ref=e138]: Patrimônio total
+          - strong [ref=e139]: —
+          - generic "Aguardando reconciliação" [ref=e140]
+        - generic [ref=e141]:
+          - generic [ref=e142]: Resultado total
+          - strong [ref=e143]: —
+          - 'generic "P&L: quanto você ganhou ou perdeu" [ref=e144]'
+        - generic [ref=e145]:
+          - generic [ref=e146]: Caixa disponível
+          - strong [ref=e147]: —
+          - generic "Confirmado pela corretora" [ref=e148]
+        - generic [ref=e149]:
+          - generic [ref=e150]: Agentes cadastrados
+          - strong [ref=e151]: —
+          - generic "Especialistas sob supervisão" [ref=e152]
+      - generic [ref=e153]:
+        - generic [ref=e154]:
+          - generic [ref=e155]:
+            - heading "Patrimônio ao longo do tempo" [level=2] [ref=e156]
+            - generic [ref=e157]: BRL
+          - generic [ref=e158]:
+            - heading "O primeiro registro começa com uma conexão real." [level=3] [ref=e164]
+            - generic [ref=e165]:
+              - paragraph [ref=e166]: O gráfico será construído com snapshots reconciliados da sua conta. Nenhum patrimônio foi registrado ainda.
+              - link "Ver requisitos de conexão" [ref=e167] [cursor=pointer]:
+                - /url: /app/settings
+          - generic [ref=e171]: O saldo da corretora é a referência para a tesouraria.
+        - generic [ref=e175]:
+          - heading "Prontidão operacional" [level=2] [ref=e177]
+          - paragraph [ref=e181]: Cada etapa protege uma parte da operação.
+          - generic [ref=e182]:
+            - generic [ref=e187]:
+              - strong [ref=e188]: Identidade e banco
+              - generic [ref=e189]: Conectar Supabase e proprietário
+            - generic [ref=e194]:
+              - strong [ref=e195]: Corretora oficial
+              - generic [ref=e196]: Contrato e habilitação pendentes
+            - generic [ref=e201]:
+              - strong [ref=e202]: Feed de execução
+              - generic [ref=e203]: Fonte autorizada e sessão pendentes
+            - generic [ref=e208]:
+              - strong [ref=e209]: Risco e reconciliação
+              - generic [ref=e210]: Homologação ponta a ponta pendente
+          - generic [ref=e211]:
+            - generic [ref=e212]: LIVE BLOQUEADO
+            - link "Ver etapas" [ref=e213] [cursor=pointer]:
+              - /url: /app/settings
+        - generic [ref=e216]:
+          - generic [ref=e217]:
+            - heading "Seus agentes" [level=2] [ref=e218]
+            - link "Gerenciar" [ref=e219] [cursor=pointer]:
+              - /url: /app/agents
+          - generic [ref=e223]:
+            - heading "Sua equipe começa com o primeiro agente." [level=3] [ref=e230]
+            - generic [ref=e231]:
+              - paragraph [ref=e232]: Cadastre um ativo e defina um especialista. Cada agente seguirá seus limites e terá uma trilha de decisões.
+              - link "Configurar equipe" [ref=e233] [cursor=pointer]:
+                - /url: /app/agents
+        - generic [ref=e236]:
+          - generic [ref=e237]:
+            - heading "Últimas decisões" [level=2] [ref=e238]
+            - link "Auditoria" [ref=e239] [cursor=pointer]:
+              - /url: /app/audit
+          - generic [ref=e243]:
+            - heading "Nenhuma decisão registrada" [level=3] [ref=e249]
+            - paragraph [ref=e251]: Os registros aparecerão aqui após a primeira operação confirmada deste componente.
+    - contentinfo [ref=e252]:
+      - generic [ref=e253]: ATLAS · Autonomous Trading & Learning Agent System
+      - generic [ref=e254]: Dados com origem. Decisões com registro.
