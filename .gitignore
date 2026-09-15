@@ -9,7 +9,8 @@ coverage/
 .supabase/
 supabase/.temp/
 supabase/.branches/
-.impeccable/
+.impeccable/*
+!.impeccable/design.json
 artifacts/
 *.log
 .playwright-cli/

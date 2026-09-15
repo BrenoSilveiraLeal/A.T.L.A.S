@@ -67,6 +67,7 @@ No **SQL Editor** do projeto ATLAS, execute integralmente, nesta ordem:
 1. `supabase/migrations/20260913235609_atlas_foundation.sql`
 2. `supabase/migrations/20260914045633_atlas_analysis_pipeline.sql`
 3. `supabase/migrations/20260914135359_atlas_configuration_audit.sql`
+4. `supabase/migrations/20260914230025_atlas_cache_retention.sql`
 
 Depois execute, substituindo o UUID pelo seu usuário real:
 
@@ -119,6 +120,10 @@ Entre com seu e-mail/senha. Clique **Cadastrar autenticador**, adicione uma cont
 
 Uma falha de fonte coloca o agente em `RISK_BLOCKED`; revise o erro no banco/saúde antes de reativar a análise. O limite brapi é conservador: até 150 consultas lógicas/dia, cada uma com no máximo três tentativas, compartilhadas entre UI e scheduler. Cache: cotação 30min, histórico 12h, notícias 15min e macro 6h. Aumentar polling não remove atraso.
 
+Em **Mercado → Fundamentos · CVM**, informe o código CVM da companhia, o exercício e o escopo consolidado ou individual. O conector lê DFP anual e conserva rubrica, versão, moeda/escala e arquivo de origem. Não deduz código CVM pelo ticker, nem substitui contas ausentes por zero. A consulta não precisa de token CVM; exige o login privado do ATLAS e acesso HTTPS à fonte pública. São permitidas quatro novas consultas à fonte por dia; o resultado normalizado fica em cache por sete dias. O acesso de rede à CVM ainda precisa de validação no ambiente de implantação, conforme [CVM_FUNDAMENTALS.md](docs/CVM_FUNDAMENTALS.md).
+
+A visão geral e a tesouraria leem o último snapshot contábil conciliado. Cada total preserva a data do registro e usa strings decimais; não representa saldo disponível para uma nova ordem. Sem snapshot válido ou com divergência, os totais ficam indisponíveis. Gráficos de evolução da carteira e integração ao saldo da corretora continuam pendentes.
+
 ## 9. Validar localmente
 
 ```powershell
@@ -161,6 +166,8 @@ Também é possível hospedar o Next em um servidor Node compatível, com HTTPS 
 7. Faça uma análise, desligue seu computador e confira depois os registros posteriores ao desligamento. Só esse teste valida o requisito cloud; ainda não foi executado nesta entrega.
 
 O Free pode pausar e não tem SLA de disponibilidade. Antes de live, backup/restore, monitoramento externo e alertas fora do painel precisam ser implementados e testados.
+
+O painel converte medições vencidas, futuras ou inválidas para `UNKNOWN`, preservando o estado que foi originalmente registrado. A cada hora, o scheduler também pode remover até 500 registros de cache com mais de sete dias. Essa limpeza é restrita a `READ_CACHE_V1`: decisões, memória, ordens, ledger e auditoria são preservados. Falha na manutenção degrada a saúde e não cria sucesso fictício.
 
 ## 12. Adicionar uma corretora
 

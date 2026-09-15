@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-14T23:05:40.322Z",
+  "title": "Design System: ATLAS",
+  "extensions": {
+    "colorMeta": {
+      "background": {
+        "role": "neutral",
+        "displayName": "background",
+        "tonalRamp": [
+          "oklch(15.00% 0.0052 248.12)",
+          "oklch(26.43% 0.0052 248.12)",
+          "oklch(37.86% 0.0052 248.12)",
+          "oklch(49.29% 0.0052 248.12)",
+          "oklch(60.71% 0.0052 248.12)",
+          "oklch(72.14% 0.0052 248.12)",
+          "oklch(83.57% 0.0052 248.12)",
+          "oklch(95.00% 0.0052 248.12)"
+        ]
+      },
+      "sidebar": {
+        "role": "neutral",
+        "displayName": "sidebar",
+        "tonalRamp": [
+          "oklch(15.00% 0.0062 236.91)",
+          "oklch(26.43% 0.0062 236.91)",
+          "oklch(37.86% 0.0062 236.91)",
+          "oklch(49.29% 0.0062 236.91)",
+          "oklch(60.71% 0.0062 236.91)",
+          "oklch(72.14% 0.0062 236.91)",
+          "oklch(83.57% 0.0062 236.91)",
+          "oklch(95.00% 0.0062 236.91)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "panel",
+        "tonalRamp": [
+          "oklch(15.00% 0.0084 240.27)",
+          "oklch(26.43% 0.0084 240.27)",
+          "oklch(37.86% 0.0084 240.27)",
+          "oklch(49.29% 0.0084 240.27)",
+          "oklch(60.71% 0.0084 240.27)",
+          "oklch(72.14% 0.0084 240.27)",
+          "oklch(83.57% 0.0084 240.27)",
+          "oklch(95.00% 0.0084 240.27)"
+        ]
+      },
+      "panel-raised": {
+        "role": "neutral",
+        "displayName": "panel-raised",
+        "tonalRamp": [
+          "oklch(15.00% 0.0114 237.10)",
+          "oklch(26.43% 0.0114 237.10)",
+          "oklch(37.86% 0.0114 237.10)",
+          "oklch(49.29% 0.0114 237.10)",
+          "oklch(60.71% 0.0114 237.10)",
+          "oklch(72.14% 0.0114 237.10)",
+          "oklch(83.57% 0.0114 237.10)",
+          "oklch(95.00% 0.0114 237.10)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "line",
+        "tonalRamp": [
+          "oklch(15.00% 0.0119 232.77)",
+          "oklch(26.43% 0.0119 232.77)",
+          "oklch(37.86% 0.0119 232.77)",
+          "oklch(49.29% 0.0119 232.77)",
+          "oklch(60.71% 0.0119 232.77)",
+          "oklch(72.14% 0.0119 232.77)",
+          "oklch(83.57% 0.0119 232.77)",
+          "oklch(95.00% 0.0119 232.77)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "text",
+        "tonalRamp": [
+          "oklch(15.00% 0.0058 153.77)",
+          "oklch(26.43% 0.0058 153.77)",
+          "oklch(37.86% 0.0058 153.77)",
+          "oklch(49.29% 0.0058 153.77)",
+          "oklch(60.71% 0.0058 153.77)",
+          "oklch(72.14% 0.0058 153.77)",
+          "oklch(83.57% 0.0058 153.77)",
+          "oklch(95.00% 0.0058 153.77)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.0152 169.07)",
+          "oklch(26.43% 0.0152 169.07)",
+          "oklch(37.86% 0.0152 169.07)",
+          "oklch(49.29% 0.0152 169.07)",
+          "oklch(60.71% 0.0152 169.07)",
+          "oklch(72.14% 0.0152 169.07)",
+          "oklch(83.57% 0.0152 169.07)",
+          "oklch(95.00% 0.0152 169.07)"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "primary",
+        "tonalRamp": [
+          "oklch(15.00% 0.0557 159.81)",
+          "oklch(26.43% 0.0557 159.81)",
+          "oklch(37.86% 0.0557 159.81)",
+          "oklch(49.29% 0.0557 159.81)",
+          "oklch(60.71% 0.0557 159.81)",
+          "oklch(72.14% 0.0557 159.81)",
+          "oklch(83.57% 0.0557 159.81)",
+          "oklch(95.00% 0.0557 159.81)"
+        ]
+      },
+      "primary-ink": {
+        "role": "primary",
+        "displayName": "primary-ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.0326 157.77)",
+          "oklch(26.43% 0.0326 157.77)",
+          "oklch(37.86% 0.0326 157.77)",
+          "oklch(49.29% 0.0326 157.77)",
+          "oklch(60.71% 0.0326 157.77)",
+          "oklch(72.14% 0.0326 157.77)",
+          "oklch(83.57% 0.0326 157.77)",
+          "oklch(95.00% 0.0326 157.77)"
+        ]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "warning",
+        "tonalRamp": [
+          "oklch(15.00% 0.0785 79.15)",
+          "oklch(26.43% 0.0785 79.15)",
+          "oklch(37.86% 0.0785 79.15)",
+          "oklch(49.29% 0.0785 79.15)",
+          "oklch(60.71% 0.0785 79.15)",
+          "oklch(72.14% 0.0785 79.15)",
+          "oklch(83.57% 0.0785 79.15)",
+          "oklch(95.00% 0.0785 79.15)"
+        ]
+      },
+      "danger": {
+        "role": "secondary",
+        "displayName": "danger",
+        "tonalRamp": [
+          "oklch(15.00% 0.0916 25.18)",
+          "oklch(26.43% 0.0916 25.18)",
+          "oklch(37.86% 0.0916 25.18)",
+          "oklch(49.29% 0.0916 25.18)",
+          "oklch(60.71% 0.0916 25.18)",
+          "oklch(72.14% 0.0916 25.18)",
+          "oklch(83.57% 0.0916 25.18)",
+          "oklch(95.00% 0.0916 25.18)"
+        ]
+      }
+    },
+    "shadows": [
+      {
+        "name": "mobile-navigation",
+        "value": "12px 8px 40px #0008",
+        "purpose": "Open mobile navigation overlay."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-color",
+        "value": "background 0.18s ease, color 0.18s ease",
+        "purpose": "Button feedback."
+      },
+      {
+        "name": "navigation",
+        "value": "transform 0.2s ease",
+        "purpose": "Open and close navigation."
+      },
+      {
+        "name": "station",
+        "value": "background 0.2s ease",
+        "purpose": "Station surface."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile-max",
+        "value": "700px"
+      },
+      {
+        "name": "single-column-max",
+        "value": "900px"
+      },
+      {
+        "name": "compact-max",
+        "value": "1150px"
+      },
+      {
+        "name": "wide-min",
+        "value": "1600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Extracted from the implemented global stylesheet.",
+      "html": "<button class=\"ds-primary\">Consultar fonte</button>",
+      "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:10px 17px;border:1px solid transparent;border-radius:7px;font-family:\"Manrope Variable\",sans-serif;font-size:13px;font-weight:750;cursor:pointer;transition:background .18s ease,color .18s ease;background:var(--green);color:var(--green-ink)}.ds-primary:hover{background:#bedecb}.ds-primary:focus-visible{outline:2px solid var(--green);outline-offset:4px;}.ds-primary:disabled{opacity:.46;cursor:not-allowed}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Extracted from the implemented global stylesheet.",
+      "html": "<button class=\"ds-secondary\">Atualizar</button>",
+      "css": ".ds-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:10px 17px;border:1px solid transparent;border-radius:7px;font-family:\"Manrope Variable\",sans-serif;font-size:13px;font-weight:750;cursor:pointer;transition:background .18s ease,color .18s ease;background:transparent;border:1px solid var(--line);color:var(--text)}.ds-secondary:hover{background:var(--panel-raised)}.ds-secondary:focus-visible{outline:2px solid var(--green);outline-offset:4px;}.ds-secondary:disabled{opacity:.46;cursor:not-allowed}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
+    },
+    {
+      "name": "Stop action",
+      "kind": "button",
+      "refersTo": "button-stop",
+      "description": "Extracted from the implemented global stylesheet.",
+      "html": "<button class=\"ds-stop\">Parar todas as operações</button>",
+      "css": ".ds-stop{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:10px 17px;border:1px solid transparent;border-radius:7px;font-family:\"Manrope Variable\",sans-serif;font-size:13px;font-weight:750;cursor:pointer;transition:background .18s ease,color .18s ease;font-size:10px;background:transparent;color:var(--red);border-color:#613e3a;min-height:29px;padding:5px 10px;white-space:nowrap;border-radius:4px}.ds-stop:hover{background:#402a28;color:#ffd2cd}.ds-stop:focus-visible{outline:2px solid var(--green);outline-offset:4px;}.ds-stop:disabled{opacity:.7;cursor:not-allowed}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Extracted from the implemented global stylesheet.",
+      "html": "<label class=\"ds-field\">Nome do agente<input type=\"text\" placeholder=\"Nome\" /></label>",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:8px;font-family:\"Manrope Variable\",sans-serif;font-size:12px;color:#c7d0ca}.ds-field input{background:#121718;border:1px solid #424c47;border-radius:6px;padding:12px;min-height:44px;color:var(--text);font:inherit;font-size:13px;caret-color:var(--green)}.ds-field input::placeholder{color:#a0ada5;font-size:12px}.ds-field input:focus-visible{outline:2px solid var(--green);outline-offset:4px;}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "navigation-item",
+      "description": "Extracted from the implemented global stylesheet.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Exemplo\"><a href=\"#overview\" aria-current=\"page\">Visão geral</a><a href=\"#agents\">Agentes</a></nav>",
+      "css": ".ds-nav{display:flex;flex-direction:column;gap:4px}.ds-nav a{display:flex;align-items:center;gap:12px;border-radius:7px;padding:11px 13px;color:#b1bcb7;font-family:\"Manrope Variable\",sans-serif;font-size:12px;min-height:42px;text-decoration:none}.ds-nav a:hover{background:#1b2220;color:var(--text)}.ds-nav a[aria-current=\"page\"]{background:#26332c;color:#c1decb}.ds-nav a:focus-visible{outline:2px solid var(--green);outline-offset:4px;}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
+    },
+    {
+      "name": "Status",
+      "kind": "chip",
+      "refersTo": "status-label",
+      "description": "Extracted from the implemented global stylesheet.",
+      "html": "<span class=\"ds-status\">LIVE BLOQUEADO</span>",
+      "css": ".ds-status{display:inline-flex;padding:4px 7px;font-family:\"Manrope Variable\",sans-serif;font-size:9px;font-weight:650;letter-spacing:.015em;line-height:1.5;border-radius:3px;background:#2b3235;color:#c5cfcc;white-space:nowrap}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Extracted from the implemented global stylesheet.",
+      "html": "<section class=\"ds-panel\"><h2>Prontidão operacional</h2><p>Contrato e habilitação pendentes</p></section>",
+      "css": ".ds-panel{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:23px;min-width:0;font-family:\"Manrope Variable\",sans-serif;color:var(--text)}.ds-panel h2{font-size:16px;letter-spacing:-.015em;font-weight:660;margin:0 0 16px}.ds-panel p{color:var(--muted);font-size:13px;line-height:1.85;margin:0}@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Centro de operações institucional",
+    "overview": "Direção já definida no pedido do proprietário: financeiro, futurista, escuro e elegante, sem estética de cassino nem excesso de neon. A interface usa grafite, superfícies discretas, Manrope local e ícones lineares. A identidade aparece na precisão das relações entre rótulo, valor, origem e estado.\n\nEste documento registra a implementação atual em `src/app/globals.css`, `src/components/shell.tsx`, `src/components/screen.tsx` e `src/components/candle-chart.tsx`. As capturas de confirmação estão em `.impeccable/review/desktop.png` e `.impeccable/review/mobile.png`. O escritório atual é uma grade de agentes persistidos com iniciais e estados; personagens animados e deslocamento espacial não estão implementados.",
+    "keyCharacteristics": [
+      "Grafite com verde suave, âmbar e vermelho sem efeitos luminosos.",
+      "Valores tabulares, separadores finos e contexto junto do dado.",
+      "Ausência de informação expressa por estado vazio e próxima ação.",
+      "Navegação lateral persistente no desktop e recolhível no celular."
+    ],
+    "rules": [],
+    "dos": [
+      "**Do** exibir fonte, atraso e ausência de informação junto ao dado relevante.",
+      "**Do** preservar rótulos textuais para bloqueios, pendências e ações de segurança.",
+      "**Do** manter a navegação fechada do celular invisível também para foco sequencial.",
+      "**Do** atualizar avatares e estados a partir de registros reais."
+    ],
+    "donts": [
+      "**Don't** preencher falta de saldo com zero ou apresentar capital como protegido sem confirmação.",
+      "**Don't** criar gráficos, ganhos, agentes ou atividade fictícios para preencher a composição.",
+      "**Don't** transformar verde, brilho ou movimento em prova de prontidão operacional.",
+      "**Don't** adicionar estética de cassino ou excesso de neon."
+    ]
+  }
+}

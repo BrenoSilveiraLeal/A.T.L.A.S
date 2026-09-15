@@ -132,4 +132,12 @@ Continuam PENDING: aplicação implantada, configuração de contas/segredos, sc
 
 ## Estado implementado em 14/09/2026
 
-Mon?lito modular em src/core (risco/OMS/research/an?lise), src/providers (HTTP real), src/lib (Auth BFF/cache/scheduler), src/app e src/components. Tr?s migrations e testes PostgreSQL locais. A observa??o SMA gera somente HOLD; finish_agent_analysis grava evid?ncias e conclui job com fencing na mesma transa??o. BrokerProvider ? contrato sem adapter; execu??o financeira integrada, supervisor, fundamentos CVM completos, sess?o B3 efetiva e PIX seguem PENDING. Auth usa cookies HttpOnly server-side, getUser+getClaims, owner UUID e AAL2. A UI n?o recebe chaves de servi?o.
+Monólito modular em `src/core` (risco/OMS/research/análise), `src/providers` (HTTP real), `src/lib` (Auth BFF/cache/scheduler), `src/app` e `src/components`. Quatro migrations e testes PostgreSQL locais. A observação SMA gera somente HOLD; `finish_agent_analysis` grava evidências e conclui job com fencing na mesma transação. `BrokerProvider` é contrato sem adapter; execução financeira integrada, supervisor, fundamentos CVM completos, sessão B3 efetiva e PIX seguem PENDING. Auth usa cookies HttpOnly server-side, `getUser` + `getClaims`, owner UUID e AAL2. A UI não recebe chaves de serviço.
+
+### Continuação em 15/09/2026
+
+O cache de leitura usa upsert da chave única; evidências de análises são cópias persistidas fora dele. A RPC `prune_market_data_cache` valida proprietário, limita o lote e remove somente cache de leitura vencido há sete dias. O scheduler limita a tentativa de manutenção a uma vez por hora; falha degrada saúde. A API normaliza a validade de health no momento da leitura, sem reescrever a evidência original.
+
+A consulta CVM é explícita por código, ano e escopo e não é executada em cada job de agente. Ela baixa um ZIP anual do host oficial fixo, processa apenas índice/BPA/BPP/DRE necessários e retém versão, rubricas e SHA-256. Downloads/CSV/descompressão têm limites e não há extração de arquivos em disco. Sem comprovação da data de publicação, `pointInTimeEligible` e `executionEligible` continuam falsos. ITR, EBITDA, múltiplos e integração de fundamentos às estratégias permanecem pendentes.
+
+A visão geral e a tesouraria consomem `get_accounting_snapshot` em strings decimais. Totais exigem snapshot conciliado sem divergências e exibem a data de origem. São valores históricos; o motor de risco deve obter reconciliação elegível antes de autorizar uso de caixa. Valores ausentes nunca se tornam zero automaticamente.

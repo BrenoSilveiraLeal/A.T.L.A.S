@@ -2,13 +2,13 @@
 
 Baseline: 2026-09-13. Este documento começa com implementação `PENDING`. Atualizar o status somente quando houver evidência concreta; plano, contrato, teste isolado ou interface não significam operação real. A [matriz dos 37 requisitos](REQUIREMENTS.md) é o contrato completo; [FEASIBILITY.md](FEASIBILITY.md) reúne descoberta e blockers.
 
-Estados: `PENDING` = não entregue ou sem validação necessária; `IN_PROGRESS` = trabalho parcial descrito; `DONE` = todos os critérios da linha comprovados. Quando houver bloqueio externo, manter `PENDING` e citar o blocker B01–B08; isso não impede avançar nas demais linhas.
+Estados: `PENDING` = não entregue ou sem validação necessária; `IN_PROGRESS` = trabalho parcial descrito; `DONE` = todos os critérios da linha comprovados. `VERIFIED_LOCAL` identifica somente evidência local, sem certificação de produção. Quando houver bloqueio externo, citar o blocker B01–B08; isso não impede avançar nas demais linhas.
 
 ## Fases e critérios de conclusão
 
-| Fase | Entrega exigida | Critério de saída / evidência | Status inicial |
+| Fase | Entrega exigida | Critério de saída / evidência | Conclusão integral |
 | --- | --- | --- | --- |
-| 0 · Feasibility | Matriz, broker discovery, dados/notícias, PIX, custos/licenças, cloud, arquitetura e roadmap. | Docs com URLs oficiais, data da consulta, fatos separados de inferências, campos desconhecidos explícitos; alternativa e bloqueio de execução declarados. | IN_PROGRESS — documentação sendo produzida. |
+| 0 · Feasibility | Matriz, broker discovery, dados/notícias, PIX, custos/licenças, cloud, arquitetura e roadmap. | Docs com URLs oficiais, data da consulta, fatos separados de inferências, campos desconhecidos explícitos; alternativa e bloqueio de execução declarados. | DONE — pesquisa documentada; acesso à corretora e contratação continuam bloqueados. |
 | 1 · Foundation | Projeto Next.js/TypeScript, Supabase/migrations, Auth, TOTP, proteção single-user, design system, CI e README inicial. | Instalação reproduzível; lint/typecheck/test/build passam; schema aplicado/testado; acesso anônimo/não proprietário negado; sessão AAL2 verificada. | PENDING — B07 para serviços externos. |
 | 2 · Data | Market data, histórico, notícias, fundamentos, macro, calendário e corporate actions. | Conectores documentados consumindo dados reais; timestamps/freshness e licença explícitos; amostra armazenada consultável; fonte indisponível não vira dado simulado. | PENDING — B03, B04, B06 conforme provider. |
 | 3 · Agents | Cadastro configurável, estados, propostas, estratégias versionadas, memória, supervisor e scheduler. | Job persistido gera decisão estruturada rastreável com dados reais; execução repetida/concurrente não duplica efeito; nenhuma chamada direta ao broker. | PENDING — B07 para runtime cloud. |
@@ -22,7 +22,24 @@ Estados: `PENDING` = não entregue ou sem validação necessária; `IN_PROGRESS`
 | 11 · Deploy | Supabase, Vercel, secrets, scheduler central, monitoramento e runbook. | Serviços reais acessíveis; migrations e cron habilitados; job executa com computador desligado; previews isolados e live permanece bloqueado durante setup. | PENDING — B07. |
 | 12 · Live readiness | Evidências completas, limites do proprietário, TOTP, reconciliação, provedor/dados válidos e ativação explícita. | Todos os gates abaixo aprovados; fluxo R37 verificado com broker real; ordens de validação somente após autorização específica apropriada e controles aprovados. | PENDING — B01–B08 aplicáveis. |
 
-Nenhuma fase de implementação foi marcada `DONE` por este planejamento. O término da fase 0 permite desenvolver componentes independentes mesmo se o broker permanecer bloqueado. Não exige fingir que real trading gratuito foi provado. Contabilidade e idempotência começam cedo como dependências dos módulos posteriores, ainda que Treasury tenha a fase 8 de entrega completa.
+Nenhuma fase de implementação foi marcada `DONE`: os critérios incluem validação integrada e serviços externos. O término da fase 0 permite desenvolver componentes independentes mesmo se o broker permanecer bloqueado. Não exige fingir que real trading gratuito foi provado. Contabilidade e idempotência começam cedo como dependências dos módulos posteriores, ainda que Treasury tenha a fase 8 de entrega completa.
+
+## Implementação local já disponível
+
+| Fase | Evidência local | Trabalho ainda PENDING |
+| --- | --- | --- |
+| 1 · Foundation | Next.js/TypeScript, Auth BFF com owner/AAL2/TOTP, migrations/RLS, CI e guia de setup implementados; lint, tipagem, testes e build verificados. | Auth/TOTP com projeto dedicado, JWT real e gateway gerenciado. |
+| 2 · Data | brapi (cotação, histórico, busca), BCB Selic e notícias IBGE; validação, origem, freshness e cache persistido. CVM DFP anual: conector e consulta implementados, verificação de rede separada. | Feed oficial para execução, sessão B3 efetiva, corporate actions, ITR e fundamentos completos. |
+| 3 · Agents | Cadastro/ativação, lease com fencing, análise SMA de observação, decisão HOLD, memória e auditoria atômicas. Smoke com dados reais passou. | Estratégias configuráveis completas, propostas BUY/SELL integradas, supervisor/reuniões e runtime cloud. |
+| 4 · Research | SMA/EMA/RSI/ATR, backtest com custos, execução na próxima abertura e partições walk-forward testados. | Dataset point-in-time e universo sem survivorship bias, validação econômica e aprovação de estratégia. |
+| 5 · Risk | Motor determinístico e kill switch persistente; limites, identidade e condições de bloqueio testados. | Reserva atômica integrada à execução, cancelamento confirmado pelo broker, circuit breaker operacional completo. |
+| 7 · Execution | Contrato BrokerProvider e biblioteca OMS: transições, fills parciais, idempotência e timeout incerto testados. | Serviço durável de execução/reconciliação e adapter oficial autorizado. |
+| 8 · Treasury | Ledger balanceado e imutável, RPCs e snapshot financeiro em strings decimais testados no PostgreSQL local. | Funding confirmado, alocações/retiradas integradas, concorrência em banco remoto e reconciliação real. |
+| 9 · Visual Office | Rotas, cadastro, risco, consulta OHLCV/notícias/CVM, totais ligados ao snapshot contábil, estados vazios e escritório baseado nos registros. Desktop/mobile inspecionados. | Gráficos de carteira ligados à reconciliação, personagens e reuniões completas, teste autenticado. |
+| 10 · Hardening | Testes de segurança/autorização, redaction, rate limits, recuperação por leases, expiração de saúde e retenção limitada do cache. | Contenção remota, recuperação de desastre, backup/restore e incidentes de produção. |
+| 11 · Deploy | Edge Function e SQL de cron/Vault preparados, sem segredos. | Projeto dedicado, publicação, scheduler remoto e operação com computador desligado. |
+
+As fases com implementação local estão **IN_PROGRESS**; as pendências da tabela principal continuam sendo critérios de saída, não ausência total de código. Consulte [VALIDATION.md](VALIDATION.md) para resultados e limites.
 
 ## Próximas entregas que independem de contas externas
 
@@ -71,8 +88,8 @@ Antes da autorização e execução real, readiness técnica pode ser documentad
 
 | Etapa | Evidência mínima | Status inicial |
 | --- | --- | --- |
-| REAL DATA | Provider, instrumento, valor e horários verdadeiros armazenados. | PENDING |
-| AGENT ANALYSIS | Snapshot/indicadores/versão e justificativa resumida persistidos. | PENDING |
+| REAL DATA | Provider, instrumento, valor e horários verdadeiros armazenados. | VERIFIED_LOCAL — smoke público, banco temporário; persistência remota PENDING. |
+| AGENT ANALYSIS | Snapshot/indicadores/versão e justificativa resumida persistidos. | VERIFIED_LOCAL — HOLD com memória/auditoria atômicas; proposta operacional PENDING. |
 | TRADE PROPOSAL | Proposta validada e correlation ID. | PENDING |
 | RISK CHECK | Resultado determinístico, limites e reserva atômica. | PENDING |
 | BROKER ORDER | ID interno/client ID e solicitação real autorizada. | PENDING |
@@ -93,4 +110,10 @@ Acrescentar resultados executados e limitações reais. Não preencher a tabela 
 
 ### Registro executado em 14/09/2026
 
-Lint, typecheck e build passaram. Su?te: 163 testes locais passaram; dois smokes de rede s?o opt-in. Smoke adicional com dados p?blicos reais confirmou an?lise ? decis?o/mem?ria/auditoria at?micas, sem ordem. Detalhes e limites em [VALIDATION.md](VALIDATION.md).
+Lint, typecheck e build passaram. Suíte anterior a esta continuação: 163 testes locais passaram; dois smokes de rede são opt-in. Smoke adicional com dados públicos reais confirmou análise → decisão/memória/auditoria atômicas, sem ordem. Detalhes e limites em [VALIDATION.md](VALIDATION.md).
+
+### Registro executado em 15/09/2026
+
+Suíte ampliada: **234 testes passaram, três smokes opt-in ignorados**. O smoke adicional da CVM passou com ZIP oficial anual e rubrica de receita rastreável. Cache com atualização/retenção, expiração de saúde e apresentação contábil receberam testes. Build e lint passaram; navegador confirmou as 12 seções, login, rota inválida e navegação mobile depois da correção de fronteira servidor/cliente. Detalhes em [VALIDATION.md](VALIDATION.md) e [CVM_FUNDAMENTALS.md](CVM_FUNDAMENTALS.md).
+
+Conexões externas continuam pendentes: a organização Supabase consultada permanece Free, com dois projetos ativos de outro produto. Nenhum projeto foi reutilizado ou alterado. Configuração de um projeto dedicado, proprietário/TOTP, publicação e acesso autorizado à corretora são necessários para avançar na validação remota e em R37.
