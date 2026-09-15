@@ -5,6 +5,7 @@ import { required } from "./env";
 import { ProviderError } from "@/providers";
 import { readQuote, readHistory, readNews, readMacro } from "./data";
 import { analyzeAsset } from "@/core/analysis";
+import { loadAgentObservationConfiguration } from "./agent-config";
 
 const jobSchema = z.object({
   job_id: z.uuid(),
@@ -77,6 +78,11 @@ export async function runScheduler() {
           .eq("active", true)
           .single();
         if (asset.error) throw asset.error;
+        const configuration = await loadAgentObservationConfiguration(
+          db,
+          owner,
+          job.agent_id,
+        );
         const [quote, history] = await Promise.all([
           readQuote(asset.data.ticker),
           readHistory(asset.data.ticker),
@@ -102,6 +108,7 @@ export async function runScheduler() {
             history,
             news: newsData.slice(0, 5),
             macro: macroData,
+            configuration,
           },
         });
         if (commit.error) throw commit.error;

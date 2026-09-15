@@ -108,7 +108,7 @@ describe("PostgreSQL agent configuration", () => {
     const audits = await db.query("select * from public.audit_logs where action='STRATEGY_VERSION_PUBLISHED'");
     expect(audits.rows).toHaveLength(2);
     await db.exec("set local role postgres");
-    await rejected("update public.strategy_versions set research_status='VALIDATED' where id=$1", [first.id], "ATLAS_IMMUTABLE");
+    await rejected("update public.strategy_versions set research_status='VALIDATED' where id=$1", [first.id], "ATLAS_APPEND_ONLY");
   });
   it("pins a version and risk profile without creating cash or enabling live", async () => {
     const version = await publish();
@@ -150,7 +150,7 @@ describe("PostgreSQL agent configuration", () => {
       await rejected("insert into public.risk_profiles(owner_id,name,limits,configured) values ($1,'Bad limits',$2::jsonb,true)", [owner, JSON.stringify(bad)], "risk_profiles_complete_limits");
     }
     await db.exec("set local role postgres");
-    await rejected("update public.risk_profiles set limits='{}'::jsonb where id=$1", [profileId], "ATLAS_IMMUTABLE");
+    await rejected("update public.risk_profiles set limits='{}'::jsonb where id=$1", [profileId], "ATLAS_APPEND_ONLY");
   });
   it("rejects references owned by another account", async () => {
     const version = await publish();

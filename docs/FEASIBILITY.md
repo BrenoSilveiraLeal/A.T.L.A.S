@@ -1,6 +1,6 @@
 # ATLAS — viabilidade técnica
 
-Verificação: 13/09/2026. Decisão da fase 0: **prosseguir com a plataforma; execução B3 e transferências permanecem BLOCKED** até acesso oficial, autorização e testes. Não existe conexão de corretora configurada neste repositório. Nenhuma cotação, saldo ou execução será fabricada para preencher a interface.
+Pesquisa inicial: 13/09/2026; configuração atualizada em 15/09/2026. Decisão da fase 0: **prosseguir com a plataforma; execução B3 e transferências permanecem BLOCKED** até acesso oficial, autorização e testes. O proprietário informou não possuir corretora nem acesso a uma API oficial. Nenhuma cotação, saldo ou execução será fabricada para preencher a interface.
 
 ## Conclusões
 
@@ -9,7 +9,7 @@ Verificação: 13/09/2026. Decisão da fase 0: **prosseguir com a plataforma; ex
 3. **brapi é dado complementar com atraso**, sem garantia de feed negociável. [A própria fornecedora declara não ser distribuidora licenciada B3](https://brapi.dev/faq/a-brapi-e-distribuidora-licenciada-da-b3). Adaptador de leitura e pesquisa pode ser implementado; ordens exigirão dado oficial elegível, sessão de mercado e validade confirmadas. [DATA_RESEARCH.md](DATA_RESEARCH.md) registra contratos atuais e limites.
 4. Banco Central, IBGE e CVM permitem pesquisa de dados públicos. Séries macroeconômicas e balanços têm periodicidade própria; nunca serão tratados como cotação instantânea.
 5. PIX/Open Finance não são uma API universal de movimentação para qualquer CPF. Depósitos/retiradas devem permanecer instruções manuais, sem QR falso nem confirmação por clique, até provider oficial permitir confirmação independente.
-6. **R$0 e todas as exigências cloud não estão comprovados juntos.** [Vercel Hobby](https://vercel.com/docs/plans/hobby) tem restrições de uso; [Cron Hobby](https://vercel.com/docs/cron-jobs/usage-and-pricing) não atende execução a cada minuto. Scheduler central será preparado com Supabase Cron, limites de tempo e leases persistentes. Não contratar planos nesta entrega. Consulte [COST.md](../COST.md).
+6. **A configuração escolhida agora é aplicação local + Supabase Free.** O banco ATLAS já foi criado por US$ 0/mês, com seis migrations e 33 tabelas públicas protegidas por RLS. O proprietário escolheu manter a aplicação local por enquanto. Vercel/Cron remoto não foram implantados; não há alegação de funcionamento com o computador desligado. Uma futura implantação deve avaliar os termos do [Vercel Hobby](https://vercel.com/docs/plans/hobby) e os limites do [Cron Hobby](https://vercel.com/docs/cron-jobs/usage-and-pricing). Consulte [COST.md](../COST.md).
 
 ## Bloqueios e evidências exigidas
 
@@ -19,14 +19,15 @@ Verificação: 13/09/2026. Decisão da fase 0: **prosseguir com a plataforma; ex
 | Credencial de execução | BLOCKED | Credencial oficial server-side, escopos mínimos, expiração e revogação testadas |
 | Confirmação e recuperação de ordem | BLOCKED | Consulta por identificador idempotente, fills únicos, cancelamento e timeout certificados |
 | Feed elegível e sessão B3 | BLOCKED | Contrato de atualidade/licença, calendário e estados intraday oficiais |
-| Supabase ATLAS | PENDING | Projeto isolado e proprietário cadastrado; não reutilizar banco de outro produto |
-| Infra cloud | PENDING | Hospedagem compatível com termos e limites; monitoramento/backup testados |
+| Supabase ATLAS | CONFIGURED | Projeto `bxikkprpvfirjlmnxqhh`, Free, `sa-east-1`, organização BrenoSilveiraLeal's; seis migrations, 33 tabelas com RLS e proprietário cadastrado |
+| Acesso do proprietário | PENDING | Senha e TOTP precisam ser definidos/verificados pelo acesso inicial preparado; login AAL2 real ainda não certificado |
+| Aplicação na nuvem | DEFERRED | Proprietário escolheu execução local + Supabase Free; publicação, scheduler remoto e teste com computador desligado ficam para etapa futura |
 | PIX automatizado | BLOCKED | API que suporta conta e operação; callback/consulta independente e idempotência |
 | Live readiness | BLOCKED | Risco, MFA, ledger, reconciliação, certificação provider e testes ponta a ponta aprovados |
 
 ## Escopo autorizado agora
 
-Construir Next.js/TypeScript, schema PostgreSQL com RLS, autenticação e TOTP, dados reais de leitura, agentes configuráveis, propostas auditáveis, indicadores determinísticos, pesquisa histórica separada de produção, risco central, contratos OMS, ledger e scheduler. Test doubles exclusivamente em testes. Não implementar providers de corretora presumidos, nem enviar ordens, nem criar serviços pagos.
+Manter Next.js/TypeScript local com o banco Supabase Free já configurado; completar autenticação/TOTP, dados reais de leitura, agentes configuráveis, propostas auditáveis, indicadores determinísticos, pesquisa histórica separada de produção, risco central, contratos OMS, ledger e scheduler. Test doubles exclusivamente em testes. Não implementar providers de corretora presumidos, nem enviar ordens, nem criar serviços pagos.
 
 Ausência de documentação encontrada significa **não comprovado**, e não prova de inexistência. O menor custo para API própria permanece sob consulta; preços publicados de plataformas só serão comparados dentro de suas restrições reais. Estudos e fontes complementares podem ser refinados sem alterar esses bloqueios.
 

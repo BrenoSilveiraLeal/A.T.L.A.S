@@ -5,6 +5,11 @@ import { checkOrigin, failure, json, readBody } from "@/lib/http";
 import { readiness } from "@/lib/readiness";
 import { riskConfigSchema } from "@/lib/risk-config";
 import { normalizeHealth } from "@/lib/health";
+import { loadPortfolioHistory } from "@/lib/portfolio";
+import {
+  configureAgent,
+  publishObservationStrategy,
+} from "@/lib/agent-config";
 import { CvmProviderError } from "@/providers/cvm";
 import {
   readQuote,
@@ -38,6 +43,8 @@ const readable: Record<string, string> = {
   risk: "risk_profiles",
   ledger: "ledger_entries",
   health: "system_health",
+  strategies: "strategies",
+  "strategy-versions": "strategy_versions",
 };
 type RouteContext = { params: Promise<{ resource: string }> };
 export async function GET(request: Request, context: RouteContext) {
@@ -54,6 +61,10 @@ export async function GET(request: Request, context: RouteContext) {
       );
       if (error) throw error;
       return json(data);
+    }
+    if (resource === "portfolio-history") {
+      const accountId = z.uuid().nullable().parse(url.searchParams.get("accountId"));
+      return json(await loadPortfolioHistory(adminClient(), user.id, accountId));
     }
     if (resource === "quote")
       return json(
@@ -173,6 +184,10 @@ export async function POST(request: Request, context: RouteContext) {
         "RATE_LIMITED",
         "Aguarde antes de enviar outra alteração.",
       );
+    if (resource === "strategies")
+      return json(await publishObservationStrategy(user.id, body), 201);
+    if (resource === "agent-config")
+      return json(await configureAgent(user.id, body));
     if (resource === "assets") {
       const input = z
         .object({

@@ -7,6 +7,9 @@ import type { HistoricalBar } from "@/providers/types";
 import { formatBrl } from "@/core/format";
 import { recordedPortfolio } from "@/core/accounting-view";
 import { FundamentalsPanel } from "./fundamentals-panel";
+import { PortfolioPanel } from "./portfolio-panel";
+import { AgentConfigForm } from "./agent-config-form";
+import { parsePortfolioHistory } from "@/lib/portfolio";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -37,15 +40,20 @@ const date = (v: unknown) =>
         timeZone: "America/Sao_Paulo",
       });
 
-function useRemote(
+function useResponse<T>(
   resource: string,
   enabled: boolean,
   revision: number,
-): Remote {
-  const [state, setState] = useState<Remote>({
-    rows: [],
+): { data: T | null; error: string; loading: boolean } {
+  const requestKey = `${resource}:${revision}`;
+  const [state, setState] = useState<{
+    key: string;
+    data: T | null;
+    error: string;
+  }>({
+    key: "",
+    data: null,
     error: "",
-    loading: enabled,
   });
   useEffect(() => {
     if (!enabled) return;
@@ -57,18 +65,40 @@ function useRemote(
           throw new Error(result.error ?? "Serviço indisponível.");
         if (!controller.signal.aborted)
           setState({
-            rows: Array.isArray(result) ? result : result ? [result] : [],
+            key: requestKey,
+            data: result,
             error: "",
-            loading: false,
           });
       })
       .catch((error) => {
         if (!controller.signal.aborted)
-          setState({ rows: [], error: error.message, loading: false });
+          setState({
+            key: requestKey,
+            data: null,
+            error: error instanceof Error ? error.message : "Serviço indisponível.",
+          });
       });
     return () => controller.abort();
-  }, [resource, enabled, revision]);
-  return state;
+  }, [resource, enabled, requestKey]);
+  if (!enabled) return { data: null, error: "", loading: false };
+  if (state.key !== requestKey) return { data: null, error: "", loading: true };
+  return { data: state.data, error: state.error, loading: false };
+}
+function useRemote(resource: string, enabled: boolean, revision: number): Remote {
+  const response = useResponse<Row | Row[]>(resource, enabled, revision);
+  return {
+    rows: Array.isArray(response.data) ? response.data : response.data ? [response.data] : [],
+    error: response.error,
+    loading: response.loading,
+  };
+}
+function usePortfolioHistory(resource: string, enabled: boolean, revision: number) {
+  const response = useResponse<unknown>(resource, enabled, revision);
+  try {
+    return { ...response, data: response.data ? parsePortfolioHistory(response.data) : null };
+  } catch {
+    return { data: null, loading: false, error: "A resposta do histórico não contém registros válidos para exibição." };
+  }
 }
 function Empty({
   title,
@@ -233,20 +263,34 @@ export function Screen({
   const [revision, setRevision] = useState(0),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
-    [showForm, setShowForm] = useState(false);
+    [showForm, setShowForm] = useState(false),
+    [portfolioAccountId, setPortfolioAccountId] = useState("");
   const refresh = useCallback(() => setRevision((r) => r + 1), []);
   const needsAgents = ["overview", "agents", "office", "agent-detail"].includes(
     section,
   );
   const agents = useRemote("agents", connected && needsAgents, revision),
     assets = useRemote("assets", connected && needsAgents, revision);
+  const needsConfiguration = ["agents", "agent-detail"].includes(section);
+  const strategies = useRemote("strategies", connected && needsConfiguration, revision),
+    versions = useRemote("strategy-versions", connected && needsConfiguration, revision),
+    riskProfiles = useRemote("risk", connected && needsConfiguration, revision);
+  const configurationLoading = agents.loading || strategies.loading || versions.loading || riskProfiles.loading;
+  const configurationError = agents.error || strategies.error || versions.error || riskProfiles.error;
+  const history = usePortfolioHistory(
+    `portfolio-history${portfolioAccountId ? `?accountId=${encodeURIComponent(portfolioAccountId)}` : ""}`,
+    connected && ["overview", "portfolio"].includes(section),
+    revision,
+  );
   const accounting = useRemote(
     "accounting",
-    connected && ["overview", "treasury", "portfolio"].includes(section),
+    connected && section === "treasury",
     revision,
   );
   const portfolio = recordedPortfolio(
-    accounting.rows[0]?.latestPortfolioSnapshot,
+    section === "treasury"
+      ? accounting.rows[0]?.latestPortfolioSnapshot
+      : history.data?.snapshots.at(-1),
   );
   const portfolioNote = portfolio
     ? `Registro de ${date(portfolio.sourceTimestamp)} · São Paulo`
@@ -257,7 +301,6 @@ export function Screen({
         overview: "decisions",
         "agent-detail": "decisions",
         office: "meetings",
-        portfolio: "positions",
         health: "health",
         settings: "system",
         market: "assets",
@@ -266,7 +309,7 @@ export function Screen({
     )[section] ?? section;
   const records = useRemote(
     resource,
-    connected && !["news", "market", "settings"].includes(section),
+    connected && !["news", "market", "settings", "portfolio", "agents", "research"].includes(section),
     revision,
   );
   const [heading, subheading] = names[section] ?? names.overview;
@@ -368,7 +411,7 @@ export function Screen({
               ["Caixa registrado", currency(portfolio?.cash), portfolioNote],
               [
                 "Agentes cadastrados",
-                connected && !agents.error ? String(agents.rows.length) : "—",
+                connected && !agents.loading && !agents.error ? String(agents.rows.length) : "—",
                 "Especialistas sob supervisão",
               ],
             ].map(([label, value, note]) => (
@@ -387,26 +430,12 @@ export function Screen({
             </p>
           )}
           <div className="overview-grid">
-            <section className="panel capital-panel">
-              <div className="section-heading">
-                <h2>Patrimônio ao longo do tempo</h2>
-                <span className="muted">BRL</span>
-              </div>
-              <Empty title="O primeiro registro começa com uma conexão real.">
-                <p>
-                  O gráfico será construído com snapshots reconciliados da sua
-                  conta. O histórico de patrimônio ainda não está disponível
-                  nesta tela.
-                </p>
-                <Link href="/app/settings" className="text-link">
-                  Ver requisitos de conexão <ArrowUpRight size={15} />
-                </Link>
-              </Empty>
-              <div className="panel-note">
-                <ShieldCheck size={15} />O saldo da corretora é a referência
-                para a tesouraria.
-              </div>
-            </section>
+            <PortfolioPanel
+              data={history.data}
+              loading={history.loading}
+              error={history.error}
+              onAccountChange={setPortfolioAccountId}
+            />
             <Readiness connected={connected} compact />
             <section className="panel">
               <div className="section-heading">
@@ -560,7 +589,11 @@ export function Screen({
       )}
       {section === "agent-detail" && (
         <>
-          {chosen ? (
+          {agents.loading ? (
+            <div className="loading-state" role="status">Consultando agente…</div>
+          ) : agents.error ? (
+            <div className="notice error-text" role="alert">{agents.error}</div>
+          ) : chosen ? (
             <section className="panel agent-summary">
               <div className="agent-avatar">{s(chosen.name).slice(0, 1)}</div>
               <div>
@@ -571,8 +604,13 @@ export function Screen({
                   aguardando reconciliação
                 </p>
                 <small>
-                  Estratégia de análise inicial: observação SMA · sem permissão
-                  de execução.
+                  {chosen.strategy_version_id
+                    ? `Revisão vinculada: ${s(versions.rows.find((version) => version.id === chosen.strategy_version_id)?.version)} · `
+                    : "Observação SMA inicial · "}
+                  {chosen.risk_profile_id
+                    ? `Perfil de risco: ${s(riskProfiles.rows.find((profile) => profile.id === chosen.risk_profile_id)?.name)} · `
+                    : "Perfil de risco não vinculado · "}
+                  Sem permissão de execução.
                 </small>
               </div>
               <button
@@ -614,6 +652,28 @@ export function Screen({
               />
             </DataState>
           </section>
+        </>
+      )}
+      {needsConfiguration && (
+        <>
+          {configurationError ? (
+            <div className="notice error-text" role="alert">
+              Não foi possível carregar a configuração: {configurationError}
+            </div>
+          ) : configurationLoading ? (
+            <div className="loading-state" role="status">Consultando estratégias e perfis de risco…</div>
+          ) : null}
+          <AgentConfigForm
+            key={agentId ?? "agents"}
+            initialAgentId={agentId}
+            agents={agents.rows}
+            strategies={strategies.rows}
+            versions={versions.rows}
+            riskProfiles={riskProfiles.rows}
+            enabled={connected && !configurationLoading && !configurationError}
+            busy={busy}
+            save={mutate}
+          />
         </>
       )}
       {section === "market" && (
@@ -738,17 +798,22 @@ export function Screen({
           </section>
         </>
       )}
-      {(section === "orders" ||
-        section === "portfolio" ||
-        section === "audit") && (
+      {section === "portfolio" && (
+        <PortfolioPanel
+          data={history.data}
+          loading={history.loading}
+          error={history.error}
+          onAccountChange={setPortfolioAccountId}
+          showPositions
+        />
+      )}
+      {(section === "orders" || section === "audit") && (
         <section className="panel">
           <div className="section-heading">
             <h2>
               {section === "orders"
                 ? "Livro de ordens"
-                : section === "portfolio"
-                  ? "Posições reconciliadas"
-                  : "Eventos do sistema"}
+                : "Eventos do sistema"}
             </h2>
             <span className="muted">Até 200 registros</span>
           </div>
@@ -757,9 +822,7 @@ export function Screen({
             title={
               section === "orders"
                 ? "Nenhuma ordem enviada"
-                : section === "portfolio"
-                  ? "Nenhuma posição reconciliada"
-                  : "Nenhum evento registrado"
+                : "Nenhum evento registrado"
             }
           >
             <Table
@@ -773,17 +836,11 @@ export function Screen({
                       ["quantity", "Quantidade"],
                       ["status", "Estado"],
                     ]
-                  : section === "portfolio"
-                    ? [
-                        ["ticker", "Ativo"],
-                        ["quantity", "Quantidade"],
-                        ["average_price", "Preço médio"],
-                      ]
-                    : [
-                        ["action", "Evento"],
-                        ["correlation_id", "Correlação"],
-                        ["created_at", "Horário"],
-                      ]
+                  : [
+                      ["action", "Evento"],
+                      ["correlation_id", "Correlação"],
+                      ["created_at", "Horário"],
+                    ]
               }
             />
           </DataState>
@@ -815,6 +872,8 @@ function AgentList({
   assets: Row[];
   office?: boolean;
 }) {
+  if (agents.loading)
+    return <div className="loading-state" role="status">Consultando agentes…</div>;
   if (agents.error)
     return <div className="notice error-text">{agents.error}</div>;
   if (!agents.rows.length)

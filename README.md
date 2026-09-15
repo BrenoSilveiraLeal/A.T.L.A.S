@@ -2,7 +2,7 @@
 
 **Autonomous Trading & Learning Agent System** — plataforma pessoal de análise, agentes por ativo, controles de risco e auditoria para ações à vista B3.
 
-**Estado: implementação local parcial, com execução real bloqueada.** Há fontes reais de leitura, cadastro de ativos/agentes, Supabase Auth/TOTP, scheduler e decisões de observação persistidas. Não há corretora conectada, PIX automático ou ordem real enviada. A estratégia inicial produz **HOLD**, com indicadores e motivos verificáveis. As bibliotecas de risco, OMS e research têm testes; isso não certifica uma integração de corretora.
+**Estado: banco Supabase configurado e aplicação validada localmente; execução real bloqueada.** O projeto ATLAS usa Supabase Free em São Paulo, com seis migrations aplicadas, 33 tabelas protegidas por RLS e proprietário único cadastrado. Há fontes reais de leitura, agentes com revisões de estratégia e perfis de risco, histórico patrimonial por conta e decisões de observação **HOLD**. O proprietário ainda precisa definir a senha e cadastrar TOTP; hospedagem e scheduler na nuvem permanecem pendentes. Não há corretora/API disponível, PIX automático ou ordem real enviada.
 
 Comece por [viabilidade](docs/FEASIBILITY.md), [pesquisa de corretoras](docs/BROKER_RESEARCH.md), [custos](COST.md) e [roadmap](docs/ROADMAP.md). Os 37 tópicos do pedido estão na [matriz de requisitos](docs/REQUIREMENTS.md).
 
@@ -46,9 +46,15 @@ npm ci
 Copy-Item .env.example .env.local
 ```
 
+Na instalação atual, `.env.local` já está configurado. Preserve esse arquivo; a cópia do exemplo acima é apenas para uma instalação nova.
+
 O repositório remoto pode não conter esta implementação até os commits locais serem enviados. Os comandos e arquivos desta entrega estão na pasta de trabalho atual. Evite executar builds dentro do OneDrive: ele pode transformar arquivos de `.next` em pontos de reanálise e causar `EPERM`. Uma cópia fora de pastas sincronizadas evita esse problema; não mova arquivos de código enquanto houver trabalho em andamento.
 
-## 4. Criar o Supabase exclusivo do ATLAS
+## 4. Supabase do ATLAS
+
+O projeto [ATLAS no Supabase](https://supabase.com/dashboard/project/bxikkprpvfirjlmnxqhh) já foi criado na organização **BrenoSilveiraLeal's**, região `sa-east-1`, plano Free, com custo informado de **US$ 0/mês**. O proprietário indicado já está vinculado ao banco. Os projetos de outros produtos não foram alterados. Nesta instalação, avance para o acesso inicial da seção 7; não recrie o banco nem o usuário.
+
+Somente para uma instalação nova:
 
 1. Entre em [Supabase Dashboard](https://supabase.com/dashboard).
 2. Clique **New project**, escolha sua organização, nome `atlas` e região próxima ao Brasil. Confira o plano antes de criar. Não reutilize bancos de outros produtos. O Free tem limite de projetos; consulte [COST.md](COST.md).
@@ -58,16 +64,16 @@ O repositório remoto pode não conter esta implementação até os commits loca
 6. Copie o UUID do usuário para `ATLAS_OWNER_ID`. Em **Authentication → Sign In / Providers**, desative novos cadastros e login anônimo; mantenha login por e-mail/senha.
 7. Configure Site URL e redirect URLs para sua origem local e, depois, para a URL HTTPS da hospedagem. Configure expiração curta de JWT (por exemplo, 900 segundos) e reveja as opções de sessão disponíveis no seu plano. Cookies do ATLAS têm limite de uma hora e são renovados pela sessão válida; cookies não substituem revogação no Auth.
 
-Os projetos Insidely existentes não foram alterados. Esta entrega não criou um projeto Supabase remoto.
-
 ## 5. Aplicar as migrations e registrar o proprietário
 
-No **SQL Editor** do projeto ATLAS, execute integralmente, nesta ordem:
+**Já concluído no projeto atual.** As seis migrations abaixo foram aplicadas e o proprietário registrado. Para um banco novo, execute integralmente no **SQL Editor**, nesta ordem:
 
 1. `supabase/migrations/20260913235609_atlas_foundation.sql`
 2. `supabase/migrations/20260914045633_atlas_analysis_pipeline.sql`
 3. `supabase/migrations/20260914135359_atlas_configuration_audit.sql`
 4. `supabase/migrations/20260914230025_atlas_cache_retention.sql`
+5. `supabase/migrations/20260915044052_atlas_portfolio_history.sql`
+6. `supabase/migrations/20260915044150_atlas_agent_configuration.sql`
 
 Depois execute, substituindo o UUID pelo seu usuário real:
 
@@ -76,13 +82,13 @@ insert into public.system_state(owner_id)
 values ('UUID-DO-SEU-USUARIO');
 ```
 
-`system_state` aceita apenas um proprietário. Os defaults são live desligado e kill switch ativo. Sem esse registro, as RPCs recusam operações. As tabelas têm RLS: leitura exige proprietário e AAL2; gravações financeiras são restritas a RPCs server-side. Use o Security Advisor do Supabase após aplicar.
+`system_state` aceita apenas um proprietário. Os defaults são live desligado e kill switch ativo. Sem esse registro, as RPCs recusam operações. As 33 tabelas públicas têm RLS: leitura exige proprietário e AAL2; gravações financeiras são restritas a RPCs server-side. O Security Advisor remoto registrou apenas proteção contra senhas vazadas desativada, recurso disponível a partir do Pro. Nenhum upgrade foi contratado. [Segurança de senhas no Supabase](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
 
 Alternativa para manutenção com histórico do CLI: consulte `npx supabase --help`, `npx supabase login --help`, `npx supabase link --help` e `npx supabase db push --help`, autentique sua conta, vincule o **projeto ATLAS** e aplique as migrations. Não combine aplicação manual com `db push` sem antes alinhar o histórico de migrations; o SQL Editor não registra esse histórico automaticamente.
 
 ## 6. Configurar variáveis
 
-Abra `.env.local` no editor e preencha:
+Na instalação atual, URL, chaves modernas, proprietário e segredo cron já estão em `.env.local`, ignorado pelo Git. As credenciais são usadas somente no servidor. Em uma instalação nova, preencha:
 
 | Variável | Valor / finalidade |
 |---|---|
@@ -99,13 +105,15 @@ Abra `.env.local` no editor e preencha:
 
 Não cole secrets no chat, não adicione prefixo `NEXT_PUBLIC_` a credenciais e não publique `.env.local`. Gere `CRON_SECRET` com um gerenciador de senhas. Reinicie o servidor após mudar variáveis.
 
-## 7. Executar e cadastrar TOTP
+## 7. Executar, definir senha e cadastrar TOTP
 
 ```powershell
 npm run dev
 ```
 
-Abra **http://127.0.0.1:3000**. Sem configuração, o painel mostra os requisitos e os campos financeiros ficam indisponíveis. Com configuração, o acesso redireciona para `/login`.
+O acesso inicial desta instalação está em **`.supabase/atlas-owner-setup.html`**. Com o servidor em execução, abra esse arquivo local e use o link temporário para definir sua senha de pelo menos 14 caracteres. O bootstrap criou o usuário e gerou esse arquivo sem enviar e-mail. O arquivo contém um acesso pessoal: não o publique nem compartilhe. Se o link expirar antes do cadastro, ele precisa ser regenerado pelo procedimento administrativo; o bootstrap é recusado depois de MFA verificado.
+
+Abra **http://127.0.0.1:3000**. Com a configuração presente, o acesso redireciona para `/login`. Novos cadastros e login anônimo estão desativados; os JWTs expiram em 900 segundos.
 
 Entre com seu e-mail/senha. Clique **Cadastrar autenticador**, adicione uma conta TOTP no aplicativo autenticador e informe a chave exibida somente durante o cadastro. Digite o código atual de seis dígitos. Guarde a recuperação de acesso conforme o procedimento do Supabase e seu gerenciador; não existe bypass local de MFA.
 
@@ -114,15 +122,16 @@ Entre com seu e-mail/senha. Clique **Cadastrar autenticador**, adicione uma cont
 1. Abra **Mercado**. Consulte um ticker e confira origem, horário e status DELAYED/STALE.
 2. Em **Cadastrar ativo**, informe ticker, empresa e setor. O cadastro não certifica lote, tick ou elegibilidade de execução.
 3. Em **Agentes**, clique **Criar agente**, escolha o ativo, nome, perfil visual, orçamento proposto e intervalo. Os agentes nascem pausados e com caixa zero no ledger, sem depósito fictício.
-4. Abra o agente e clique **Ativar análise**. A estratégia disponível é observação SMA20/SMA50; ela registra HOLD e bloqueios de execução. Isso não é uma estratégia de trading homologada.
-5. Em **Risco e limites**, registre um perfil completo. Os valores não vêm preenchidos com recomendações de investimento. Salvar o perfil não o torna uma aprovação live nem vincula automaticamente toda a carteira.
-6. O scheduler encontra os agentes vencidos, preserva os dados utilizados e grava decisão, memória e auditoria atomicamente. Consulte o detalhe do agente e a auditoria.
+4. Em **Risco e limites**, registre um perfil completo. Os valores não vêm preenchidos com recomendações de investimento. O perfil é preservado como uma versão; salvar não aprova trading live nem vincula automaticamente a carteira.
+5. Em **Agentes → Estratégias de observação**, publique uma revisão SMA20/SMA50. Em **Configuração do agente**, selecione o agente pausado, a revisão, o perfil de risco e o intervalo. A revisão e os limites utilizados são preservados nas evidências de cada análise.
+6. Abra o agente e clique **Ativar análise**. O motor registra HOLD e bloqueios de execução; isso não é uma estratégia de trading homologada. Publicar outra revisão não altera automaticamente agentes já configurados.
+7. Quando acionado, o scheduler encontra os agentes vencidos, preserva os dados utilizados e grava decisão, memória e auditoria atomicamente. Consulte o detalhe do agente e a auditoria. A execução automática em nuvem depende da implantação da seção 11.
 
 Uma falha de fonte coloca o agente em `RISK_BLOCKED`; revise o erro no banco/saúde antes de reativar a análise. O limite brapi é conservador: até 150 consultas lógicas/dia, cada uma com no máximo três tentativas, compartilhadas entre UI e scheduler. Cache: cotação 30min, histórico 12h, notícias 15min e macro 6h. Aumentar polling não remove atraso.
 
 Em **Mercado → Fundamentos · CVM**, informe o código CVM da companhia, o exercício e o escopo consolidado ou individual. O conector lê DFP anual e conserva rubrica, versão, moeda/escala e arquivo de origem. Não deduz código CVM pelo ticker, nem substitui contas ausentes por zero. A consulta não precisa de token CVM; exige o login privado do ATLAS e acesso HTTPS à fonte pública. São permitidas quatro novas consultas à fonte por dia; o resultado normalizado fica em cache por sete dias. O acesso de rede à CVM ainda precisa de validação no ambiente de implantação, conforme [CVM_FUNDAMENTALS.md](docs/CVM_FUNDAMENTALS.md).
 
-A visão geral e a tesouraria leem o último snapshot contábil conciliado. Cada total preserva a data do registro e usa strings decimais; não representa saldo disponível para uma nova ordem. Sem snapshot válido ou com divergência, os totais ficam indisponíveis. Gráficos de evolução da carteira e integração ao saldo da corretora continuam pendentes.
+A visão geral e a carteira mostram histórico patrimonial da conta selecionada; cada ponto corresponde a um snapshot conciliado, sem preencher períodos ausentes. As métricas da visão geral usam a mesma conta do gráfico. A carteira também exibe posições com ativo, agente e data de reconciliação; a tesouraria consulta o último snapshot contábil. Valores mantêm precisão decimal e não representam saldo disponível para uma nova ordem. Sem corretora conectada e registros válidos, o histórico e os totais permanecem indisponíveis.
 
 ## 9. Validar localmente
 
@@ -135,6 +144,8 @@ npm run build
 
 Testes incluem risco, OMS, providers, autenticação, payload/CSRF, research e migrations PostgreSQL. Fixtures existem somente em `tests/`. O teste de rede pública é opt-in:
 
+Validação local em 15/09/2026: lint, tipagem e build passaram; **339 testes passaram e 3 smokes opt-in foram ignorados, em 18 arquivos**. Isso não certifica o fluxo de ordens com uma corretora.
+
 ```powershell
 $env:ATLAS_PUBLIC_DATA_SMOKE = '1'
 npm test -- tests/providers.test.ts -t 'public endpoint smoke'
@@ -145,7 +156,7 @@ Esse smoke consulta dados públicos reais, sem enviar ordem. Ele não comprova S
 
 ## 10. Hospedar o frontend/backend
 
-Vercel é o destino solicitado. Antes de publicar, confira [COST.md](COST.md): a adequação do Hobby a uma aplicação que busca ganho financeiro **não foi presumida**, e seu cron diário não atende este scheduler. Não houve contratação de plano nem deploy remoto nesta entrega.
+Vercel é o destino solicitado, e a conta consultada usa **Hobby**. Antes de publicar, confira [COST.md](COST.md): a adequação do plano a uma aplicação que busca ganho financeiro **não foi presumida**, e seu cron diário não atende este scheduler. A hospedagem Next.js permanece pendente de plano/termos adequados; nenhum plano pago foi contratado.
 
 1. Envie os commits ao seu repositório GitHub quando revisados.
 2. No Vercel, clique **Add New → Project**, importe o repositório e selecione Next.js, raiz do projeto, `npm run build` e `npm ci`.
@@ -172,6 +183,8 @@ O painel converte medições vencidas, futuras ou inválidas para `UNKNOWN`, pre
 ## 12. Adicionar uma corretora
 
 Leia [BROKER_RESEARCH.md](docs/BROKER_RESEARCH.md). Cedro API Trading, ProfitDLL e Genial MT5 Swing são caminhos condicionais diferentes, não providers prontos.
+
+O proprietário informou que ainda não possui corretora nem acesso a uma API oficial. A configuração do banco não fornece esse acesso.
 
 O adaptador deve implementar `src/core/broker.ts` com documentação oficial, credenciais e capabilities verificadas. Integre então o serviço de execução às transações/reservas no banco, sem permitir que UI ou agente chamem `placeOrder` diretamente. Para timeout, consulte a ordem pelo identificador idempotente; nunca repita envio cegamente. Não substitua essa integração por Selenium, cookies de home broker ou endpoints privados.
 

@@ -1,6 +1,6 @@
-# Evidências da entrega local
+# Evidências da implementação e do Supabase
 
-Atualização: 15/09/2026. Ambiente: Windows, Node 24.14.0, Next.js 16.3.5, PostgreSQL via PGlite. Nenhuma credencial real foi adicionada ao repositório, nenhum serviço pago contratado e nenhuma ordem/transferência enviada.
+Atualização: 15/09/2026. Ambiente local: Windows, Node 24.14.0, Next.js 16.3.5, PostgreSQL via PGlite. Banco remoto: projeto ATLAS no Supabase Free. Credenciais reais estão somente nos arquivos locais ignorados pelo Git; nenhum serviço pago foi contratado e nenhuma ordem/transferência foi enviada.
 
 ## Verificações executadas
 
@@ -9,14 +9,26 @@ Atualização: 15/09/2026. Ambiente: Windows, Node 24.14.0, Next.js 16.3.5, Post
 | Instalação | `npm install --ignore-scripts` concluiu, 398 pacotes auditados, zero vulnerabilidades reportadas naquele momento. Lockfile fixado. CLI Supabase oficial disponível. |
 | Lint | `npm run lint` passou. |
 | Tipagem | `npm run typecheck` passou, incluindo rotas Next. |
-| Testes locais | `npm test`: **234 passaram, 3 testes de rede opt-in ignorados**, onze arquivos. |
+| Testes locais | `npm test`: **339 passaram, 3 testes de rede opt-in ignorados**, 18 arquivos. |
 | Rede pública dos adapters | Smoke opt-in dos cinco adapters passou: brapi cotação/histórico/busca, BCB e IBGE. Não testa broker. |
 | CVM pública | Smoke `ATLAS_CVM_PUBLIC_SMOKE=1`, `actual public annual DFP`: passou com ZIP oficial 2025, companhia por código CVM e escopo consolidado. Fonte, versão e rubrica preservadas. [Evidências e limites](CVM_FUNDAMENTALS.md). |
 | Fluxo com dados reais | `ATLAS_PUBLIC_DATA_SMOKE=1`, teste `real public data`: fetch público → análise HOLD → job com lease → decisão/memória/auditoria atômicas no PostgreSQL temporário. Passou; zero ordens criadas. |
 | Build | `npm run build` passou, com rotas privadas dinâmicas e proxy. |
-| UI | Navegador real no build de produção, 1440px e 390px. Visão geral e Mercado/CVM inspecionados; largura mobile e scrollWidth de 390px. Menu abriu, navegou até Risco e fechou. As 12 seções e login retornaram 200; seção desconhecida retornou 404. Sem erros de página nas capturas finais. API de fundamentos retornou 503 sem configuração; totais e ações permaneceram indisponíveis. Não houve login real por falta de projeto ATLAS. |
+| UI antes do provisionamento | Navegador real no build de produção, 1440px e 390px. Visão geral e Mercado/CVM inspecionados; largura mobile e scrollWidth de 390px. Menu abriu, navegou até Risco e fechou. As 12 seções e login retornaram 200; seção desconhecida retornou 404. Sem erros de página nas capturas dessa etapa. API de fundamentos retornou 503 sem configuração; totais e ações permaneceram indisponíveis. Essa evidência antecede o banco remoto e não valida o login atual. |
+| Integração da interface | Histórico/posições por conta e publicação/configuração de estratégias ligados às rotas privadas. Métricas e gráfico usam a mesma conta; mudança de consulta não mantém valores da conta anterior na tela. Lint, tipagem e build passaram. |
 
-As capturas anteriores ficam em `.impeccable/review/`; as capturas desta continuação estão em `output/playwright/overview-desktop.png`, `market-desktop.png` e `market-mobile.png`. Os registros do navegador ficam em `.playwright-cli/`. Esses artefatos são ignorados pelo Git. Servidor local não substitui implantação cloud.
+As capturas anteriores ficam em `.impeccable/review/`; as capturas da etapa sem banco estão em `output/playwright/overview-desktop.png`, `market-desktop.png` e `market-mobile.png`. Os registros do navegador ficam em `.playwright-cli/`. Esses artefatos são ignorados pelo Git. Servidor local não substitui implantação cloud.
+
+## Configuração remota verificada
+
+- Projeto **ATLAS**, referência `bxikkprpvfirjlmnxqhh`, criado na organização **BrenoSilveiraLeal's**, região `sa-east-1`, Supabase Free com custo informado de US$ 0/mês. Nenhum banco de outro produto foi reutilizado ou alterado.
+- Seis migrations aplicadas, incluindo `atlas_portfolio_history` e `atlas_agent_configuration`. As **33 tabelas públicas têm RLS habilitado**; `system_state` está vinculado ao único usuário proprietário.
+- `.env.local` configurado com URL, chaves modernas, proprietário e segredo cron. Chaves usadas somente no servidor, sem inclusão no Git.
+- Supabase Auth com cadastros e login anônimo desativados, JWT de 900 segundos, senha mínima de 14 caracteres e TOTP disponível. O usuário ainda precisa definir a senha e verificar seu autenticador.
+- Bootstrap administrativo gerou `.supabase/atlas-owner-setup.html` com link temporário pessoal, sem envio de e-mail. O fluxo inicial recusa outro proprietário e não pode ser repetido depois de MFA verificado.
+- O Security Advisor remoto apresentou apenas proteção contra senhas vazadas desativada. O recurso exige Pro ou superior; o projeto permaneceu Free. [Documentação oficial](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
+
+Essas verificações comprovam provisionamento e configuração. Não substituem login com AAL2 real, testes de concorrência no gateway ou validação do scheduler remoto.
 
 ## Cobertura
 
@@ -28,12 +40,16 @@ As capturas anteriores ficam em `.impeccable/review/`; as capturas desta continu
 - `tests/fundamentals.test.ts`: identidade, revisão, período e escopo CVM; moeda/escala/precisão; rubricas ausentes ou ambíguas; divisão por zero; restrição point-in-time; CSV real com aspas; CRC, nomes, descompressão e tamanhos de arquivo; smoke oficial separado.
 - `tests/health.test.ts`, `tests/data-cache.test.ts` e `tests/cache-database.test.ts`: expiração/futuro/invalidade da evidência; atualização de cache após TTL; retenção restrita por proprietário, papel, idade e lote; preservação de histórico e auditoria.
 - `tests/accounting-view.test.ts` e `tests/format.test.ts`: apresentação do snapshot conciliado com horário original, ausência de total quando há divergência, campos desconhecidos preservados e centavos mantidos além da precisão de `Number`.
+- `tests/portfolio.test.ts` e `tests/portfolio-database.test.ts`: isolamento de contas/proprietário, snapshots conciliados, identidade das posições, precisão decimal, truncamento e gráficos sem preencher períodos ausentes.
+- `tests/agent-config.test.ts` e `tests/scheduler-configuration.test.ts`: revisões imutáveis, perfis completos, configuração somente com agente pausado e sem lease ativo, vínculos de proprietário e evidências de configuração preservadas na análise.
+- `tests/atlas-api-integration.test.ts`: autenticação AAL2, leitura por sessão RLS, limites de alteração e encaminhamento dos contratos de carteira/estratégias para as RPCs.
+- `tests/owner-setup.test.ts` e `tests/owner-bootstrap.test.ts`: validação de origem/corpo/senha, token de recuperação, identidade e MFA, saída da sessão de setup e preservação segura da configuração administrativa.
 
 ## Limites da evidência
 
 PGlite executa PostgreSQL real em WASM, mas a instância de testes serializa operações. Não certifica contenção entre conexões remotas, PostgREST/Supabase Auth gerenciado, JWT real, TOTP real, Cron/Edge em nuvem, backup/restore ou RLS sob o gateway de produção. As funções Auth são bindings de teste e não um Auth simulado de produção.
 
-O browser foi verificado **sem credenciais**. Cadastro autenticado, gráficos com token do proprietário e operação com computador desligado dependem de setup externo. Testar dados públicos com ticker de fixture não escolhe o universo de investimentos do usuário.
+O browser foi verificado **sem sessão do proprietário**. O banco dedicado agora existe, mas cadastro autenticado, gráficos com sessão AAL2 e operação com computador desligado ainda precisam de verificação após senha/TOTP e implantação. Testar dados públicos com ticker de fixture não escolhe o universo de investimentos do usuário.
 
 Os indicadores não foram validados como estratégia economicamente lucrativa. Research exige disponibilidade point-in-time, custos e corporate actions explícitos; o histórico comum da brapi não satisfaz automaticamente todas essas condições.
 
@@ -45,8 +61,10 @@ Renovação de cookie encaminha o novo header ao SSR; duração do cookie aplica
 
 Nesta continuação, o cache passou a atualizar sua chave única após expiração; a limpeza é limitada a registros de leitura com mais de sete dias e preserva evidências. A saúde vencida é normalizada como desconhecida e mantém o valor original para auditoria. Totais financeiros usam o snapshot conciliado em strings decimais, com data explícita e sem transformar ausência em zero.
 
+O histórico patrimonial passou a usar uma conta por resposta, com posições e snapshots validados. A interface impede que métricas de uma conta apareçam junto do gráfico de outra durante carregamento. Estratégias, perfis e intervalos podem ser vinculados a agentes pausados; o scheduler preserva os parâmetros da revisão utilizada.
+
 O navegador revelou erro 500 nas rotas dinâmicas: o servidor consumia uma lista exportada por um módulo `use client` como se fosse um array local. A validação de seções foi movida para o módulo de servidor. Novo build e repetição das requisições a todas as seções confirmaram a correção. A evidência do build isolado não havia detectado essa falha de runtime.
 
 ## Ações externas ainda necessárias
 
-Um projeto Supabase dedicado, usuário proprietário/TOTP e segredos server-side; hospedagem compatível com termos/custo e deploy; acesso/contrato de corretora, feed oficial e sessão; integração/homologação de execução e confirmação independente de transferências. A organização Supabase conectada é Free e já tem dois projetos ativos de outro produto. Nenhum deles foi reutilizado, pausado ou modificado.
+O proprietário precisa definir sua senha e cadastrar/verificar TOTP pelo acesso inicial preparado. A conta Vercel é Hobby: hospedagem compatível com termos/custo, deploy e scheduler remoto continuam pendentes. O proprietário informou não possuir corretora nem API oficial; ainda são necessários acesso/contrato, feed e sessão elegíveis, integração/homologação de execução e confirmação independente de transferências. O projeto Supabase, o usuário e os segredos locais já estão configurados.

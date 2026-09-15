@@ -1,6 +1,6 @@
 # ATLAS — Roadmap verificável
 
-Baseline: 2026-09-13. Este documento começa com implementação `PENDING`. Atualizar o status somente quando houver evidência concreta; plano, contrato, teste isolado ou interface não significam operação real. A [matriz dos 37 requisitos](REQUIREMENTS.md) é o contrato completo; [FEASIBILITY.md](FEASIBILITY.md) reúne descoberta e blockers.
+Baseline: 2026-09-13; atualização de execução: 2026-09-15. Há implementação local validada e banco Supabase dedicado configurado. Atualizar o status somente quando houver evidência concreta; plano, contrato, teste isolado ou interface não significam operação real. A [matriz dos 37 requisitos](REQUIREMENTS.md) é o contrato completo; [FEASIBILITY.md](FEASIBILITY.md) reúne descoberta e blockers.
 
 Estados: `PENDING` = não entregue ou sem validação necessária; `IN_PROGRESS` = trabalho parcial descrito; `DONE` = todos os critérios da linha comprovados. `VERIFIED_LOCAL` identifica somente evidência local, sem certificação de produção. Quando houver bloqueio externo, citar o blocker B01–B08; isso não impede avançar nas demais linhas.
 
@@ -9,9 +9,9 @@ Estados: `PENDING` = não entregue ou sem validação necessária; `IN_PROGRESS`
 | Fase | Entrega exigida | Critério de saída / evidência | Conclusão integral |
 | --- | --- | --- | --- |
 | 0 · Feasibility | Matriz, broker discovery, dados/notícias, PIX, custos/licenças, cloud, arquitetura e roadmap. | Docs com URLs oficiais, data da consulta, fatos separados de inferências, campos desconhecidos explícitos; alternativa e bloqueio de execução declarados. | DONE — pesquisa documentada; acesso à corretora e contratação continuam bloqueados. |
-| 1 · Foundation | Projeto Next.js/TypeScript, Supabase/migrations, Auth, TOTP, proteção single-user, design system, CI e README inicial. | Instalação reproduzível; lint/typecheck/test/build passam; schema aplicado/testado; acesso anônimo/não proprietário negado; sessão AAL2 verificada. | PENDING — B07 para serviços externos. |
+| 1 · Foundation | Projeto Next.js/TypeScript, Supabase/migrations, Auth, TOTP, proteção single-user, design system, CI e README inicial. | Instalação reproduzível; lint/typecheck/test/build passam; schema aplicado/testado; acesso anônimo/não proprietário negado; sessão AAL2 verificada. | IN_PROGRESS — banco e proprietário configurados; senha/TOTP e sessão real pendentes (B07). |
 | 2 · Data | Market data, histórico, notícias, fundamentos, macro, calendário e corporate actions. | Conectores documentados consumindo dados reais; timestamps/freshness e licença explícitos; amostra armazenada consultável; fonte indisponível não vira dado simulado. | PENDING — B03, B04, B06 conforme provider. |
-| 3 · Agents | Cadastro configurável, estados, propostas, estratégias versionadas, memória, supervisor e scheduler. | Job persistido gera decisão estruturada rastreável com dados reais; execução repetida/concurrente não duplica efeito; nenhuma chamada direta ao broker. | PENDING — B07 para runtime cloud. |
+| 3 · Agents | Cadastro configurável, estados, propostas, estratégias versionadas, memória, supervisor e scheduler. | Job persistido gera decisão estruturada rastreável com dados reais; execução repetida/concurrente não duplica efeito; nenhuma chamada direta ao broker. | IN_PROGRESS — configuração versionada e HOLD integrados; supervisor e runtime cloud pendentes (B07). |
 | 4 · Research | Indicadores e estratégias testáveis, backtest, períodos separados, walk-forward e métricas com custos. | Resultado reproduzível e dataset point-in-time documentado; controles de leakage/look-ahead/survivorship; estratégia compatível com atraso dos dados. | PENDING — B03 para histórico adequado. |
 | 5 · Risk | Limites completos, validação de proposta/carteira, circuit breakers e kill switch persistidos. | Todos os limites testados; stale/closed/mismatch/insufficient balance bloqueiam; reservas de agentes concorrentes entram no cálculo; kill switch cancela quando possível e não liquida sozinho. | PENDING |
 | 6 · Broker | Provider real, autenticação, capabilities, conta, caixa, posições, ordens e reconciliação. | Documentação oficial PF/B3/cloud/automação e autorização efetiva; consultas reais com IDs/redaction; sandbox oficial se existir; nenhum adapter fictício. | PENDING — B01, B02. |
@@ -19,37 +19,35 @@ Estados: `PENDING` = não entregue ou sem validação necessária; `IN_PROGRESS`
 | 8 · Treasury | Ledger balanceado, alocações, reservas, depósitos, retiradas e confirmação independente. | RPCs e concorrência verificadas em Postgres; soma dos saldos reconciliada; QR/instrução não credita caixa; funding automatizado apenas se oficial. | PENDING — B02, B05, B07. |
 | 9 · Visual Office | Identidade ATLAS, trading floor, personagens, reuniões, dashboard, agent detail, gráficos, tooltips e rotas restantes. | Cada estado/valor corresponde a registro real ou ausência explícita; responsividade, teclado, contraste e movimento reduzido verificados; sem animação simulando operação inexistente. | PENDING |
 | 10 · Hardening | Segurança, observabilidade, falhas, reconciliação robusta e trilha de auditoria completa. | Casos mínimos de R31 passam; testes de autorização e privilégios, falhas injetadas e recuperação documentados; health expira; logs sem secrets. | PENDING |
-| 11 · Deploy | Supabase, Vercel, secrets, scheduler central, monitoramento e runbook. | Serviços reais acessíveis; migrations e cron habilitados; job executa com computador desligado; previews isolados e live permanece bloqueado durante setup. | PENDING — B07. |
+| 11 · Deploy | Supabase, Vercel, secrets, scheduler central, monitoramento e runbook. | Serviços reais acessíveis; migrations e cron habilitados; job executa com computador desligado; previews isolados e live permanece bloqueado durante setup. | IN_PROGRESS — Supabase configurado; hospedagem Next e scheduler remoto pendentes (B07). |
 | 12 · Live readiness | Evidências completas, limites do proprietário, TOTP, reconciliação, provedor/dados válidos e ativação explícita. | Todos os gates abaixo aprovados; fluxo R37 verificado com broker real; ordens de validação somente após autorização específica apropriada e controles aprovados. | PENDING — B01–B08 aplicáveis. |
 
 Nenhuma fase de implementação foi marcada `DONE`: os critérios incluem validação integrada e serviços externos. O término da fase 0 permite desenvolver componentes independentes mesmo se o broker permanecer bloqueado. Não exige fingir que real trading gratuito foi provado. Contabilidade e idempotência começam cedo como dependências dos módulos posteriores, ainda que Treasury tenha a fase 8 de entrega completa.
 
-## Implementação local já disponível
+## Implementação disponível
 
-| Fase | Evidência local | Trabalho ainda PENDING |
+| Fase | Evidência disponível | Trabalho ainda PENDING |
 | --- | --- | --- |
-| 1 · Foundation | Next.js/TypeScript, Auth BFF com owner/AAL2/TOTP, migrations/RLS, CI e guia de setup implementados; lint, tipagem, testes e build verificados. | Auth/TOTP com projeto dedicado, JWT real e gateway gerenciado. |
+| 1 · Foundation | Next.js/TypeScript e Auth BFF implementados; verificações locais passaram. Supabase Free dedicado, seis migrations, 33 tabelas com RLS, proprietário único e segredos locais configurados. | Proprietário definir senha e verificar TOTP; login AAL2 e autorização pelo gateway gerenciado. |
 | 2 · Data | brapi (cotação, histórico, busca), BCB Selic e notícias IBGE; validação, origem, freshness e cache persistido. CVM DFP anual: conector e consulta implementados, verificação de rede separada. | Feed oficial para execução, sessão B3 efetiva, corporate actions, ITR e fundamentos completos. |
-| 3 · Agents | Cadastro/ativação, lease com fencing, análise SMA de observação, decisão HOLD, memória e auditoria atômicas. Smoke com dados reais passou. | Estratégias configuráveis completas, propostas BUY/SELL integradas, supervisor/reuniões e runtime cloud. |
+| 3 · Agents | Cadastro/ativação, revisões imutáveis de observação, vínculo de perfil de risco/intervalo com agente pausado, lease com fencing, HOLD e evidências de configuração atômicas. UI/API/scheduler integrados; smoke anterior com dados reais passou. | Outros motores de estratégia, propostas BUY/SELL integradas, supervisor/reuniões e runtime cloud. |
 | 4 · Research | SMA/EMA/RSI/ATR, backtest com custos, execução na próxima abertura e partições walk-forward testados. | Dataset point-in-time e universo sem survivorship bias, validação econômica e aprovação de estratégia. |
 | 5 · Risk | Motor determinístico e kill switch persistente; limites, identidade e condições de bloqueio testados. | Reserva atômica integrada à execução, cancelamento confirmado pelo broker, circuit breaker operacional completo. |
 | 7 · Execution | Contrato BrokerProvider e biblioteca OMS: transições, fills parciais, idempotência e timeout incerto testados. | Serviço durável de execução/reconciliação e adapter oficial autorizado. |
 | 8 · Treasury | Ledger balanceado e imutável, RPCs e snapshot financeiro em strings decimais testados no PostgreSQL local. | Funding confirmado, alocações/retiradas integradas, concorrência em banco remoto e reconciliação real. |
-| 9 · Visual Office | Rotas, cadastro, risco, consulta OHLCV/notícias/CVM, totais ligados ao snapshot contábil, estados vazios e escritório baseado nos registros. Desktop/mobile inspecionados. | Gráficos de carteira ligados à reconciliação, personagens e reuniões completas, teste autenticado. |
+| 9 · Visual Office | Rotas, cadastro/configuração de agentes, risco, OHLCV/notícias/CVM, histórico patrimonial e posições por conta; métricas e gráfico usam snapshots conciliados. Estados vazios explícitos. Desktop/mobile da etapa anterior inspecionados. | Personagens e reuniões completas; validar novos fluxos com sessão autenticada e registros reais da corretora. |
 | 10 · Hardening | Testes de segurança/autorização, redaction, rate limits, recuperação por leases, expiração de saúde e retenção limitada do cache. | Contenção remota, recuperação de desastre, backup/restore e incidentes de produção. |
-| 11 · Deploy | Edge Function e SQL de cron/Vault preparados, sem segredos. | Projeto dedicado, publicação, scheduler remoto e operação com computador desligado. |
+| 11 · Deploy | Projeto ATLAS Supabase Free criado em `sa-east-1`, schema/Auth configurados. Edge Function e SQL de cron/Vault preparados, sem segredos no Git. | Plano/termos da hospedagem, publicação Next, scheduler remoto e operação com computador desligado. |
 
 As fases com implementação local estão **IN_PROGRESS**; as pendências da tabela principal continuam sendo critérios de saída, não ausência total de código. Consulte [VALIDATION.md](VALIDATION.md) para resultados e limites.
 
 ## Próximas entregas que independem de contas externas
 
-1. Finalizar investigação e fontes da fase 0 antes do código; registrar ausência de acesso comprovado a API de execução PF sem afirmar inexistência universal.
-2. Criar projeto local com configuração segura e `.env.example` sem valores reais; autenticação, infraestrutura e dados não configurados aparecem como tal.
-3. Implementar contratos e invariantes testáveis de decimal, data freshness, sessão, propostas, limites, transições OMS, idempotência e ledger. Fixtures ficam exclusivamente nos testes.
-4. Escrever migrations revisáveis com constraints/RLS/RPCs; aplicar/verificar localmente somente se houver banco/Docker disponível e registrar se essa validação ficar pendente.
-5. Implementar conectores reais de leitura cujos endpoints/termos foram comprovados; não utilizar amostra de demonstração do fornecedor como se fosse feed operacional.
-6. Criar UI operacional para estado de configuração, mercado e risco a partir dos registros reais disponíveis; evoluir visual Office conforme eventos de backend existirem.
-7. Executar lint, typecheck, testes e build; documentar comandos/resultados e falhas de ambiente. Preparar deploy/integrações até o ponto em que uma ação exclusiva do proprietário seja necessária.
+1. Integrar serviço durável de execução, reservas e reconciliação aos contratos existentes, mantendo ordens bloqueadas sem provider oficial.
+2. Completar supervisor, reuniões e contexto das análises com origem e versão explícitas; evoluir o escritório conforme existirem eventos reais no backend.
+3. Ampliar fundamentos, tratamento de corporate actions e validação temporal dos dados, sem inventar campos ausentes ou elegibilidade de execução.
+4. Preparar observabilidade externa, backup/restore e runbooks; verificar retenção e limites antes da operação contínua.
+5. Manter verificações locais e documentar limites das evidências. Após as ações do proprietário, validar login/TOTP e fluxos autenticados; depois do deploy, verificar scheduler remoto e computador desligado.
 
 ## Bloqueios que não devem interromper trabalho independente
 
@@ -59,7 +57,7 @@ As fases com implementação local estão **IN_PROGRESS**; as pendências da tab
 | B03/B04 · dados e sessão elegíveis | Atraso/licença/timestamps, cotas e calendário/sessão/ativo verificados para a frequência escolhida. | Somente análise compatível com os dados; nenhuma declaração de real-time ou intraday sem prova. |
 | B05 · PIX/transferência | Provider documentado, consentimento e confirmação independente do movimento. | Instrução/solicitação manual visível; nenhum sucesso ou crédito fictício. |
 | B06 · uso de notícias | Termos permitem ingestão/armazenamento pretendidos e origem é identificável. | Ingerir somente fontes permitidas; nenhum artigo gerado ou scraping indiscriminado. |
-| B07 · cloud/Auth | Projetos conectados, variáveis seguras, owner definido, TOTP verificado, migrations e cron instalados. | Artefatos locais e setup revisável; não declarar que funciona com computador desligado. |
+| B07 · cloud/Auth | Banco, variáveis e owner já configurados. Faltam senha/TOTP verificado, hospedagem com plano/termos adequados, cron instalado e job remoto comprovado. | Usar o acesso inicial preparado; não declarar que funciona com computador desligado. |
 | B08 · integração/readiness | Logs redigidos dos testes reais de conta/ordens/reconciliação e critérios técnicos aprovados. | `LIVE_TRADING_ENABLED=false`; interface mostra o gate ausente. |
 
 Somente pedir ao proprietário a ação concreta que faltar: conta/login, autorização OAuth, geração de credencial, aceite de termos, autorização da corretora ou pagamento. Antes disso, concluir código/configuração/documentação revisável que independe da ação. Não pedir escolha rotineira de biblioteca.
@@ -114,6 +112,6 @@ Lint, typecheck e build passaram. Suíte anterior a esta continuação: 163 test
 
 ### Registro executado em 15/09/2026
 
-Suíte ampliada: **234 testes passaram, três smokes opt-in ignorados**. O smoke adicional da CVM passou com ZIP oficial anual e rubrica de receita rastreável. Cache com atualização/retenção, expiração de saúde e apresentação contábil receberam testes. Build e lint passaram; navegador confirmou as 12 seções, login, rota inválida e navegação mobile depois da correção de fronteira servidor/cliente. Detalhes em [VALIDATION.md](VALIDATION.md) e [CVM_FUNDAMENTALS.md](CVM_FUNDAMENTALS.md).
+Suíte ampliada: **339 testes passaram, três smokes opt-in ignorados, em 18 arquivos**. Lint, tipagem e build passaram. A suíte inclui histórico patrimonial por conta, revisões/configuração de agentes, integração de API/scheduler e acesso inicial do proprietário. O smoke anterior da CVM passou com ZIP oficial anual e rubrica de receita rastreável. O navegador da etapa sem banco confirmou 12 seções, login, rota inválida e navegação mobile; essa evidência não certifica a sessão AAL2 atual. Detalhes em [VALIDATION.md](VALIDATION.md) e [CVM_FUNDAMENTALS.md](CVM_FUNDAMENTALS.md).
 
-Conexões externas continuam pendentes: a organização Supabase consultada permanece Free, com dois projetos ativos de outro produto. Nenhum projeto foi reutilizado ou alterado. Configuração de um projeto dedicado, proprietário/TOTP, publicação e acesso autorizado à corretora são necessários para avançar na validação remota e em R37.
+O projeto ATLAS (`bxikkprpvfirjlmnxqhh`) foi criado na organização BrenoSilveiraLeal's, Supabase Free, `sa-east-1`, US$ 0/mês. Seis migrations foram aplicadas e 33 tabelas públicas têm RLS. Proprietário único e `.env.local` estão configurados; o acesso inicial temporário foi preparado sem e-mail. Faltam senha/TOTP do proprietário e publicação/scheduler; a conta Vercel consultada é Hobby e sua adequação de plano/termos permanece pendente. O proprietário informou não possuir corretora nem API oficial, portanto R37 continua bloqueado nas etapas de execução.

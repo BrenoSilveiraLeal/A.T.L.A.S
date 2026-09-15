@@ -1,6 +1,8 @@
 # ATLAS — custos e limites
 
-Consulta: **13/09/2026**. Valores em moeda original; não há conversão cambial estimada nem impostos presumidos. Nenhum plano pago foi contratado. **R$ 0 é viável para desenvolvimento e parte da análise; não foi comprovado para o fluxo completo de execução B3 em nuvem.** Custos de corretora ficam vinculados à pesquisa específica e à habilitação da conta.
+Pesquisa de preços: **13/09/2026**; configuração atualizada em **15/09/2026**. Valores em moeda original; não há conversão cambial estimada nem impostos presumidos. Nenhum plano pago foi contratado. **A escolha atual do proprietário é aplicação local + Supabase Free.** O projeto ATLAS foi criado por US$ 0/mês na região `sa-east-1`; não houve cobrança de hospedagem Next.js porque ela permanece local. O fluxo completo de execução B3 em nuvem a custo zero não foi comprovado. Custos de corretora dependem da habilitação da conta, ainda inexistente.
+
+O Supabase já está configurado; não há bloqueio por falta de projeto ou necessidade de recriar o banco. A conta Vercel consultada é Hobby, mas publicação e scheduler remoto foram adiados por escolha do proprietário. O computador precisa permanecer ligado para executar a aplicação local.
 
 ## Serviços e limites comprovados
 
@@ -20,9 +22,11 @@ Consulta: **13/09/2026**. Valores em moeda original; não há conversão cambial
 
 Fontes para a tabela: [brapi comparação](https://brapi.dev/faq/por-que-escolher-o-plano-pro-em-vez-do-gratuito-ou-startup), [brapi preços](https://brapi.dev/pricing), [brapi excedente](https://brapi.dev/faq/tem-algum-limite), [Supabase preços](https://supabase.com/pricing), [Supabase tamanho de banco](https://supabase.com/docs/guides/platform/database-size), [Supabase billing FAQ](https://supabase.com/docs/guides/platform/billing-faq), [Vercel Hobby](https://vercel.com/docs/plans/hobby), [Vercel Pro](https://vercel.com/docs/plans/pro-plan), [Cloudflare preços](https://developers.cloudflare.com/workers/platform/pricing/), [Cloudflare limites](https://developers.cloudflare.com/workers/platform/limits/), [Efí tarifas](https://sejaefi.com.br/tarifas). Fontes governamentais e direitos de uso: [DATA_RESEARCH.md](docs/DATA_RESEARCH.md).
 
-## Scheduler gratuito escolhido, sujeito a implantação
+O Security Advisor apontou proteção contra senhas vazadas desativada. Esse recurso exige Supabase Pro ou superior; ele não está incluído no projeto Free atual. Senha mínima de 14 caracteres e TOTP estão disponíveis, com cadastro do autenticador ainda pendente pelo proprietário. [Segurança de senhas Supabase](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
 
-**Supabase Cron + Edge Functions**, com um orquestrador e fila persistida por `next_analysis_at`. Cron é baseado em `pg_cron`, executa SQL ou HTTP e suporta frequências de segundos a anuais. A documentação recomenda até 8 jobs concorrentes e duração de até 10 minutos; isso é orientação do cron, não extensão da duração de uma Edge Function. [Supabase Cron](https://supabase.com/docs/guides/cron).
+## Opção de scheduler remoto para uma etapa futura
+
+O código e o SQL estão preparados para **Supabase Cron + Edge Functions**, com um orquestrador e fila persistida por `next_analysis_at`. Essa implantação foi adiada; a aplicação permanece local. Cron é baseado em `pg_cron`, executa SQL ou HTTP e suporta frequências de segundos a anuais. A documentação recomenda até 8 jobs concorrentes e duração de até 10 minutos; isso é orientação do cron, não extensão da duração de uma Edge Function. [Supabase Cron](https://supabase.com/docs/guides/cron).
 
 O padrão oficial usa `pg_cron` + `pg_net` e segredos no Vault para chamar funções. A invocação precisa autenticar o dispatcher; não deixar endpoint público de execução sem autenticação. Transações no banco adquirem lease com expiração, claim único de job e idempotência; horário do banco evita depender do computador pessoal. [Agendamento de Edge Functions](https://supabase.com/docs/guides/functions/schedule-functions).
 

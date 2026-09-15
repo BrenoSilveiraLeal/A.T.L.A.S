@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import Link from "next/link";
 import {
   OBSERVATION_DEFINITION,
   observationDefinitionSchema,
@@ -15,6 +16,7 @@ export function AgentConfigForm({
   strategies,
   versions,
   riskProfiles,
+  initialAgentId,
   enabled,
   busy,
   save,
@@ -23,12 +25,13 @@ export function AgentConfigForm({
   strategies: RecordRow[];
   versions: RecordRow[];
   riskProfiles: RecordRow[];
+  initialAgentId?: string;
   enabled: boolean;
   busy: boolean;
   save: (path: string, body: object) => Promise<void>;
 }) {
   const hintId = useId();
-  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId ?? "");
   const selectedAgent = agents.find((agent) => value(agent, "id") === selectedAgentId);
   const availableVersions = versions.filter((version) => observationDefinitionSchema.safeParse(version.definition).success);
   const configuredProfiles = riskProfiles.filter((profile) => profile.configured === true);
@@ -88,7 +91,7 @@ export function AgentConfigForm({
         </p>
         {!agents.length && <p>Cadastre um ativo e crie um agente para vinculá-los aqui.</p>}
         {!availableVersions.length && <p>Publique uma revisão de observação no formulário acima.</p>}
-        {!configuredProfiles.length && <p>Crie primeiro um perfil completo em <a href="/app/risk">Risco e limites</a>.</p>}
+        {!configuredProfiles.length && <p>Crie primeiro um perfil completo em <Link href="/app/risk">Risco e limites</Link>.</p>}
         <form className="form-grid" onSubmit={(event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
@@ -110,7 +113,7 @@ export function AgentConfigForm({
             Revisão de observação
             <select key={`version:${selectedAgentId}`} name="versionId" defaultValue={selectedAgent ? value(selectedAgent, "strategy_version_id") : ""} required>
               <option value="">Selecione uma revisão</option>
-              {availableVersions.map((version) => <option key={value(version, "id")} value={value(version, "id")}>{strategyName(value(version, "strategy_id"))} · revisão {value(version, "version")}</option>)}
+              {availableVersions.map((version) => <option key={value(version, "id")} value={value(version, "id")}>{strategyName(value(version, "strategy_id"))} · revisão {String(version.version ?? "—")}</option>)}
             </select>
           </label>
           <label>
