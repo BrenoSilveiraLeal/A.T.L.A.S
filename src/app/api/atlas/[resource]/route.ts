@@ -4,13 +4,19 @@ import { adminClient } from "@/lib/supabase";
 import { checkOrigin, failure, json, readBody } from "@/lib/http";
 import { readiness } from "@/lib/readiness";
 import { riskConfigSchema } from "@/lib/risk-config";
+import { normalizeHealth } from "@/lib/health";
+import { CvmProviderError } from "@/providers/cvm";
 import {
   readQuote,
   readHistory,
   readSearch,
   readMacro,
   readNews,
+  readFundamentals,
 } from "@/lib/data";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const tickerSchema = z
   .string()
@@ -65,6 +71,23 @@ export async function GET(request: Request, context: RouteContext) {
       );
     if (resource === "macro") return json(await readMacro());
     if (resource === "news-feed") return json(await readNews());
+    if (resource === "fundamentals") {
+      const query = z
+        .object({
+          cvmCode: z
+            .string()
+            .trim()
+            .regex(/^\d{1,6}$/),
+          year: z.coerce
+            .number()
+            .int()
+            .min(2010)
+            .max(new Date().getUTCFullYear()),
+          scope: z.enum(["CONSOLIDATED", "INDIVIDUAL"]),
+        })
+        .parse(Object.fromEntries(url.searchParams));
+      return json(await readFundamentals(query));
+    }
     if (resource === "system") {
       const { data, error } = await db
         .from("system_state")
@@ -89,8 +112,29 @@ export async function GET(request: Request, context: RouteContext) {
       .order(sortBy, { ascending: false })
       .limit(200);
     if (error) throw error;
-    return json(data);
+    return json(
+      resource === "health" ? data.map((row) => normalizeHealth(row)) : data,
+    );
   } catch (error) {
+    if (error instanceof CvmProviderError) {
+      const status =
+        error.code === "INVALID_INPUT"
+          ? 400
+          : error.code === "NOT_FOUND"
+            ? 404
+            : 503;
+      return failure(
+        new ApiError(
+          status,
+          `CVM_${error.code}`,
+          status === 400
+            ? "Confira o código CVM, o exercício e o escopo."
+            : status === 404
+              ? "Demonstração não encontrada para o código CVM, exercício e escopo informados."
+              : "Não foi possível obter e validar a demonstração da CVM. Nenhum valor foi substituído. Tente novamente mais tarde.",
+        ),
+      );
+    }
     return failure(error);
   }
 }

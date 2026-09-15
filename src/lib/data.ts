@@ -3,6 +3,11 @@ import { adminClient } from "./supabase";
 import { required } from "./env";
 import { ApiError } from "./auth";
 import {
+  fetchCvmFundamentals,
+  validateCvmQuery,
+  type CvmQuery,
+} from "@/providers/cvm";
+import {
   fetchQuote,
   fetchHistory,
   fetchNews,
@@ -12,8 +17,8 @@ import {
 
 // Reserve one logical request out of 150/day: each adapter may attempt at most 3 GETs.
 // This caps brapi at <=450 HTTP attempts/day (<=13,950 per 31 days), below 15,000/cycle.
-async function cached<T>(
-  provider: "brapi" | "bcb" | "ibge",
+export async function cached<T>(
+  provider: "brapi" | "bcb" | "ibge" | "cvm",
   key: string,
   ttl: number,
   source: string,
@@ -40,7 +45,7 @@ async function cached<T>(
   }
   const allowance = await db.rpc("consume_rate_limit", {
     p_key: `provider:${provider}:${new Date(now).toISOString().slice(0, 10)}`,
-    p_limit: provider === "brapi" ? 150 : 200,
+    p_limit: provider === "brapi" ? 150 : provider === "cvm" ? 4 : 200,
     p_window_seconds: 86400,
   });
   if (allowance.error) throw allowance.error;
@@ -51,9 +56,8 @@ async function cached<T>(
       "Orçamento diário desta fonte atingido. Aguarde o próximo ciclo; dados antigos não serão usados para operar.",
     );
   const result = await fetcher();
-  const saved = await db
-    .from("market_data_cache")
-    .insert({
+  const saved = await db.from("market_data_cache").upsert(
+    {
       owner_id: owner,
       provider,
       ticker: key,
@@ -62,7 +66,14 @@ async function cached<T>(
       source_url: source,
       payload: result,
       retrieved_at: new Date().toISOString(),
-    });
+      provider_timestamp: null,
+    },
+    {
+      // A read cache is a replaceable snapshot. Immutable analysis inputs live in
+      // decisions and memories, separately from this TTL cache.
+      onConflict: "owner_id,provider,ticker,data_kind,provider_timestamp",
+    },
+  );
   if (saved.error) throw saved.error;
   return result;
 }
@@ -116,3 +127,14 @@ export const readNews = () =>
     "https://servicodados.ibge.gov.br/api/docs/noticias?versao=3",
     fetchNews,
   );
+
+export function readFundamentals(query: CvmQuery) {
+  const input = validateCvmQuery(query);
+  return cached(
+    "cvm",
+    `DFP:${input.cvmCode}:${input.year}:${input.scope}`,
+    7 * 86400000,
+    `https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS/dfp_cia_aberta_${input.year}.zip`,
+    () => fetchCvmFundamentals(input),
+  );
+}
