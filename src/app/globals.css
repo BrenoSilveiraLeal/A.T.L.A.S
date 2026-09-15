@@ -1341,6 +1341,19 @@ code {
     white-space: normal;
   }
 }
+.fundamentals-result p,
+.evidence-hash {
+  overflow-wrap: anywhere;
+}
+.fundamentals-result details {
+  margin-top: 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.fundamentals-result summary {
+  cursor: pointer;
+  color: var(--text);
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { RiskForm } from "./risk-form";
 import { CandleChart } from "./candle-chart";
 import type { HistoricalBar } from "@/providers/types";
+import { formatBrl } from "@/core/format";
+import { recordedPortfolio } from "@/core/accounting-view";
+import { FundamentalsPanel } from "./fundamentals-panel";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -22,31 +25,11 @@ import {
   Play,
 } from "lucide-react";
 
-export const sections = [
-  "office",
-  "agents",
-  "portfolio",
-  "market",
-  "news",
-  "orders",
-  "treasury",
-  "risk",
-  "audit",
-  "settings",
-  "health",
-  "research",
-];
 type Row = Record<string, unknown>;
 type Remote = { rows: Row[]; error: string; loading: boolean };
 const s = (v: unknown) =>
   v == null ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v);
-const currency = (v: unknown) =>
-  v == null
-    ? "—"
-    : new Intl.NumberFormat("pt-BR", {
-        style: "currency",
-        currency: "BRL",
-      }).format(Number(v));
+const currency = formatBrl;
 const date = (v: unknown) =>
   !v
     ? "—"
@@ -257,6 +240,17 @@ export function Screen({
   );
   const agents = useRemote("agents", connected && needsAgents, revision),
     assets = useRemote("assets", connected && needsAgents, revision);
+  const accounting = useRemote(
+    "accounting",
+    connected && ["overview", "treasury", "portfolio"].includes(section),
+    revision,
+  );
+  const portfolio = recordedPortfolio(
+    accounting.rows[0]?.latestPortfolioSnapshot,
+  );
+  const portfolioNote = portfolio
+    ? `Registro de ${date(portfolio.sourceTimestamp)} · São Paulo`
+    : "Aguardando reconciliação";
   const resource =
     (
       {
@@ -350,13 +344,28 @@ export function Screen({
           {message}
         </div>
       )}
+      {accounting.error && (
+        <div className="notice error-text" role="alert">
+          Não foi possível consultar a contabilidade: {accounting.error}
+        </div>
+      )}
+      {accounting.rows[0]?.latestPortfolioSnapshot != null && !portfolio && (
+        <div className="notice" role="status">
+          O último snapshot da conta não tem reconciliação válida. Os totais
+          permanecem indisponíveis até a conferência do registro.
+        </div>
+      )}
       {section === "overview" && (
         <>
           <div className="metrics-row">
             {[
-              ["Patrimônio total", "—", "Aguardando reconciliação"],
-              ["Resultado total", "—", "P&L: quanto você ganhou ou perdeu"],
-              ["Caixa disponível", "—", "Aguardando confirmação da corretora"],
+              [
+                "Patrimônio registrado",
+                currency(portfolio?.equity),
+                portfolioNote,
+              ],
+              ["P&L registrado", currency(portfolio?.totalPnl), portfolioNote],
+              ["Caixa registrado", currency(portfolio?.cash), portfolioNote],
               [
                 "Agentes cadastrados",
                 connected && !agents.error ? String(agents.rows.length) : "—",
@@ -370,6 +379,13 @@ export function Screen({
               </div>
             ))}
           </div>
+          {portfolio && (
+            <p className="muted">
+              Último snapshot conciliado da conta {portfolio.brokerAccountId}.
+              Valores históricos; a disponibilidade para operar exige nova
+              reconciliação.
+            </p>
+          )}
           <div className="overview-grid">
             <section className="panel capital-panel">
               <div className="section-heading">
@@ -379,7 +395,8 @@ export function Screen({
               <Empty title="O primeiro registro começa com uma conexão real.">
                 <p>
                   O gráfico será construído com snapshots reconciliados da sua
-                  conta. Nenhum patrimônio foi registrado ainda.
+                  conta. O histórico de patrimônio ainda não está disponível
+                  nesta tela.
                 </p>
                 <Link href="/app/settings" className="text-link">
                   Ver requisitos de conexão <ArrowUpRight size={15} />
@@ -600,7 +617,10 @@ export function Screen({
         </>
       )}
       {section === "market" && (
-        <Market connected={connected} busy={busy} mutate={mutate} />
+        <>
+          <Market connected={connected} busy={busy} mutate={mutate} />
+          <FundamentalsPanel connected={connected} />
+        </>
       )}
       {section === "risk" && (
         <>
@@ -662,7 +682,9 @@ export function Screen({
                   fields={[
                     ["component", "Componente"],
                     ["status", "Estado"],
+                    ["freshness", "Validade da medição"],
                     ["checked_at", "Última verificação"],
+                    ["message", "Detalhes"],
                   ]}
                 />
               </DataState>
@@ -674,15 +696,15 @@ export function Screen({
         <>
           <div className="metrics-row">
             {[
-              "Saldo da corretora",
-              "Capital investido",
-              "Capital alocado",
-              "Reserva disponível",
-            ].map((label) => (
+              ["Caixa registrado", portfolio?.cash],
+              ["Capital investido registrado", portfolio?.invested],
+              ["Patrimônio registrado", portfolio?.equity],
+              ["P&L registrado", portfolio?.totalPnl],
+            ].map(([label, value]) => (
               <div className="metric" key={label}>
                 <span>{label}</span>
-                <strong>—</strong>
-                <small>Aguardando reconciliação</small>
+                <strong>{currency(value)}</strong>
+                <small>{portfolioNote}</small>
               </div>
             ))}
           </div>
