@@ -22,6 +22,21 @@ export async function runScheduler() {
   });
   if (rate.error) throw rate.error;
   if (!rate.data) return { skipped: "RECENT_TICK", jobs: [] };
+  // Housekeeping is bounded and never deletes decisions, orders or financial evidence.
+  // A maintenance failure degrades health without preventing read-only analysis.
+  const maintenanceRate = await db.rpc("consume_rate_limit", {
+    p_key: `atlas-cache-maintenance:${owner}`,
+    p_limit: 1,
+    p_window_seconds: 3600,
+  });
+  let maintenanceFailed = Boolean(maintenanceRate.error);
+  if (!maintenanceFailed && maintenanceRate.data) {
+    const cleanup = await db.rpc("prune_market_data_cache", {
+      p_owner_id: owner,
+      p_limit: 500,
+    });
+    maintenanceFailed = Boolean(cleanup.error);
+  }
   const claimed = await db.rpc("claim_due_agents", {
     p_owner_id: owner,
     p_limit: 3,
@@ -31,13 +46,16 @@ export async function runScheduler() {
   const jobs = z.array(jobSchema).parse(claimed.data);
   if (!jobs.length) {
     await health(
-      "GREEN",
-      "Scheduler acessível; nenhum agente aguardando análise.",
+      maintenanceFailed ? "YELLOW" : "GREEN",
+      maintenanceFailed
+        ? "Scheduler acessível; limpeza do cache indisponível. Confira a migration de retenção."
+        : "Scheduler acessível; nenhum agente aguardando análise.",
     );
     return { jobs: [] };
   }
   const [news, macro] = await Promise.allSettled([readNews(), readMacro()]);
   const errors = [
+    maintenanceFailed ? "CACHE_MAINTENANCE_FAILED" : "",
     news.status === "rejected" ? "NEWS_UNAVAILABLE" : "",
     macro.status === "rejected" ? "MACRO_UNAVAILABLE" : "",
   ].filter(Boolean);
@@ -126,19 +144,17 @@ export async function runScheduler() {
 
   async function health(status: string, message: string) {
     const now = new Date();
-    const result = await db
-      .from("system_health")
-      .upsert(
-        {
-          owner_id: owner,
-          component: "SCHEDULER",
-          status,
-          message,
-          checked_at: now.toISOString(),
-          expires_at: new Date(now.getTime() + 180000).toISOString(),
-        },
-        { onConflict: "owner_id,component" },
-      );
+    const result = await db.from("system_health").upsert(
+      {
+        owner_id: owner,
+        component: "SCHEDULER",
+        status,
+        message,
+        checked_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + 180000).toISOString(),
+      },
+      { onConflict: "owner_id,component" },
+    );
     if (result.error) throw result.error;
   }
 }
