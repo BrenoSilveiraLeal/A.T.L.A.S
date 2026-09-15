@@ -1,5 +1,25 @@
 project_id = "atlas"
 
+[auth]
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000/setup"]
+jwt_expiry = 900
+enable_signup = false
+enable_anonymous_sign_ins = false
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+minimum_password_length = 14
+
+[auth.email]
+enable_signup = false
+enable_confirmations = true
+double_confirm_changes = true
+secure_password_change = true
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
 [functions.atlas-tick]
 # Custom CRON_SECRET authentication is mandatory in the handler.
 verify_jwt = false
