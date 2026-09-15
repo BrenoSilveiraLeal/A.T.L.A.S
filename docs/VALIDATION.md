@@ -9,13 +9,16 @@ Atualização: 15/09/2026. Ambiente local: Windows, Node 24.14.0, Next.js 16.3.5
 | Instalação | `npm install --ignore-scripts` concluiu, 398 pacotes auditados, zero vulnerabilidades reportadas naquele momento. Lockfile fixado. CLI Supabase oficial disponível. |
 | Lint | `npm run lint` passou. |
 | Tipagem | `npm run typecheck` passou, incluindo rotas Next. |
-| Testes locais | `npm test`: **339 passaram, 3 testes de rede opt-in ignorados**, 18 arquivos. |
+| Testes locais | `npm test`: **348 passaram, 3 testes de rede opt-in ignorados**, 20 arquivos. |
 | Rede pública dos adapters | Smoke opt-in dos cinco adapters passou: brapi cotação/histórico/busca, BCB e IBGE. Não testa broker. |
 | CVM pública | Smoke `ATLAS_CVM_PUBLIC_SMOKE=1`, `actual public annual DFP`: passou com ZIP oficial 2025, companhia por código CVM e escopo consolidado. Fonte, versão e rubrica preservadas. [Evidências e limites](CVM_FUNDAMENTALS.md). |
 | Fluxo com dados reais | `ATLAS_PUBLIC_DATA_SMOKE=1`, teste `real public data`: fetch público → análise HOLD → job com lease → decisão/memória/auditoria atômicas no PostgreSQL temporário. Passou; zero ordens criadas. |
 | Build | `npm run build` passou, com rotas privadas dinâmicas e proxy. |
 | UI antes do provisionamento | Navegador real no build de produção, 1440px e 390px. Visão geral e Mercado/CVM inspecionados; largura mobile e scrollWidth de 390px. Menu abriu, navegou até Risco e fechou. As 12 seções e login retornaram 200; seção desconhecida retornou 404. Sem erros de página nas capturas dessa etapa. API de fundamentos retornou 503 sem configuração; totais e ações permaneceram indisponíveis. Essa evidência antecede o banco remoto e não valida o login atual. |
 | Integração da interface | Histórico/posições por conta e publicação/configuração de estratégias ligados às rotas privadas. Métricas e gráfico usam a mesma conta; mudança de consulta não mantém valores da conta anterior na tela. Lint, tipagem e build passaram. |
+| UI com Supabase configurado | Login/setup 200; `/app` e carteira redirecionam 307 ao login; APIs de carteira/estratégias retornam 401; POST sem origem em auth/setup retorna 403; cron sem segredo retorna 401. Setup mobile: largura e scrollWidth 390px. Link privado abriu formulário e removeu o fragmento da URL sem enviar senha. |
+| Scheduler local | `npm run local` iniciou Next e recebeu `OK` com zero jobs, condizente com ausência de agentes cadastrados. Ctrl+C encerrou o servidor; reinício liberou a porta e retornou `RECENT_TICK`, seguido de `OK`. Não houve sobreposição de chamadas ou ordem enviada. |
+| Verificação remota por leitura | `node scripts/verify-supabase.mjs`: projeto/proprietário e bloqueios conferidos; carteira sem conta/snapshot/posição; RPC e 26 tabelas sensíveis negadas à chave publicável sem sessão. |
 
 As capturas anteriores ficam em `.impeccable/review/`; as capturas da etapa sem banco estão em `output/playwright/overview-desktop.png`, `market-desktop.png` e `market-mobile.png`. Os registros do navegador ficam em `.playwright-cli/`. Esses artefatos são ignorados pelo Git. Servidor local não substitui implantação cloud.
 
@@ -23,6 +26,7 @@ As capturas anteriores ficam em `.impeccable/review/`; as capturas da etapa sem 
 
 - Projeto **ATLAS**, referência `bxikkprpvfirjlmnxqhh`, criado na organização **BrenoSilveiraLeal's**, região `sa-east-1`, Supabase Free com custo informado de US$ 0/mês. Nenhum banco de outro produto foi reutilizado ou alterado.
 - Seis migrations aplicadas, incluindo `atlas_portfolio_history` e `atlas_agent_configuration`. As **33 tabelas públicas têm RLS habilitado**; `system_state` está vinculado ao único usuário proprietário.
+- Histórico de migrations alinhado pelo CLI com as seis versões locais, removendo apenas os carimbos duplicados do conector, sem reaplicar DDL nem remover dados.
 - `.env.local` configurado com URL, chaves modernas, proprietário e segredo cron. Chaves usadas somente no servidor, sem inclusão no Git.
 - Supabase Auth com cadastros e login anônimo desativados, JWT de 900 segundos, senha mínima de 14 caracteres e TOTP disponível. O usuário ainda precisa definir a senha e verificar seu autenticador.
 - Bootstrap administrativo gerou `.supabase/atlas-owner-setup.html` com link temporário pessoal, sem envio de e-mail. O fluxo inicial recusa outro proprietário e não pode ser repetido depois de MFA verificado.
@@ -67,4 +71,6 @@ O navegador revelou erro 500 nas rotas dinâmicas: o servidor consumia uma lista
 
 ## Ações externas ainda necessárias
 
-O proprietário precisa definir sua senha e cadastrar/verificar TOTP pelo acesso inicial preparado. A conta Vercel é Hobby: hospedagem compatível com termos/custo, deploy e scheduler remoto continuam pendentes. O proprietário informou não possuir corretora nem API oficial; ainda são necessários acesso/contrato, feed e sessão elegíveis, integração/homologação de execução e confirmação independente de transferências. O projeto Supabase, o usuário e os segredos locais já estão configurados.
+O proprietário precisa definir sua senha e cadastrar/verificar TOTP pelo acesso inicial preparado. Ele escolheu manter aplicação e scheduler locais com Supabase Free; implantação e scheduler remoto foram adiados. O proprietário informou não possuir corretora nem API oficial; ainda são necessários acesso/contrato, feed e sessão elegíveis, integração/homologação de execução e confirmação independente de transferências. O projeto Supabase, o usuário e os segredos locais já estão configurados.
+
+A primeira execução do runner dentro do ambiente restrito não alcançou o Supabase (503). A mesma verificação por leitura passou com rede habilitada e o runner foi reiniciado nesse ambiente, recebendo `OK`. A revisão automática do Codex também bloqueou temporariamente uma chamada ao navegador por limite de uso; após a retomada, a verificação visual acima foi concluída.

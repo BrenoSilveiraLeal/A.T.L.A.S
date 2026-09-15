@@ -2,7 +2,7 @@
 
 **Autonomous Trading & Learning Agent System** — plataforma pessoal de análise, agentes por ativo, controles de risco e auditoria para ações à vista B3.
 
-**Estado: banco Supabase configurado e aplicação validada localmente; execução real bloqueada.** O projeto ATLAS usa Supabase Free em São Paulo, com seis migrations aplicadas, 33 tabelas protegidas por RLS e proprietário único cadastrado. Há fontes reais de leitura, agentes com revisões de estratégia e perfis de risco, histórico patrimonial por conta e decisões de observação **HOLD**. O proprietário ainda precisa definir a senha e cadastrar TOTP; hospedagem e scheduler na nuvem permanecem pendentes. Não há corretora/API disponível, PIX automático ou ordem real enviada.
+**Estado: aplicação e scheduler locais conectados ao Supabase; execução real bloqueada.** O projeto ATLAS usa Supabase Free em São Paulo, com seis migrations aplicadas, 33 tabelas protegidas por RLS e proprietário único cadastrado. Há fontes reais de leitura, agentes com revisões de estratégia e perfis de risco, histórico patrimonial por conta e decisões de observação **HOLD**. O proprietário ainda precisa definir a senha e cadastrar TOTP. Por sua escolha, a aplicação permanece local; não funciona com o computador desligado. Não há corretora/API disponível, PIX automático ou ordem real enviada.
 
 Comece por [viabilidade](docs/FEASIBILITY.md), [pesquisa de corretoras](docs/BROKER_RESEARCH.md), [custos](COST.md) e [roadmap](docs/ROADMAP.md). Os 37 tópicos do pedido estão na [matriz de requisitos](docs/REQUIREMENTS.md).
 
@@ -15,7 +15,8 @@ flowchart LR
   A --> P[Decisão HOLD e evidências]
   P --> DB[(PostgreSQL: memória e auditoria)]
   DB --> UI[Painel Next.js]
-  CR[Supabase Cron] --> E[Edge atlas-tick]
+  L[Rotina local a cada minuto] --> J[Scheduler com leases]
+  CR[Supabase Cron: futuro] --> E[Edge atlas-tick: futuro]
   E --> J[Scheduler com leases]
   J --> A
   F[Proposta de trade: integração futura] --> R[Risco central]
@@ -108,10 +109,13 @@ Não cole secrets no chat, não adicione prefixo `NEXT_PUBLIC_` a credenciais e 
 ## 7. Executar, definir senha e cadastrar TOTP
 
 ```powershell
-npm run dev
+npm run build
+npm run local
 ```
 
-O acesso inicial desta instalação está em **`.supabase/atlas-owner-setup.html`**. Com o servidor em execução, abra esse arquivo local e use o link temporário para definir sua senha de pelo menos 14 caracteres. O bootstrap criou o usuário e gerou esse arquivo sem enviar e-mail. O arquivo contém um acesso pessoal: não o publique nem compartilhe. Se o link expirar antes do cadastro, ele precisa ser regenerado pelo procedimento administrativo; o bootstrap é recusado depois de MFA verificado.
+O build atual já está pronto. `npm run local` inicia o painel e aciona o scheduler a cada 60 segundos, sem chamadas sobrepostas; cada agente segue o intervalo configurado. Mantenha esse terminal aberto e use `Ctrl+C` para encerrar. É necessário acesso à internet para Supabase e fontes públicas. O comando recusa outra instância na porta 3000 e exige live desativado. Para editar o código, `npm run dev` inicia apenas o servidor de desenvolvimento.
+
+O acesso inicial desta instalação está em **`.supabase/atlas-owner-setup.html`**. Com o servidor em execução, abra esse arquivo local e use o link temporário para definir sua senha de pelo menos 14 caracteres. O bootstrap criou o usuário e gerou esse arquivo sem enviar e-mail. O arquivo contém um acesso pessoal: não o publique nem compartilhe. Se o link expirar antes do cadastro, execute `node scripts/bootstrap-supabase-owner.mjs bxikkprpvfirjlmnxqhh brenosilveiraleal@gmail.com` nesta instalação, que já possui as chaves no arquivo administrativo ignorado. O bootstrap é recusado depois de MFA verificado.
 
 Abra **http://127.0.0.1:3000**. Com a configuração presente, o acesso redireciona para `/login`. Novos cadastros e login anônimo estão desativados; os JWTs expiram em 900 segundos.
 
@@ -125,7 +129,7 @@ Entre com seu e-mail/senha. Clique **Cadastrar autenticador**, adicione uma cont
 4. Em **Risco e limites**, registre um perfil completo. Os valores não vêm preenchidos com recomendações de investimento. O perfil é preservado como uma versão; salvar não aprova trading live nem vincula automaticamente a carteira.
 5. Em **Agentes → Estratégias de observação**, publique uma revisão SMA20/SMA50. Em **Configuração do agente**, selecione o agente pausado, a revisão, o perfil de risco e o intervalo. A revisão e os limites utilizados são preservados nas evidências de cada análise.
 6. Abra o agente e clique **Ativar análise**. O motor registra HOLD e bloqueios de execução; isso não é uma estratégia de trading homologada. Publicar outra revisão não altera automaticamente agentes já configurados.
-7. Quando acionado, o scheduler encontra os agentes vencidos, preserva os dados utilizados e grava decisão, memória e auditoria atomicamente. Consulte o detalhe do agente e a auditoria. A execução automática em nuvem depende da implantação da seção 11.
+7. Com `npm run local` aberto, o scheduler encontra os agentes vencidos, preserva os dados utilizados e grava decisão, memória e auditoria atomicamente. Consulte o detalhe do agente e a auditoria. A execução automática em nuvem foi adiada; a seção 11 descreve essa etapa futura.
 
 Uma falha de fonte coloca o agente em `RISK_BLOCKED`; revise o erro no banco/saúde antes de reativar a análise. O limite brapi é conservador: até 150 consultas lógicas/dia, cada uma com no máximo três tentativas, compartilhadas entre UI e scheduler. Cache: cotação 30min, histórico 12h, notícias 15min e macro 6h. Aumentar polling não remove atraso.
 
@@ -144,7 +148,9 @@ npm run build
 
 Testes incluem risco, OMS, providers, autenticação, payload/CSRF, research e migrations PostgreSQL. Fixtures existem somente em `tests/`. O teste de rede pública é opt-in:
 
-Validação local em 15/09/2026: lint, tipagem e build passaram; **339 testes passaram e 3 smokes opt-in foram ignorados, em 18 arquivos**. Isso não certifica o fluxo de ordens com uma corretora.
+Validação local em 15/09/2026: lint, tipagem e build passaram; **348 testes passaram e 3 smokes opt-in foram ignorados, em 20 arquivos**. O scheduler local retornou `OK` e preservou a limitação de chamadas após reinício. Isso não certifica o fluxo de ordens com uma corretora.
+
+`node scripts/verify-supabase.mjs` verifica a instalação remota somente por leitura, sem imprimir credenciais. Confere proprietário, bloqueios de execução, carteira e negação de acesso anônimo. O teste passou no projeto atual para a RPC de carteira e 26 tabelas sensíveis.
 
 ```powershell
 $env:ATLAS_PUBLIC_DATA_SMOKE = '1'
@@ -156,7 +162,7 @@ Esse smoke consulta dados públicos reais, sem enviar ordem. Ele não comprova S
 
 ## 10. Hospedar o frontend/backend
 
-Vercel é o destino solicitado, e a conta consultada usa **Hobby**. Antes de publicar, confira [COST.md](COST.md): a adequação do plano a uma aplicação que busca ganho financeiro **não foi presumida**, e seu cron diário não atende este scheduler. A hospedagem Next.js permanece pendente de plano/termos adequados; nenhum plano pago foi contratado.
+**Etapa futura, adiada por escolha do proprietário.** A configuração atual é local + Supabase Free. Vercel é o destino previsto, e a conta consultada usa **Hobby**. Antes de publicar, confira [COST.md](COST.md): a adequação do plano a uma aplicação que busca ganho financeiro **não foi presumida**, e seu cron diário não atende este scheduler. Nenhum plano pago foi contratado.
 
 1. Envie os commits ao seu repositório GitHub quando revisados.
 2. No Vercel, clique **Add New → Project**, importe o repositório e selecione Next.js, raiz do projeto, `npm run build` e `npm ci`.
