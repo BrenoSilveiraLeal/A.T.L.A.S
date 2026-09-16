@@ -124,12 +124,28 @@ describe("owner first-access endpoint", () => {
   it("does not expose provider errors, password or token in the response", async () => {
     auth.updateUser.mockResolvedValue({ data: { user: null }, error: new Error(`${password} ${tokenHash} private provider error`) });
     const response = await POST(request());
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(503);
     const body = await response.text();
     expect(body).not.toContain(password);
     expect(body).not.toContain(tokenHash);
     expect(body).not.toContain("private provider error");
     expect(auth.signOut).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["same_password", 400, "PASSWORD_UNCHANGED"],
+    ["weak_password", 400, "PASSWORD_POLICY_REJECTED"],
+    ["reauthentication_needed", 400, "PASSWORD_REAUTH_REQUIRED"],
+    ["over_request_rate_limit", 429, "PASSWORD_RATE_LIMITED"],
+    ["unexpected_provider_detail", 503, "PASSWORD_SETUP_UNAVAILABLE"],
+  ])("classifies %s without exposing the provider message", async (code, status, expected) => {
+    auth.updateUser.mockResolvedValue({ data: { user: null }, error: { code, message: `${tokenHash} private` } });
+    const response = await POST(request());
+    expect(response.status).toBe(status);
+    const result = await response.json();
+    expect(result.code).toBe(expected);
+    expect(JSON.stringify(result)).not.toContain(tokenHash);
+    expect(auth.signOut).toHaveBeenCalledWith({ scope: "local" });
   });
 
   it("does not report success when the temporary session cannot be closed", async () => {

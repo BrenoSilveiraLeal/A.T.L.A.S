@@ -44,8 +44,22 @@ export async function POST(request: Request) {
         throw new ApiError(403, "SETUP_ALREADY_PROTECTED", "O primeiro acesso já foi concluído. Entre com sua senha e autenticador.");
 
       const updated = await db.auth.updateUser({ password: body.password });
-      if (updated.error || updated.data.user?.id !== owner)
-        throw new ApiError(400, "PASSWORD_SETUP_FAILED", "Não foi possível definir a senha. Use uma senha forte e diferente da anterior e gere um novo link.");
+      if (updated.error || updated.data.user?.id !== owner) {
+        // Only allowlisted error codes leave the server; provider messages may contain private data.
+        switch (updated.error?.code) {
+          case "same_password":
+            throw new ApiError(400, "PASSWORD_UNCHANGED", "Essa já é a senha atual da conta. Vá para o login e entre com ela.");
+          case "weak_password":
+            throw new ApiError(400, "PASSWORD_POLICY_REJECTED", "O Supabase recusou a senha pela política de segurança. Use uma senha exclusiva de pelo menos 14 caracteres e abra um novo link.");
+          case "reauthentication_needed":
+          case "reauthentication_not_valid":
+            throw new ApiError(400, "PASSWORD_REAUTH_REQUIRED", "O Supabase exigiu confirmação adicional da sessão. É necessário revisar a configuração de recuperação do acesso.");
+          case "over_request_rate_limit":
+            throw new ApiError(429, "PASSWORD_RATE_LIMITED", "O Supabase limitou as tentativas. Aguarde antes de abrir um novo link de primeiro acesso.");
+          default:
+            throw new ApiError(503, "PASSWORD_SETUP_UNAVAILABLE", "O serviço não concluiu a definição da senha. É necessário verificar o fluxo de acesso; essa falha não indica necessariamente uma senha fraca.");
+        }
+      }
     } finally {
       // Clear the temporary HttpOnly recovery session; regular login still requires TOTP.
       const logout = await db.auth.signOut({ scope: "local" });
