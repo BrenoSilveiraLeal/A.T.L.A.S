@@ -65,6 +65,8 @@ export interface BrokerOrderRequest {
 }
 
 export interface BrokerOrder {
+  /** Official gateway echo of accepted terms; mandatory to confirm a modification. */
+  readonly request?: BrokerOrderRequest;
   readonly brokerOrderId: string;
   readonly clientOrderId: string | null;
   readonly accountId: string;
