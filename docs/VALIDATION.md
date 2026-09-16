@@ -61,6 +61,8 @@ O teste CVM cobre uma companhia/ano/escopo reais. As datas de referência e rece
 
 ## Correções obtidas por revisão
 
+Correção de acesso em 15/09/2026: o provedor de e-mail estava desativado (`email_provider_disabled`). `auth.email.enable_signup` foi corrigido para `true`, preservando `auth.enable_signup=false` para manter os cadastros públicos fechados. A alteração remota foi isolada, sem substituir redirects ou outras configurações existentes. A senha solicitada pelo proprietário foi aplicada pela API administrativa, sem inclusão em arquivos. Login direto e POST `/api/auth` passaram; o aplicativo retornou HTTP 200 com próximo passo `enroll`, leitura privada permaneceu HTTP 403 sem TOTP e a sessão de verificação foi encerrada. TOTP ainda exige cadastro pelo proprietário.
+
 Renovação de cookie encaminha o novo header ao SSR; duração do cookie aplicada após o SDK para impedir persistência involuntária de 400 dias; parada global separada do limite normal; rate limit MFA só após autenticar proprietário; cache compartilhado e orçamento conservador dos providers; lock order dos jobs alinhada; retry de análise com payload diferente rejeitado; writes financeiros fora de RPC negados.
 
 Nesta continuação, o cache passou a atualizar sua chave única após expiração; a limpeza é limitada a registros de leitura com mais de sete dias e preserva evidências. A saúde vencida é normalizada como desconhecida e mantém o valor original para auditoria. Totais financeiros usam o snapshot conciliado em strings decimais, com data explícita e sem transformar ausência em zero.
