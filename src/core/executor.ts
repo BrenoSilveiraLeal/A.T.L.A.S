@@ -127,8 +127,8 @@ export function validateExecutorCommand(
       reasons.push("INVALID_ORDER_VERSION_OR_FILL");
     if (command.timeInForce !== "DAY" && command.timeInForce !== "GTC") reasons.push("INVALID_TIME_IN_FORCE");
     if (!command.riskContext.ownerMfaVerified) reasons.push("MFA_REQUIRED");
-    if (!command.riskContext.capabilitiesVerified || !capabilities.cashEquities ||
-      !capabilities.completeAccountReconciliation || !capabilities.clientOrderLookup)
+    if (!command.riskContext.capabilitiesVerified || !capabilities.cashEquities || !capabilities.clientOrderLookup ||
+      (command.kind !== "CANCEL" && !capabilities.completeAccountReconciliation))
       reasons.push("GATEWAY_CAPABILITIES_REQUIRED");
     if (timestamp(now) < timestamp(order.updatedAt)) reasons.push("NON_MONOTONIC_ORDER_TIME");
     if (command.kind === "SUBMIT") {
@@ -186,6 +186,7 @@ export function applyCommandAcknowledgement(
     brokerOrder.filledQuantity > brokerOrder.quantity || brokerOrder.filledQuantity < source.filledQuantity)
     throw new Error("ACK_FILL_QUANTITY_INVALID");
   if (timestamp(brokerOrder.observedAt) > timestamp(at) || timestamp(at) < timestamp(source.updatedAt) ||
+    timestamp(brokerOrder.observedAt) < timestamp(source.updatedAt) ||
     timestamp(brokerOrder.observedAt) < timestamp(source.proposal.createdAt)) throw new Error("ACK_TIME_INVALID");
   if (brokerOrder.request && !equalRequest(expected, brokerOrder.request)) throw new Error("ACK_TERMS_MISMATCH");
   if (!["PENDING", "OPEN", "PARTIALLY_FILLED", "FILLED", "CANCELLED", "REJECTED", "EXPIRED", "UNKNOWN"]
@@ -273,7 +274,9 @@ export class AtlasExecutor {
     if (claim.command.id !== commandId || !identity(claim.claimToken)) throw new Error("INVALID_DURABLE_CLAIM");
     const check = validateExecutorCommand(claim.command, this.provider.capabilities, this.now());
     if (!check.approved) return this.complete(claim, {
-      status: "REJECTED", order: claim.command.order, brokerOrder: null,
+      status: "REJECTED", order: claim.command.kind === "SUBMIT" && claim.command.order.state === "APPROVED"
+        ? { ...transitionOrder(claim.command.order, "CANCELLED", this.now()), lastError: "PREFLIGHT_REJECTED" }
+        : claim.command.order, brokerOrder: null,
       reconciliationRequired: false, reasons: check.reasons, at: this.now(),
     });
     // Completion persistence errors are deliberately outside this catch. They may
@@ -302,7 +305,8 @@ export class AtlasExecutor {
   async recover(commandId: string): Promise<CommandCompletion | null> {
     const claim = await this.store.getClaim(commandId);
     if (!claim) return null;
-    if (claim.command.id !== commandId || claim.command.providerId !== this.provider.capabilities.providerId)
+    if (claim.command.id !== commandId || claim.command.providerId !== this.provider.capabilities.providerId ||
+      !identity(claim.claimToken) || claim.command.accountId !== claim.command.order.accountId)
       throw new Error("RECOVERY_IDENTITY_MISMATCH");
     let brokerOrder: BrokerOrder | null = null;
     let result: Pick<CommandCompletion, "status" | "order" | "reconciliationRequired" | "reasons">;
@@ -320,6 +324,7 @@ export class AtlasExecutor {
   }
 
   async processExecution(execution: BrokerExecution): Promise<"COMMITTED" | "DUPLICATE" | "CONFLICT"> {
+    if (execution.feesVerified === false) throw new Error("EXECUTION_FEES_UNVERIFIED");
     const state = await this.store.getExecutionState({ providerId: this.provider.capabilities.providerId,
       accountId: execution.accountId, brokerOrderId: execution.brokerOrderId });
     if (!state) throw new Error("UNMATCHED_EXECUTION_RECONCILIATION_REQUIRED");

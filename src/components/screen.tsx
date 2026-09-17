@@ -933,7 +933,7 @@ function Readiness({
       connected ? "Configuração presente" : "Conectar Supabase e proprietário",
       connected,
     ],
-    ["Corretora oficial", "Contrato e habilitação pendentes", false],
+    ["Gateway MT5 e conta B3", "Terminal e conta aguardam homologação", false],
     ["Feed de execução", "Fonte autorizada e sessão pendentes", false],
     ["Risco e reconciliação", "Homologação ponta a ponta pendente", false],
   ] as const;
@@ -1006,18 +1006,19 @@ function SetupGuide({ connected }: { connected: boolean }) {
           </p>
         </li>
         <li>
-          <strong>Valide o canal oficial da corretora.</strong>
+          <strong>Conecte uma conta B3 ao gateway MT5.</strong>
           <p>
-            A pesquisa identifica Cedro API Trading, Genial MetaTrader Swing e
-            ProfitDLL como caminhos condicionais. Contratação, acesso, custos e
-            homologação permanecem pendentes.
+            O ATLAS mantém as decisões e usa o MT5 para executar e consultar.
+            A escolha da corretora, o acesso ao terminal, os custos e a
+            reconciliação precisam ser validados antes de operar.
           </p>
         </li>
         <li>
-          <strong>Publique e conecte o scheduler.</strong>
+          <strong>Hospede o ATLAS e o terminal para operar sem o PC.</strong>
           <p>
-            Siga o README para Supabase Cron e hospedagem. Live só pode ser
-            ativado após cumprir todos os gates técnicos.
+            A instalação atual é local. Uma VPS compatível precisa manter o
+            ATLAS, o scheduler e o gateway online. Consulte o README para as
+            etapas e os custos; a execução real aguarda homologação.
           </p>
         </li>
       </ol>

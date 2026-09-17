@@ -11,6 +11,8 @@
     "build": "next build",
     "start": "next start",
     "local": "node scripts/run-local.mjs",
+    "executor": "node scripts/run-executor.mjs",
+    "test:mt5": "python -m unittest discover -s gateways/mt5 -p test_*.py",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",

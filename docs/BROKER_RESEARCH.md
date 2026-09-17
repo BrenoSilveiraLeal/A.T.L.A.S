@@ -2,6 +2,10 @@
 
 Verificado em **13/09/2026**, por consulta pública a fontes oficiais. Escopo: pessoa física, conta própria, ações à vista B3, sem margem, sem derivativos e sem venda descoberta. Não houve abertura de conta, contratação, contato com terceiros, uso de credenciais ou envio de ordens.
 
+**Reorientação em 16/09/2026:** a API direta da corretora deixou de ser caminho principal. A implementação segue ATLAS Executor → gateway com SDK Python oficial MT5 → terminal → corretora/B3. Agentes, estratégia, risco, OMS e Treasury permanecem no ATLAS. A conta ainda não foi escolhida; ProfitDLL e API oficial direta são alternativas no mesmo contrato. A pesquisa original abaixo é preservada como histórico; para comparação atual, custos e infraestrutura, prevalecem [MT5_GATEWAY_RESEARCH.md](research/MT5_GATEWAY_RESEARCH.md), [PROFIT_INFRA_RESEARCH.md](research/PROFIT_INFRA_RESEARCH.md) e a [decisão técnica](EXECUTION_GATEWAY_DECISION.md).
+
+MT5/EA próprio é oficial e documentado, mas a ponte Python escolhida precisa de confirmação da plataforma/conta, principalmente para ações à vista, overnight, Netting, caixa liquidado, custódia e taxas. Não é necessário obter uma API institucional para implementar o gateway. Não há requisito de parceria especial presumido; termos de conta e licença aplicáveis continuam necessários antes de homologar.
+
 ## Resultado da investigação
 
 **Há caminhos oficiais de automação de ordens B3. Não foi comprovado um caminho completo, gratuito, imediatamente disponível ao proprietário e adequado a todos os requisitos do ATLAS.** A existência de uma plataforma, documentação de SDK ou API comercial não comprova habilitação da conta real, licença para uso dos dados, reconciliação integral ou funcionamento do ATLAS em produção.
@@ -193,4 +197,3 @@ Todas consultadas em **13/09/2026**. Conteúdo público é evidência documental
 | S1 | [SmarttBot integração oficial](https://ajuda.smarttbot.com/pt-BR/articles/12945889-guia-de-integracao-com-corretoras-xp-clear-btg-e-mais) | Guia 12/06/2026: autorização, ações B3, corretoras e cloud |
 | S2 | [SmarttBot produto](https://portal.smarttbot.com/) | Robôs, backtesting e plataforma |
 | S3 | [SmarttBot planos](https://portal.smarttbot.com/planos) | Preços observados; não prova API externa |
-

@@ -1,0 +1,2 @@
+# Official MetaQuotes wheel, Windows x86-64. Verified on PyPI 2026-09-16.
+MetaTrader5==5.0.6180

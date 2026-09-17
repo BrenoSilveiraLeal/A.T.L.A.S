@@ -1,6 +1,6 @@
 # ATLAS — Arquitetura
 
-Data: 2026-09-13. Status: decisão inicial de arquitetura; implementação e operação ficam `PENDING` até evidência no [roadmap](ROADMAP.md). A [matriz](REQUIREMENTS.md) preserva os 37 tópicos originais. A disponibilidade dos serviços e brokers é tratada em [FEASIBILITY.md](FEASIBILITY.md), não presumida neste desenho.
+Baseline: 2026-09-13; integração de execução atualizada em **2026-09-16**. Implementação e operação são discriminadas no [roadmap](ROADMAP.md). A [matriz](REQUIREMENTS.md) preserva os 37 tópicos originais. A [decisão de gateway](EXECUTION_GATEWAY_DECISION.md) substitui a dependência principal de API direta por ATLAS Executor + plataforma oficial MT5, sem escolher corretora.
 
 ## Decisões
 
@@ -11,8 +11,8 @@ Data: 2026-09-13. Status: decisão inicial de arquitetura; implementação e ope
 | Persistência | Supabase PostgreSQL, migrations e transações RPC para ledger, reservas, jobs e OMS; constraints e RLS. | Requisições REST separadas não formam uma transação. |
 | Dinheiro | `numeric(28,10)` inicialmente no banco, decimal.js no domínio, strings decimais no JSON; arredondamento explícito por moeda/instrumento no boundary. | Nunca usar `Number`/float para saldos, preços, taxas, reservas ou P&L contábil; ajustar escala documentadamente se provider exigir. |
 | Autenticação | Supabase Auth + TOTP, allowlist do proprietário por UUID server-side, autorização em toda mutação; AAL2 para operações financeiras sensíveis. | Cadastro/fator presente não prova sessão AAL2; segredo de serviço nunca chega ao browser. |
-| Background | Supabase Cron central chama endpoint servidor autenticado de duração limitada; jobs persistidos, claim atômico, leases e batches. | Vercel Hobby Cron não atende intraday; nenhuma função com loop infinito. |
-| Broker | Interface `BrokerProvider` com capabilities explícitas e configuração server-side; adapter real somente após comprovação documental e autorização PF. | Nenhum `BrokerProviderXP`/similar fictício; ausência do provider resulta em indisponível e live bloqueado. |
+| Background | Instalação atual usa rotina local e jobs Supabase com claim/leases. Migração pode hospedar ATLAS e scheduler em VPS ou usar dispatcher Supabase para backend externo. | Banco remoto sozinho não executa o cérebro ATLAS. Operação com PC desligado ainda não foi validada. |
+| Execução | `AtlasExecutor` reutiliza Risk/OMS e persistência durável; `BrokerProvider` delimita gateway HTTP privado. Ponte inicial usa Python MetaTrader5 oficial e terminal. | Nenhuma corretora é fixada no domínio. ProfitDLL e API oficial direta são caminhos futuros; capacidades reais continuam exigidas. |
 | IA | Enriquecimento central compartilhado por notícia/evento; schema e limites; estratégia determinística funciona com evidências disponíveis. | Sem chave/provider LLM, marcar AI indisponível; não substituir por texto fingindo análise. |
 | Accounting | Ledger de partidas balanceadas, projeções auditáveis e reconciliação periódica; ajuste explícito, nunca editar o passado. | Só broker/banco oficial comprova caixa externo e execução. |
 | Animação | Office 2D leve, estados vindos do backend, animação CSS/Motion apenas após fundação operacional. | Personagem não aumenta risco nem cria atividade fictícia. |
@@ -23,7 +23,7 @@ Supabase oferece TOTP e níveis de garantia `aal1`/`aal2`, usados para aplicar M
 
 Supabase Cron executa SQL/funções ou requisições HTTP e registra execuções; a documentação recomenda até oito jobs simultâneos e duração de até dez minutos. ATLAS adota batches menores e limites abaixo do runtime escolhido. [Supabase Cron](https://supabase.com/docs/guides/cron). `pg_cron` + `pg_net` permitem invocação periódica, com credencial de chamada guardada em Vault. A autenticação do endpoint ATLAS usa segredo próprio, não a publishable key como prova de autorização. [Agendamento de funções](https://supabase.com/docs/guides/functions/schedule-functions).
 
-Na consulta desta fase, Vercel Hobby permite cron diário com precisão horária; por isso o agendamento intraday fica no Supabase. Invocações HTTP ainda consomem o orçamento de funções e não dão garantia de disponibilidade/latência para trading. [Limites de Cron da Vercel](https://vercel.com/docs/cron-jobs/usage-and-pricing).
+Vercel Hobby permite cron diário com precisão horária e não atende este agendamento intraday. O scheduler atual é local; a arquitetura aceita processo supervisionado em VPS ou dispatcher Supabase para backend externo. Invocações HTTP consomem orçamento de funções e não garantem disponibilidade/latência para trading. [Limites de Cron da Vercel](https://vercel.com/docs/cron-jobs/usage-and-pricing).
 
 ## Fluxo e fronteiras de confiança
 
@@ -36,12 +36,16 @@ flowchart TD
   A --> T[Trade Proposal persistida]
   T --> R[Risk Engine determinístico]
   R --> Q[Reserva atômica e OMS]
-  Q --> E[Execution Engine server-side]
-  E --> B[Broker oficial autorizado]
+  Q --> EQ[(Comando durável Supabase)]
+  EQ --> E[ATLAS Executor server-side]
+  E --> BP[Contrato BrokerProvider]
+  BP --> G[Gateway HTTP privado]
+  G --> MT[Python MT5 + terminal oficial]
+  MT --> B[Corretora PF habilitada]
   B --> C[Reconciliação de ordens, fills e conta]
   C --> L[Ledger atômico e projeções]
   L --> U[Dashboard, Office e auditoria]
-  S[Supabase Cron] --> J[Claim de jobs e worker curto]
+  S[Scheduler local ou externo] --> J[Claim de jobs e worker curto]
   J --> I
   J --> A
   J --> C
@@ -51,7 +55,7 @@ flowchart TD
 
 LLM e notícias não recebem credenciais de broker, ferramentas de execução, privilégios de banco ou autoridade para mudar risco. Conteúdo externo entra como dados delimitados, com schema, tamanho máximo, URLs permitidas e extração de campos; resultado é verificado. Sanitização e prompts ajudam, mas a proteção principal é a ausência de capacidade de executar operações a partir de conteúdo não confiável.
 
-O Execution Engine é o único ponto de escrita no broker. Usa intenção persistida, decisão de risco válida, reserva confirmada e revalidação do bloqueio global imediatamente antes da chamada. Existe uma janela inevitável entre chamada externa e persistência; o protocolo de reconciliação resolve essa incerteza sem afirmar exactly-once na rede. Kill switch não promete desfazer uma ordem já aceita pela corretora.
+O ATLAS Executor é o único caminho autorizado de escrita no gateway. Usa intenção persistida, decisão de risco válida, reserva confirmada e revalidação do bloqueio global imediatamente antes da chamada. A ponte só executa/reporta; estratégia, decisão e contabilidade ficam no ATLAS. Existe uma janela inevitável entre chamada externa e persistência; o protocolo de reconciliação trata essa incerteza sem afirmar exactly-once na rede. Kill switch não promete desfazer uma ordem já aceita pela corretora.
 
 ## Organização planejada
 
@@ -64,6 +68,7 @@ src/providers/              adapters oficiais de mercado, macro, news, broker e 
 supabase/migrations/        schema, constraints, RLS, funções atômicas e jobs
 tests/                      fixtures e doubles permitidos somente aqui
 docs/                       viabilidade, requisitos, arquitetura, roadmap e operação
+gateways/mt5/               ponte Python oficial + terminal, sem estratégia
 ```
 
 É um destino arquitetural; diretórios existentes e entregas reais devem ser consultados no repositório. Não são necessários pacotes separados antes de haver reutilização real. Fixar versões no lockfile e validar a compatibilidade da versão instalada antes de implementar cada integração.
@@ -83,7 +88,9 @@ docs/                       viabilidade, requisitos, arquitetura, roadmap e oper
 | Treasury | Caixa oficial, capital comprometido, alocações e movimentos confirmados. | Ledger, snapshots reconciliados e solicitações de funding. |
 | Scheduler / Health | Agentes vencidos, jobs de ingestão/conciliação e orçamento de providers. | Jobs, leases, tentativas, heartbeat, alertas e correlation IDs. |
 
-`BrokerProvider` deve expor `connect`, `healthCheck`, `getAccount`, `getCash`, `getPositions`, `getOrders`, `getOrder`, `placeOrder`, `modifyOrder`, `cancelOrder` e `getExecutions`. Cada capability informa suporte real a tipo de ordem, identificação do cliente, consulta, alteração, cancelamento, lote/tick, ambiente, sessão e limites. Operação sem suporte retorna erro explícito; nunca sucesso fabricado. Se não houver consulta confiável por identidade da ordem após timeout, a submissão autônoma fica bloqueada.
+`BrokerProvider` expõe `connect`, `healthCheck`, `getAccount`, `getCash`, `getPositions`, `getOrders`, `getOrder`, `getOrderByClientId`, `placeOrder`, `modifyOrder`, `cancelOrder` e `getExecutions`. Cada capability informa suporte real a tipo de ordem, identificação do cliente, consulta e reconciliação; lote/tick, ambiente, sessão e permissões também precisam ser verificados. Operação sem suporte retorna erro explícito; nunca sucesso fabricado. Se não houver consulta confiável por identidade da ordem após timeout, a submissão autônoma fica bloqueada.
+
+O adaptador MT5 inicial limita escrita a LIMIT/DAY, cancelamento e alteração de preço com quantidade preservada. A interface comum permite evolução, mas não amplia automaticamente as capacidades da ponte. `getCash` não transforma margem livre/balance MT5 em caixa liquidado: quando esse dado não é demonstrável, retorna indisponibilidade e a reconciliação completa permanece falsa. Taxas totais desconhecidas também impedem contabilidade final fabricada.
 
 `FundingProvider` separa criar instrução de depósito, consultar confirmação e solicitar/consultar retirada. PIX manual pode registrar instrução ou solicitação; só uma reconciliação independente promove para confirmado. `ATLAS_OWNER_PIX_KEY` é exclusivamente secret server-side e não faz parte de seed, fixture real, banco público ou log.
 
@@ -128,11 +135,11 @@ Falhas de risco, DB, broker, sessão, sincronização ou dados interrompem novas
 
 Implementar primeiro contratos, limites e contabilidade, depois conectores comprovados e execução, e por fim office. Não escolher estratégias intraday antes de provar licenciamento/atraso e não forçar runtime serverless em provider que exija sessão persistente, FIX, IP fixo ou gateway desktop. Se esse for o único caminho oficial viável, registrar nova decisão arquitetural e custo antes de contratar infraestrutura.
 
-Continuam PENDING: aplicação implantada, configuração de contas/segredos, schema aplicado, scheduler cloud, módulos completos, broker, funding, testes reais e fluxo R37. Fontes de produto foram consultadas na fase 0; tentativa de ler `supabase.com/changelog.md` falhou por tipo de conteúdo no leitor e rede indisponível no terminal. Revisar changelog relevante antes de implementação Supabase e registrar qualquer incompatibilidade.
+Supabase, proprietário, senha e TOTP estão configurados na instalação atual. Continuam PENDING: hospedagem externa, scheduler cloud, módulos ainda parciais, conta de corretagem/terminal, dados elegíveis de execução, funding automático, homologação real e fluxo R37. A configuração do banco não remove esses limites.
 
 ## Estado implementado em 14/09/2026
 
-Monólito modular em `src/core` (risco/OMS/research/análise), `src/providers` (HTTP real), `src/lib` (Auth BFF/cache/scheduler), `src/app` e `src/components`. Quatro migrations e testes PostgreSQL locais. A observação SMA gera somente HOLD; `finish_agent_analysis` grava evidências e conclui job com fencing na mesma transação. `BrokerProvider` é contrato sem adapter; execução financeira integrada, supervisor, fundamentos CVM completos, sessão B3 efetiva e PIX seguem PENDING. Auth usa cookies HttpOnly server-side, `getUser` + `getClaims`, owner UUID e AAL2. A UI não recebe chaves de serviço.
+Registro histórico: monólito modular em `src/core` (risco/OMS/research/análise), `src/providers` (HTTP real), `src/lib` (Auth BFF/cache/scheduler), `src/app` e `src/components`. Quatro migrations naquele momento e testes PostgreSQL locais. A observação SMA gera somente HOLD; `finish_agent_analysis` grava evidências e conclui job com fencing na mesma transação. Naquela etapa `BrokerProvider` ainda não tinha adapter. Auth usa cookies HttpOnly server-side, `getUser` + `getClaims`, owner UUID e AAL2. A UI não recebe chaves de serviço.
 
 ### Continuação em 15/09/2026
 
@@ -141,3 +148,13 @@ O cache de leitura usa upsert da chave única; evidências de análises são có
 A consulta CVM é explícita por código, ano e escopo e não é executada em cada job de agente. Ela baixa um ZIP anual do host oficial fixo, processa apenas índice/BPA/BPP/DRE necessários e retém versão, rubricas e SHA-256. Downloads/CSV/descompressão têm limites e não há extração de arquivos em disco. Sem comprovação da data de publicação, `pointInTimeEligible` e `executionEligible` continuam falsos. ITR, EBITDA, múltiplos e integração de fundamentos às estratégias permanecem pendentes.
 
 A visão geral e a tesouraria consomem `get_accounting_snapshot` em strings decimais. Totais exigem snapshot conciliado sem divergências e exibem a data de origem. São valores históricos; o motor de risco deve obter reconciliação elegível antes de autorizar uso de caixa. Valores ausentes nunca se tornam zero automaticamente.
+
+### Reorientação em 16/09/2026
+
+Executor e gateway foram separados da escolha da corretora. A migration `20260916045026_atlas_executor_gateway.sql` adiciona persistência de comandos, claims, estado contábil e fills, reutilizando os registros de decisão, risco, ordem, ledger e auditoria existentes. O runtime autenticado `/api/executor` permite monitoramento e trabalho limitado; configuração de ambiente não substitui aprovação e estado do banco.
+
+O claim durável é gravado antes da chamada. Comando despachado/ambíguo nunca volta a PENDING automaticamente. ACK e ledger usam controle de versão; fill confirmado é deduplicado e aplicado transacionalmente. A ponte MT5 tem journal SQLite local antes do `order_send`, verifica conta/símbolo e usa consultas oficiais para recuperação. Nenhuma consulta inconclusiva permite reenvio cego.
+
+A topologia externa candidata é Windows VPS com ATLAS/backend, scheduler, gateway Python e terminal, conectada ao Supabase. MetaQuotes Virtual Hosting aceita EA/WebRequest, mas não essa ponte Python/Node; o EA permanece alternativa pesquisada. Não houve contratação nem migração da operação local.
+
+Estratégias existentes continuam observação/HOLD. A conta real, a semântica de caixa liquidado/taxas, feed/sessão, propostas operacionais e homologação ponta a ponta permanecem gates explícitos. Detalhes em [EXECUTION_GATEWAY_DECISION.md](EXECUTION_GATEWAY_DECISION.md).

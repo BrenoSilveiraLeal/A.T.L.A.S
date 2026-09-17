@@ -8,7 +8,7 @@ import type {
 /** The wire contract belongs to ATLAS, not to a particular terminal or broker. */
 export type ExecutionGatewayKind = "MT5" | "PROFIT_DLL" | "OFFICIAL_BROKER_API";
 const id = z.string().trim().min(1).max(200);
-const amount = z.string().regex(/^\d+(\.\d{1,10})?$/);
+const amount = z.string().regex(/^(?:0|[1-9]\d{0,17})(?:\.\d{1,8})?$/);
 const at = z.iso.datetime({ offset: true });
 const qty = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const requestSchema = z.object({
@@ -32,7 +32,7 @@ const capabilitiesSchema = z.object({
 const executionSchema = z.object({
   executionId: id, brokerOrderId: id, accountId: id, symbol: id,
   side: z.enum(["BUY", "SELL"]), quantity: qty.positive(), price: amount,
-  fees: amount, executedAt: at,
+  fees: amount, feesVerified: z.boolean().optional(), executedAt: at,
 }).strict();
 
 export class GatewayError extends Error {
@@ -117,10 +117,15 @@ export class HttpExecutionGateway implements BrokerProvider {
     return this.account(await this.call("submit", { request: requestSchema.parse(request), idempotencyKey: request.clientOrderId }, orderSchema));
   }
   async modifyOrder(brokerOrderId: string, changes: Pick<BrokerOrderRequest, "quantity" | "limitPrice" | "stopPrice">, idempotencyKey: string): Promise<BrokerOrder> {
-    return this.account(await this.call("modify", { brokerOrderId: id.parse(brokerOrderId), changes, idempotencyKey: id.parse(idempotencyKey) }, orderSchema));
+    const terms = z.object({ quantity: qty.positive(), limitPrice: amount.nullable(), stopPrice: amount.nullable() }).strict().parse(changes);
+    const result = this.account(await this.call("modify", { brokerOrderId: id.parse(brokerOrderId), changes: terms, idempotencyKey: id.parse(idempotencyKey) }, orderSchema));
+    if (result.brokerOrderId !== brokerOrderId) throw new GatewayError("GATEWAY_ORDER_MISMATCH");
+    return result;
   }
   async cancelOrder(brokerOrderId: string, idempotencyKey: string): Promise<BrokerOrder> {
-    return this.account(await this.call("cancel", { brokerOrderId: id.parse(brokerOrderId), idempotencyKey: id.parse(idempotencyKey) }, orderSchema));
+    const result = this.account(await this.call("cancel", { brokerOrderId: id.parse(brokerOrderId), idempotencyKey: id.parse(idempotencyKey) }, orderSchema));
+    if (result.brokerOrderId !== brokerOrderId) throw new GatewayError("GATEWAY_ORDER_MISMATCH");
+    return result;
   }
   async getExecutions(cursor: string | null): Promise<{ executions: readonly BrokerExecution[]; nextCursor: string | null }> {
     const result = await this.call("executions", { cursor }, z.object({ executions: z.array(executionSchema), nextCursor: z.string().max(1000).nullable() }).strict());

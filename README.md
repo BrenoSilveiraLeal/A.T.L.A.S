@@ -2,9 +2,9 @@
 
 **Autonomous Trading & Learning Agent System** — plataforma pessoal de análise, agentes por ativo, controles de risco e auditoria para ações à vista B3.
 
-**Estado: aplicação e scheduler locais conectados ao Supabase; execução real bloqueada.** O projeto ATLAS usa Supabase Free em São Paulo, com seis migrations aplicadas, 33 tabelas protegidas por RLS e proprietário único cadastrado. Há fontes reais de leitura, agentes com revisões de estratégia e perfis de risco, histórico patrimonial por conta e decisões de observação **HOLD**. O proprietário ainda precisa definir a senha e cadastrar TOTP. Por sua escolha, a aplicação permanece local; não funciona com o computador desligado. Não há corretora/API disponível, PIX automático ou ordem real enviada.
+**Estado: aplicação e scheduler locais conectados ao Supabase; execução real bloqueada.** O projeto ATLAS usa Supabase Free em São Paulo e proprietário único com senha/TOTP já configurados. Há fontes reais de leitura, agentes com revisões de estratégia e perfis de risco, histórico patrimonial por conta e decisões de observação **HOLD**. A integração agora tem ATLAS Executor desacoplado e gateway com o SDK Python oficial MT5; nenhuma corretora foi escolhida ou autenticada. A instalação permanece local e ainda depende do PC ligado. Não há PIX automático nem ordem real enviada.
 
-Comece por [viabilidade](docs/FEASIBILITY.md), [pesquisa de corretoras](docs/BROKER_RESEARCH.md), [custos](COST.md) e [roadmap](docs/ROADMAP.md). Os 37 tópicos do pedido estão na [matriz de requisitos](docs/REQUIREMENTS.md).
+Comece pela [decisão do Executor/gateway](docs/EXECUTION_GATEWAY_DECISION.md), [pesquisa de corretoras](docs/BROKER_RESEARCH.md), [custos](COST.md) e [roadmap](docs/ROADMAP.md). Os 37 tópicos do pedido estão na [matriz de requisitos](docs/REQUIREMENTS.md).
 
 ## 1. Como as partes se conectam
 
@@ -20,8 +20,12 @@ flowchart LR
   E --> J[Scheduler com leases]
   J --> A
   F[Proposta de trade: integração futura] --> R[Risco central]
-  R --> X[Execution Engine: PENDING]
-  X --> B[Corretora oficial: BLOCKED]
+  R --> O[OMS e reserva]
+  O --> Q[(Fila durável Supabase)]
+  Q --> X[ATLAS Executor]
+  X --> G[Gateway HTTP privado]
+  G --> MT[Python MT5 + terminal]
+  MT --> B[Corretora PF B3: homologação pendente]
 ```
 
 Um agente é configuração + memória + jobs; não é um processo LLM permanente. O orçamento é um **limite proposto**, e não dinheiro criado. O ledger usa partidas balanceadas e PostgreSQL calcula valores `numeric`. Dinheiro cruza as interfaces financeiras como strings decimais. Nenhum token de broker, banco ou serviço é enviado ao navegador.
@@ -53,7 +57,7 @@ O repositório remoto pode não conter esta implementação até os commits loca
 
 ## 4. Supabase do ATLAS
 
-O projeto [ATLAS no Supabase](https://supabase.com/dashboard/project/bxikkprpvfirjlmnxqhh) já foi criado na organização **BrenoSilveiraLeal's**, região `sa-east-1`, plano Free, com custo informado de **US$ 0/mês**. O proprietário indicado já está vinculado ao banco. Os projetos de outros produtos não foram alterados. Nesta instalação, avance para o acesso inicial da seção 7; não recrie o banco nem o usuário.
+O projeto [ATLAS no Supabase](https://supabase.com/dashboard/project/bxikkprpvfirjlmnxqhh) já foi criado na organização **BrenoSilveiraLeal's**, região `sa-east-1`, plano Free, com custo informado de **US$ 0/mês**. O proprietário indicado já está vinculado ao banco e o login com MFA foi validado. Os projetos de outros produtos não foram alterados. Nesta instalação, avance para o login da seção 7; não recrie o banco nem o usuário.
 
 Somente para uma instalação nova:
 
@@ -67,7 +71,7 @@ Somente para uma instalação nova:
 
 ## 5. Aplicar as migrations e registrar o proprietário
 
-**Já concluído no projeto atual.** As seis migrations abaixo foram aplicadas e o proprietário registrado. Para um banco novo, execute integralmente no **SQL Editor**, nesta ordem:
+As seis migrations de fundação abaixo já foram aplicadas no projeto atual e o proprietário registrado. A sétima entrega a persistência do Executor; seu estado remoto deve ser conferido no histórico de migrations e no relatório de validação, sem reaplicar scripts às cegas. Para um banco novo, aplique na ordem:
 
 1. `supabase/migrations/20260913235609_atlas_foundation.sql`
 2. `supabase/migrations/20260914045633_atlas_analysis_pipeline.sql`
@@ -75,6 +79,7 @@ Somente para uma instalação nova:
 4. `supabase/migrations/20260914230025_atlas_cache_retention.sql`
 5. `supabase/migrations/20260915044052_atlas_portfolio_history.sql`
 6. `supabase/migrations/20260915044150_atlas_agent_configuration.sql`
+7. `supabase/migrations/20260916045026_atlas_executor_gateway.sql`
 
 Depois execute, substituindo o UUID pelo seu usuário real:
 
@@ -83,7 +88,7 @@ insert into public.system_state(owner_id)
 values ('UUID-DO-SEU-USUARIO');
 ```
 
-`system_state` aceita apenas um proprietário. Os defaults são live desligado e kill switch ativo. Sem esse registro, as RPCs recusam operações. As 33 tabelas públicas têm RLS: leitura exige proprietário e AAL2; gravações financeiras são restritas a RPCs server-side. O Security Advisor remoto registrou apenas proteção contra senhas vazadas desativada, recurso disponível a partir do Pro. Nenhum upgrade foi contratado. [Segurança de senhas no Supabase](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
+`system_state` aceita apenas um proprietário. Os defaults são live desligado e kill switch ativo. Sem esse registro, as RPCs recusam operações. As tabelas públicas têm RLS: leitura exige proprietário e AAL2; gravações financeiras são restritas a RPCs server-side. O Security Advisor remoto da fundação registrou apenas proteção contra senhas vazadas desativada, recurso disponível a partir do Pro. Nenhum upgrade foi contratado. [Segurança de senhas no Supabase](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
 
 Alternativa para manutenção com histórico do CLI: consulte `npx supabase --help`, `npx supabase login --help`, `npx supabase link --help` e `npx supabase db push --help`, autentique sua conta, vincule o **projeto ATLAS** e aplique as migrations. Não combine aplicação manual com `db push` sem antes alinhar o histórico de migrations; o SQL Editor não registra esse histórico automaticamente.
 
@@ -101,12 +106,12 @@ Na instalação atual, URL, chaves modernas, proprietário e segredo cron já es
 | `BRAPI_API_TOKEN` | Token obtido no painel oficial brapi; necessário para seu universo de ativos |
 | `CRON_SECRET` | Segredo aleatório forte, igual no servidor Next e na Edge Function |
 | `SESSION_COOKIE_SECURE` | `false` somente para HTTP local; `true` em produção HTTPS |
-| `LIVE_TRADING_ENABLED` | Manter `false`; esta versão recusa execução mesmo se alterado |
+| `LIVE_TRADING_ENABLED` | Manter `false`; alterar a variável não substitui os gates de conta, risco e reconciliação |
 | `ATLAS_OWNER_PIX_KEY` | Reservada para futura integração; deixe vazia por enquanto |
 
 Não cole secrets no chat, não adicione prefixo `NEXT_PUBLIC_` a credenciais e não publique `.env.local`. Gere `CRON_SECRET` com um gerenciador de senhas. Reinicie o servidor após mudar variáveis.
 
-## 7. Executar, definir senha e cadastrar TOTP
+## 7. Executar e entrar com MFA
 
 ```powershell
 npm run build
@@ -115,11 +120,11 @@ npm run local
 
 O build atual já está pronto. `npm run local` inicia o painel e aciona o scheduler a cada 60 segundos, sem chamadas sobrepostas; cada agente segue o intervalo configurado. Mantenha esse terminal aberto e use `Ctrl+C` para encerrar. É necessário acesso à internet para Supabase e fontes públicas. O comando recusa outra instância na porta 3000 e exige live desativado. Para editar o código, `npm run dev` inicia apenas o servidor de desenvolvimento.
 
-O acesso inicial desta instalação está em **`.supabase/atlas-owner-setup.html`**. Com o servidor em execução, abra esse arquivo local e use o link temporário para definir sua senha de pelo menos 14 caracteres. O bootstrap criou o usuário e gerou esse arquivo sem enviar e-mail. O arquivo contém um acesso pessoal: não o publique nem compartilhe. Se o link expirar antes do cadastro, execute `node scripts/bootstrap-supabase-owner.mjs bxikkprpvfirjlmnxqhh brenosilveiraleal@gmail.com` nesta instalação, que já possui as chaves no arquivo administrativo ignorado. O bootstrap é recusado depois de MFA verificado.
+**Nesta instalação, senha e TOTP já foram configurados e o painel protegido foi acessado.** Use o login habitual; não regenere acesso inicial nem recrie o autenticador. `.supabase/atlas-owner-setup.html` foi encerrado como link de primeiro acesso. Em uma instalação nova, o script administrativo `scripts/bootstrap-supabase-owner.mjs` pode preparar o acesso sem enviar e-mail; ele é recusado depois de MFA verificado. Arquivos administrativos são privados e ignorados pelo Git.
 
 Abra **http://127.0.0.1:3000**. Com a configuração presente, o acesso redireciona para `/login`. Novos cadastros e login anônimo estão desativados; os JWTs expiram em 900 segundos.
 
-Entre com seu e-mail/senha. Clique **Cadastrar autenticador**, adicione uma conta TOTP no aplicativo autenticador e informe a chave exibida somente durante o cadastro. Digite o código atual de seis dígitos. Guarde a recuperação de acesso conforme o procedimento do Supabase e seu gerenciador; não existe bypass local de MFA.
+Entre com seu e-mail/senha e o código atual de seis dígitos do autenticador. Somente em uma instalação nova, clique **Cadastrar autenticador** e adicione a conta TOTP usando a chave exibida no cadastro. Guarde a recuperação de acesso conforme o procedimento do Supabase e seu gerenciador; não existe bypass local de MFA.
 
 ## 8. Criar ativos, agentes e limites
 
@@ -162,7 +167,9 @@ Esse smoke consulta dados públicos reais, sem enviar ordem. Ele não comprova S
 
 ## 10. Hospedar o frontend/backend
 
-**Etapa futura, adiada por escolha do proprietário.** A configuração atual é local + Supabase Free. Vercel é o destino previsto, e a conta consultada usa **Hobby**. Antes de publicar, confira [COST.md](COST.md): a adequação do plano a uma aplicação que busca ganho financeiro **não foi presumida**, e seu cron diário não atende este scheduler. Nenhum plano pago foi contratado.
+**Etapa futura, ainda não contratada.** A configuração atual é local + Supabase Free. Para eliminar a dependência do PC, a opção prioritária avaliada é VPS Windows com ATLAS/backend, scheduler, gateway Python e terminal MT5 supervisionados; consulte a [decisão](docs/EXECUTION_GATEWAY_DECISION.md) e [custos](COST.md). A contratação depende do orçamento do proprietário e de compatibilidade/dimensionamento verificados.
+
+Vercel continua alternativa para hospedar o backend separado do gateway; não hospeda o terminal MT5. A conta consultada usa **Hobby**, cuja adequação ao uso financeiro não foi presumida e cujo cron diário não atende este scheduler. O procedimento opcional de deploy Next é:
 
 1. Envie os commits ao seu repositório GitHub quando revisados.
 2. No Vercel, clique **Add New → Project**, importe o repositório e selecione Next.js, raiz do projeto, `npm run build` e `npm ci`.
@@ -186,15 +193,17 @@ O Free pode pausar e não tem SLA de disponibilidade. Antes de live, backup/rest
 
 O painel converte medições vencidas, futuras ou inválidas para `UNKNOWN`, preservando o estado que foi originalmente registrado. A cada hora, o scheduler também pode remover até 500 registros de cache com mais de sete dias. Essa limpeza é restrita a `READ_CACHE_V1`: decisões, memória, ordens, ledger e auditoria são preservados. Falha na manutenção degrada a saúde e não cria sucesso fictício.
 
-## 12. Adicionar uma corretora
+## 12. Conectar o gateway de execução
 
-Leia [BROKER_RESEARCH.md](docs/BROKER_RESEARCH.md). Cedro API Trading, ProfitDLL e Genial MT5 Swing são caminhos condicionais diferentes, não providers prontos.
+Leia a [decisão técnica](docs/EXECUTION_GATEWAY_DECISION.md), a [comparação MT5](docs/research/MT5_GATEWAY_RESEARCH.md) e a [pesquisa ProfitDLL/VPS](docs/research/PROFIT_INFRA_RESEARCH.md). A rota principal usa o SDK Python oficial em `gateways/mt5` junto a um terminal autenticado. A API privada de uma corretora não é pré-requisito. ProfitDLL e API oficial direta continuam alternativas futuras no contrato `BrokerProvider`.
 
-O proprietário informou que ainda não possui corretora nem acesso a uma API oficial. A configuração do banco não fornece esse acesso.
+`src/core/executor.ts` recebe comandos aprovados, revalida risco, despacha uma vez e recupera resultados incertos por consulta. `src/providers/execution-gateway.ts` implementa o transporte privado; Supabase conserva comandos, claims, reservas, fills, ledger e auditoria. O gateway não escolhe ativo, preço, direção ou quantidade. A ponte inicial limita escrita a LIMIT/DAY, cancelamento e modificação de preço com mesma quantidade.
 
-O adaptador deve implementar `src/core/broker.ts` com documentação oficial, credenciais e capabilities verificadas. Integre então o serviço de execução às transações/reservas no banco, sem permitir que UI ou agente chamem `placeOrder` diretamente. Para timeout, consulte a ordem pelo identificador idempotente; nunca repita envio cegamente. Não substitua essa integração por Selenium, cookies de home broker ou endpoints privados.
+O runtime `POST /api/executor` exige segredo próprio server-side (`EXECUTOR_SECRET`) e configuração do gateway. Consulte `.env.example` e o README da ponte para as variáveis; nunca exponha essa rota ou o gateway como endpoint anônimo para ordens. As estratégias existentes continuam observação/HOLD e não geram operações BUY/SELL para exercitar a integração.
 
-Autenticação, conta, sandbox, confirmação/fill e reconciliação do canal escolhido são **PENDING**. Sem esses dados externos não é possível homologar o adaptador nem calcular seu custo total.
+Sem fonte oficial para caixa liquidado, custódia integral e taxas totais, a reconciliação completa continua indisponível. Margem livre do terminal não será convertida em saldo do Treasury. Credenciais/configuração sozinhas não liberam live.
+
+As próximas ações externas são escolher/abrir conta PF B3 com modalidade adequada e automação Python permitida, autenticar o terminal, autorizar uma VPS e homologar leituras/recuperação. Não houve escolha de corretora nem compra. Uma ordem real de validação exige parâmetros e autorização específicos; consulte [LIVE_READINESS.md](docs/LIVE_READINESS.md).
 
 ## 13. Ativar o sistema e operar com segurança
 

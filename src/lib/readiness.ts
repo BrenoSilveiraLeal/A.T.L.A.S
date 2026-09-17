@@ -11,10 +11,10 @@ export function readiness() {
         : "Configurar projeto isolado e usuário proprietário.",
     },
     {
-      name: "Corretora oficial B3",
+      name: "Gateway MT5 e conta B3",
       ready: false,
       detail:
-        "Provider não contratado nem homologado. Consulte a pesquisa de corretoras.",
+        "Ponte MT5 preparada; conta, terminal e capacidades ainda precisam de homologação.",
     },
     {
       name: "Feed e sessão de mercado",
@@ -25,13 +25,19 @@ export function readiness() {
     {
       name: "Reconciliação de conta",
       ready: false,
-      detail: "Aguardando consulta independente à corretora.",
+      detail: "Caixa liquidado, custódia e taxas totais aguardam fonte oficial conciliável.",
     },
     {
       name: "Certificação de execução",
       ready: false,
       detail:
         "Timeout, cancelamento e fills precisam ser validados no canal oficial.",
+    },
+    {
+      name: "Operação com PC desligado",
+      ready: false,
+      detail:
+        "ATLAS, scheduler e terminal precisam de hospedagem externa. A instalação atual é local.",
     },
     {
       name: "PIX automático",

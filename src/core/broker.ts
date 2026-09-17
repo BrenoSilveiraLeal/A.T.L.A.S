@@ -95,6 +95,8 @@ export interface BrokerExecution {
   readonly quantity: number;
   readonly price: DecimalString;
   readonly fees: DecimalString;
+  /** False for provisional terminal charges; never post these as final fees. */
+  readonly feesVerified?: boolean;
   readonly executedAt: string;
 }
 

@@ -10,6 +10,7 @@ const sensitiveTables = [
   "order_events", "executions", "positions", "portfolio_snapshots", "agent_memories",
   "ledger_accounts", "ledger_transactions", "ledger_entries", "agent_allocations",
   "treasury_transactions", "order_reservations", "meetings", "alerts", "audit_logs", "job_runs",
+  "executor_commands", "executor_order_states", "executor_ledger_states", "executor_observations", "executor_sync",
 ];
 
 /** No request in this script may mutate Auth, PostgREST or any other service. */

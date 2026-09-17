@@ -15,3 +15,9 @@ artifacts/
 *.log
 .playwright-cli/
 output/
+__pycache__/
+*.pyc
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.venv-mt5/
