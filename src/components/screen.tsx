@@ -9,6 +9,7 @@ import { recordedPortfolio } from "@/core/accounting-view";
 import { FundamentalsPanel } from "./fundamentals-panel";
 import { PortfolioPanel } from "./portfolio-panel";
 import { AgentConfigForm } from "./agent-config-form";
+import { PaperPanel } from "./paper-panel";
 import { parsePortfolioHistory } from "@/lib/portfolio";
 import {
   ArrowRight,
@@ -245,6 +246,10 @@ const names: Record<string, [string, string]> = {
     "Research e validação",
     "Estratégias precisam sobreviver a custos e dados fora da amostra.",
   ],
+  paper: [
+    "Paper Trading",
+    "Ordens e caixa virtuais com preços identificados de mercado.",
+  ],
   "agent-detail": [
     "Detalhe do agente",
     "Estado, histórico de decisões e orçamento proposto.",
@@ -309,7 +314,7 @@ export function Screen({
     )[section] ?? section;
   const records = useRemote(
     resource,
-    connected && !["news", "market", "settings", "portfolio", "agents", "research"].includes(section),
+    connected && !["news", "market", "settings", "portfolio", "agents", "research", "paper"].includes(section),
     revision,
   );
   const [heading, subheading] = names[section] ?? names.overview;
@@ -702,6 +707,7 @@ export function Screen({
         </>
       )}
       {section === "news" && <News connected={connected} revision={revision} />}
+      {section === "paper" && <PaperPanel connected={connected} />}
       {(section === "settings" ||
         section === "health" ||
         section === "risk") && (

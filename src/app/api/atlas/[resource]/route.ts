@@ -6,6 +6,7 @@ import { readiness } from "@/lib/readiness";
 import { riskConfigSchema } from "@/lib/risk-config";
 import { normalizeHealth } from "@/lib/health";
 import { loadPortfolioHistory } from "@/lib/portfolio";
+import { loadPaper, mutatePaper } from "@/lib/paper";
 import {
   configureAgent,
   publishObservationStrategy,
@@ -54,6 +55,7 @@ export async function GET(request: Request, context: RouteContext) {
     const url = new URL(request.url);
     if (resource === "readiness")
       return json({ liveEnabled: false, gates: readiness() });
+    if (resource === "paper") return json(await loadPaper(adminClient(), user.id));
     if (resource === "accounting") {
       const { data, error } = await adminClient().rpc(
         "get_accounting_snapshot",
@@ -165,11 +167,15 @@ export async function POST(request: Request, context: RouteContext) {
         p_reason: "Parada manual pelo proprietário",
       });
       if (error) throw error;
+      const paper = await admin.rpc("paper_set_paused", { p_owner_id: user.id, p_paused: true });
+      // A paper account is optional; a missing account does not weaken the live kill switch.
+      const paperPaused = !paper.error || paper.error.message.includes("ATLAS_PAPER_ACCOUNT_REQUIRED");
       return json({
         state: data,
+        paperPaused,
         cancellation: "BROKER_NOT_CONFIGURED",
         message:
-          "Novas ordens bloqueadas. Cancelamentos na corretora não puderam ser confirmados; confira o canal oficial. Posições preservadas.",
+          `Novas ordens reais bloqueadas. ${paperPaused ? "Ordens virtuais abertas canceladas e simulação pausada." : "Não foi possível pausar a simulação; verifique a carteira virtual."} Cancelamentos na corretora não puderam ser confirmados; confira o canal oficial. Posições preservadas.`,
       });
     }
     const rate = await admin.rpc("consume_rate_limit", {
@@ -186,6 +192,7 @@ export async function POST(request: Request, context: RouteContext) {
       );
     if (resource === "strategies")
       return json(await publishObservationStrategy(user.id, body), 201);
+    if (resource === "paper") return json(await mutatePaper(admin, user.id, body));
     if (resource === "agent-config")
       return json(await configureAgent(user.id, body));
     if (resource === "assets") {

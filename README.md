@@ -2,7 +2,7 @@
 
 **Autonomous Trading & Learning Agent System** — plataforma pessoal de análise, agentes por ativo, controles de risco e auditoria para ações à vista B3.
 
-**Estado: aplicação e scheduler locais conectados ao Supabase; execução real bloqueada.** O projeto ATLAS usa Supabase Free em São Paulo e proprietário único com senha/TOTP já configurados. Há fontes reais de leitura, agentes com revisões de estratégia e perfis de risco, histórico patrimonial por conta e decisões de observação **HOLD**. A integração agora tem ATLAS Executor desacoplado e gateway com o SDK Python oficial MT5; nenhuma corretora foi escolhida ou autenticada. A instalação permanece local e ainda depende do PC ligado. Não há PIX automático nem ordem real enviada.
+**Estado: aplicação local com Supabase Free; execução real bloqueada.** O ATLAS tem leitura de fontes públicas, análises dos agentes em **HOLD**, backtest de pesquisa e um livro de **Paper Trading separado e explicitamente virtual**. O proprietário pode criar proposta, aprovar, abrir ordem limite virtual e verificar preenchimento com uma cotação posterior. O projeto Supabase foi reativado em 25/09/2026 após pausa do plano Free; confirme que está `ACTIVE_HEALTHY` antes de usar o painel. A integração real tem Executor e gateway MT5 ainda sem conta/corretora homologada. O computador precisa ficar ligado. Não há PIX automático nem ordem real enviada.
 
 Comece pela [decisão do Executor/gateway](docs/EXECUTION_GATEWAY_DECISION.md), [pesquisa de corretoras](docs/BROKER_RESEARCH.md), [custos](COST.md) e [roadmap](docs/ROADMAP.md). Os 37 tópicos do pedido estão na [matriz de requisitos](docs/REQUIREMENTS.md).
 
@@ -19,6 +19,10 @@ flowchart LR
   CR[Supabase Cron: futuro] --> E[Edge atlas-tick: futuro]
   E --> J[Scheduler com leases]
   J --> A
+  C --> PA[Paper: análise e proposta guiada]
+  PA --> PR[Risco e aprovação manual]
+  PR --> PV[(Ordens, fills e ledger virtuais)]
+  PV --> UI
   F[Proposta de trade: integração futura] --> R[Risco central]
   R --> O[OMS e reserva]
   O --> Q[(Fila durável Supabase)]
@@ -53,7 +57,7 @@ Copy-Item .env.example .env.local
 
 Na instalação atual, `.env.local` já está configurado. Preserve esse arquivo; a cópia do exemplo acima é apenas para uma instalação nova.
 
-O repositório remoto pode não conter esta implementação até os commits locais serem enviados. Os comandos e arquivos desta entrega estão na pasta de trabalho atual. Evite executar builds dentro do OneDrive: ele pode transformar arquivos de `.next` em pontos de reanálise e causar `EPERM`. Uma cópia fora de pastas sincronizadas evita esse problema; não mova arquivos de código enquanto houver trabalho em andamento.
+O repositório remoto pode não conter esta implementação até os commits locais serem enviados. Os comandos e arquivos desta entrega estão na pasta de trabalho atual. O OneDrive já causou `EPERM` ao Next.js remover um artefato de `.next`; se isso reaparecer, registre a falha sem tentar contornar bloqueios de permissão.
 
 ## 4. Supabase do ATLAS
 
@@ -71,7 +75,7 @@ Somente para uma instalação nova:
 
 ## 5. Aplicar as migrations e registrar o proprietário
 
-As seis migrations de fundação abaixo já foram aplicadas no projeto atual e o proprietário registrado. A sétima entrega a persistência do Executor; seu estado remoto deve ser conferido no histórico de migrations e no relatório de validação, sem reaplicar scripts às cegas. Para um banco novo, aplique na ordem:
+As oito migrations abaixo já foram aplicadas no projeto atual e o proprietário registrado. A sétima entrega a persistência do Executor e a oitava o Paper Trading; seu estado remoto foi conferido no histórico de migrations. Não reaplique scripts às cegas. Para um banco novo, aplique na ordem:
 
 1. `supabase/migrations/20260913235609_atlas_foundation.sql`
 2. `supabase/migrations/20260914045633_atlas_analysis_pipeline.sql`
@@ -80,6 +84,7 @@ As seis migrations de fundação abaixo já foram aplicadas no projeto atual e o
 5. `supabase/migrations/20260915044052_atlas_portfolio_history.sql`
 6. `supabase/migrations/20260915044150_atlas_agent_configuration.sql`
 7. `supabase/migrations/20260916045026_atlas_executor_gateway.sql`
+8. `supabase/migrations/20260925040950_atlas_paper_trading.sql`
 
 Depois execute, substituindo o UUID pelo seu usuário real:
 
@@ -118,7 +123,7 @@ npm run build
 npm run local
 ```
 
-O build atual já está pronto. `npm run local` inicia o painel e aciona o scheduler a cada 60 segundos, sem chamadas sobrepostas; cada agente segue o intervalo configurado. Mantenha esse terminal aberto e use `Ctrl+C` para encerrar. É necessário acesso à internet para Supabase e fontes públicas. O comando recusa outra instância na porta 3000 e exige live desativado. Para editar o código, `npm run dev` inicia apenas o servidor de desenvolvimento.
+`npm run local` inicia o painel e aciona o scheduler a cada 60 segundos, sem chamadas sobrepostas; cada agente segue o intervalo configurado. Mantenha esse terminal aberto e use `Ctrl+C` para encerrar. É necessário acesso à internet para Supabase e fontes públicas. O comando recusa outra instância na porta 3000 e exige live desativado. Para editar o código, `npm run dev` inicia apenas o servidor de desenvolvimento. Se o build encontrar `EPERM` no OneDrive, consulte o resultado atual em [VALIDATION.md](docs/VALIDATION.md).
 
 **Nesta instalação, senha e TOTP já foram configurados e o painel protegido foi acessado.** Use o login habitual; não regenere acesso inicial nem recrie o autenticador. `.supabase/atlas-owner-setup.html` foi encerrado como link de primeiro acesso. Em uma instalação nova, o script administrativo `scripts/bootstrap-supabase-owner.mjs` pode preparar o acesso sem enviar e-mail; ele é recusado depois de MFA verificado. Arquivos administrativos são privados e ignorados pelo Git.
 
@@ -141,6 +146,10 @@ Uma falha de fonte coloca o agente em `RISK_BLOCKED`; revise o erro no banco/sa�
 Em **Mercado → Fundamentos · CVM**, informe o código CVM da companhia, o exercício e o escopo consolidado ou individual. O conector lê DFP anual e conserva rubrica, versão, moeda/escala e arquivo de origem. Não deduz código CVM pelo ticker, nem substitui contas ausentes por zero. A consulta não precisa de token CVM; exige o login privado do ATLAS e acesso HTTPS à fonte pública. São permitidas quatro novas consultas à fonte por dia; o resultado normalizado fica em cache por sete dias. O acesso de rede à CVM ainda precisa de validação no ambiente de implantação, conforme [CVM_FUNDAMENTALS.md](docs/CVM_FUNDAMENTALS.md).
 
 A visão geral e a carteira mostram histórico patrimonial da conta selecionada; cada ponto corresponde a um snapshot conciliado, sem preencher períodos ausentes. As métricas da visão geral usam a mesma conta do gráfico. A carteira também exibe posições com ativo, agente e data de reconciliação; a tesouraria consulta o último snapshot contábil. Valores mantêm precisão decimal e não representam saldo disponível para uma nova ordem. Sem corretora conectada e registros válidos, o histórico e os totais permanecem indisponíveis.
+
+## Paper Trading — sua primeira operação virtual
+
+Abra **http://127.0.0.1:3000/app/paper** após login com MFA. Crie uma carteira de teste (o formulário sugere R$ 10.000), cadastre um ativo em **Mercado** e um agente com orçamento em **Agentes**, ative o agente e volte à simulação. Escolha direção, quantidade e preço limite, gere a proposta e aprove após ler a análise e os limites. A ordem virtual só poderá ser preenchida quando a brapi publicar uma cotação posterior à abertura e compatível com o limite; use **Verificar nova cotação**. O resultado ficará no livro virtual e na auditoria da própria aba. Isso pode levar tempo e pode não preencher. Os dados de mercado são reais e atrasados; dinheiro, ordem e fill são sempre simulados. [Manual completo e premissas](docs/PAPER_TRADING.md).
 
 ## 9. Validar localmente
 

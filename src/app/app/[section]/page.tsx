@@ -17,6 +17,7 @@ const sections = [
   "settings",
   "health",
   "research",
+  "paper",
 ];
 export default async function SectionPage({
   params,

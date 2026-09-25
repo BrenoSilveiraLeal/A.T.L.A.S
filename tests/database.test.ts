@@ -178,6 +178,116 @@ afterAll(async () => {
   await db?.close();
 });
 
+describe("paper trading isolated virtual book", () => {
+  async function openPaper() {
+    await db.query("select public.paper_open_account($1,1000,200,500,50)", [owner]);
+  }
+  async function propose(agentId: string, side: string, quantity: number, limit: string, key: string) {
+    return (await db.query<{ id: string; status: string }>(
+      `select id,status from public.paper_create_proposal($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)`,
+      [owner, agentId, side, quantity, limit, "10.00", "https://example.test/quote",
+        new Date(Date.now() - 600000).toISOString(), "https://example.test/history",
+        new Date(Date.now() - 600000).toISOString(), "paper-fixture/1", "Proposta de teste virtual com origem explícita.",
+        JSON.stringify({ sma3: "10", sma8: "9" }), key],
+    )).rows[0];
+  }
+  it("persists approval, next-quote fill, balanced virtual ledger and idempotency", async () => {
+    await openPaper();
+    const a = await agent("Virtual trader");
+    await db.query("select public.update_agent_enabled($1,$2,true)", [owner, a.id]);
+    const key = "30000000-0000-4000-8000-000000000001";
+    const first = await propose(a.id, "BUY", 2, "10.50", key);
+    const same = await propose(a.id, "BUY", 2, "10.50", key);
+    expect(same.id).toBe(first.id);
+    const review = await db.query<{ result: { status: string; orderId: string } }>(
+      "select public.paper_review_proposal($1,$2,true) as result", [owner, first.id],
+    );
+    expect(review.rows[0].result.status).toBe("OPEN");
+    const prior = await db.query<{ result: { filled: number } }>(
+      "select public.paper_settle_quote($1,$2,10,'https://example.test/quote',$3) as result",
+      [owner, assetId, new Date(Date.now() - 600000).toISOString()],
+    );
+    expect(prior.rows[0].result.filled).toBe(0);
+    await admin();
+    await db.query("update public.paper_orders set placed_at=now()-interval '2 minutes' where id=$1", [review.rows[0].result.orderId]);
+    await service();
+    const settled = await db.query<{ result: { filled: number } }>(
+      "select public.paper_settle_quote($1,$2,10,'https://example.test/quote',$3) as result",
+      [owner, assetId, new Date(Date.now() - 60000).toISOString()],
+    );
+    expect(settled.rows[0].result.filled).toBe(1);
+    const repeated = await db.query<{ result: { filled: number } }>(
+      "select public.paper_settle_quote($1,$2,10,'https://example.test/quote',$3) as result",
+      [owner, assetId, new Date(Date.now() - 60000).toISOString()],
+    );
+    expect(repeated.rows[0].result.filled).toBe(0);
+    const account = await db.query<{ cash: string; reserved_cash: string }>("select cash,reserved_cash from public.paper_accounts where owner_id=$1", [owner]);
+    expect(Number(account.rows[0].cash)).toBeLessThan(1000);
+    expect(Number(account.rows[0].reserved_cash)).toBe(0);
+    const positions = await db.query<{ quantity: number }>("select quantity from public.paper_positions where owner_id=$1", [owner]);
+    expect(positions.rows[0].quantity).toBe(2);
+    const sell = await propose(a.id, "SELL", 1, "10.00", "30000000-0000-4000-8000-000000000005");
+    const sellReview = await db.query<{ result: { status: string; orderId: string } }>(
+      "select public.paper_review_proposal($1,$2,true) as result", [owner, sell.id],
+    );
+    expect(sellReview.rows[0].result.status).toBe("OPEN");
+    await admin();
+    await db.query("update public.paper_orders set placed_at=now()-interval '2 minutes' where id=$1", [sellReview.rows[0].result.orderId]);
+    await service();
+    const sale = await db.query<{ result: { filled: number } }>(
+      "select public.paper_settle_quote($1,$2,11,'https://example.test/quote',$3) as result",
+      [owner, assetId, new Date(Date.now() - 60000).toISOString()],
+    );
+    expect(sale.rows[0].result.filled).toBe(1);
+    const closed = await db.query<{ quantity: number; realized_pnl: string }>(
+      "select quantity,realized_pnl from public.paper_positions where owner_id=$1", [owner],
+    );
+    expect(closed.rows[0].quantity).toBe(1);
+    expect(Number(closed.rows[0].realized_pnl)).toBeGreaterThan(0);
+    const balance = await db.query<{ total: string }>("select sum(amount) as total from public.paper_ledger_entries where owner_id=$1", [owner]);
+    expect(Number(balance.rows[0].total)).toBe(0);
+    const real = await db.query<{ count: string }>("select count(*) from public.orders where owner_id=$1", [owner]);
+    expect(Number(real.rows[0].count)).toBe(0);
+  });
+
+  it("rejects insufficient virtual cash, short selling and direct anonymous access", async () => {
+    await openPaper();
+    const a = await agent("Risk fixture");
+    await db.query("select public.update_agent_enabled($1,$2,true)", [owner, a.id]);
+    const buy = await propose(a.id,"BUY",20,"10.00","30000000-0000-4000-8000-000000000002");
+    const buyReview = await db.query<{ result: { status: string; risk: { reasons: string[] } } }>(
+      "select public.paper_review_proposal($1,$2,true) as result", [owner,buy.id],
+    );
+    expect(buyReview.rows[0].result.status).toBe("REJECTED");
+    expect(buyReview.rows[0].result.risk.reasons).toContain("AGENT_BUDGET_LIMIT");
+    const sell = await propose(a.id,"SELL",1,"10.00","30000000-0000-4000-8000-000000000003");
+    const sellReview = await db.query<{ result: { risk: { reasons: string[] } } }>(
+      "select public.paper_review_proposal($1,$2,true) as result", [owner,sell.id],
+    );
+    expect(sellReview.rows[0].result.risk.reasons).toContain("SHORT_SELLING_FORBIDDEN");
+    await db.exec("set local role anon");
+    await rejected("select public.paper_open_account($1,1000,200,500,50)",[owner],"permission denied");
+    await rejected("select * from public.paper_accounts", [], "permission denied");
+    await signedIn(outsider);
+    const visible = await db.query("select * from public.paper_accounts");
+    expect(visible.rows).toHaveLength(0);
+  });
+
+  it("pauses and cancels virtual orders without touching real execution", async () => {
+    await openPaper();
+    const a = await agent("Pause fixture");
+    await db.query("select public.update_agent_enabled($1,$2,true)", [owner,a.id]);
+    const proposal = await propose(a.id,"BUY",1,"10.50","30000000-0000-4000-8000-000000000004");
+    await db.query("select public.paper_review_proposal($1,$2,true)",[owner,proposal.id]);
+    await db.query("select public.paper_set_paused($1,true)",[owner]);
+    const order = await db.query<{ status: string }>("select status from public.paper_orders where proposal_id=$1",[proposal.id]);
+    expect(order.rows[0].status).toBe("CANCELLED");
+    const account = await db.query<{ paused: boolean; reserved_cash: string }>("select paused,reserved_cash from public.paper_accounts where owner_id=$1",[owner]);
+    expect(account.rows[0].paused).toBe(true);
+    expect(Number(account.rows[0].reserved_cash)).toBe(0);
+  });
+});
+
 it.skipIf(process.env.ATLAS_PUBLIC_DATA_SMOKE !== "1")(
   "real public data -> analysis -> PostgreSQL decision, memory and audit",
   async () => {

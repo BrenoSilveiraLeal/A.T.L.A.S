@@ -11,6 +11,7 @@ const sensitiveTables = [
   "ledger_accounts", "ledger_transactions", "ledger_entries", "agent_allocations",
   "treasury_transactions", "order_reservations", "meetings", "alerts", "audit_logs", "job_runs",
   "executor_commands", "executor_order_states", "executor_ledger_states", "executor_observations", "executor_sync",
+  "paper_accounts", "paper_positions", "paper_proposals", "paper_orders", "paper_fills", "paper_ledger_entries", "paper_events",
 ];
 
 /** No request in this script may mutate Auth, PostgREST or any other service. */
@@ -131,7 +132,8 @@ export async function verifySupabase() {
   // Small bounded batches avoid a burst across every table on the free project.
   for (let offset = 0; offset < sensitiveTables.length; offset += 4) {
     await Promise.all(sensitiveTables.slice(offset, offset + 4).map(async (table) => {
-      const result = await anonymous.from(table).select("id").limit(1);
+      // Some composite-key tables have no `id`; `*` with limit 1 tests access itself.
+      const result = await anonymous.from(table).select("*").limit(1);
       anonymousTables[table] = classifyAnonymousRead(result);
     }));
   }

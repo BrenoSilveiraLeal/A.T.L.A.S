@@ -29,6 +29,7 @@ const navigation = [
   { path: "/app/market", label: "Mercado", icon: ChartCandlestick },
   { path: "/app/news", label: "Inteligência", icon: Newspaper },
   { path: "/app/orders", label: "Ordens", icon: ListOrdered },
+  { path: "/app/paper", label: "Simulação", icon: ChartCandlestick },
   { path: "/app/treasury", label: "Tesouraria", icon: Wallet },
   { path: "/app/risk", label: "Risco e limites", icon: ShieldCheck },
   { path: "/app/audit", label: "Auditoria", icon: ScrollText },

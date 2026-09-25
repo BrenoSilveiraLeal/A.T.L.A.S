@@ -1,6 +1,6 @@
 # Live readiness — BLOCKED
 
-Atualizado em **16/09/2026**. O ATLAS tem Executor desacoplado, persistência de comandos/fills e ponte com o SDK Python oficial MT5 em desenvolvimento/validação local. **Não há conta de corretagem conectada nem homologação real.** A estratégia existente continua de observação e só persiste HOLD. Alterar `LIVE_TRADING_ENABLED` não substitui os demais gates nem transforma a ponte em sistema operacional.
+Atualizado em **25/09/2026**. O ATLAS tem Executor desacoplado, persistência de comandos/fills e ponte com o SDK Python oficial MT5 em desenvolvimento/validação local. **Não há conta de corretagem conectada nem homologação real.** A estratégia de agentes para live continua apenas de observação e persiste HOLD. O novo [Paper Trading](PAPER_TRADING.md) usa tabelas, ordens, fills e caixa virtuais distintos e não altera qualquer gate de live. Alterar `LIVE_TRADING_ENABLED` não substitui os demais gates nem transforma a ponte em sistema operacional.
 
 A API privada de uma corretora deixou de ser requisito principal. O caminho é ATLAS → Risk/OMS → Executor → gateway MT5 → corretora → B3. ProfitDLL e API oficial direta são alternativas futuras no mesmo contrato. Consulte a [decisão de integração](EXECUTION_GATEWAY_DECISION.md).
 
