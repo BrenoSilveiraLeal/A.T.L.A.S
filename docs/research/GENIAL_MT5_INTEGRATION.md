@@ -14,6 +14,21 @@ Atualizado em **22/10/2026**. Complementa a [decisão do gateway](../EXECUTION_G
 
 Fato documental adicional: **a versão Swing Trade é limitada ao sistema Netting** (mesma página de robôs acima). Uma conta Netting mantém uma única posição por símbolo; a atribuição a agentes continua no ledger ATLAS por fill.
 
+### Respostas do atendimento (chat, 22/10/2026)
+
+| Pergunta | Resposta da Genial | Efeito no ATLAS |
+| --- | --- | --- |
+| Plataforma e servidor | MT5 **SwingTrade**; servidor `GenialInvestimentos-PRD` correto | Perfil `GENIAL_SWING` confirmado |
+| Zeragem | Posição passa de um dia para o outro normalmente | Agentes podem segurar por dias/semanas |
+| Lote | **1 a 99 ações: usar o código com F** (fracionário) | Ponte recusa código padrão fora de múltiplos de 100 (`roundLot`) e código F acima de 99 (`maxQuantity`); `src/core/lots.ts` separa 137 em 100 + 37F |
+| Tipo de ordem | Ordem dia; toda ordem limitada fica no livro | Mantido LIMIT/DAY |
+| Saldo/limite | Swing usa o **saldo da conta**; alocação (Limite Fácil) é só para day trade; **o terminal não mostra o saldo** | O R$ 0,00 do MetaTrader é esperado; o teto definido pelo proprietário limita as IAs |
+| Liquidação | Venda gera saldo provisionado utilizável em nova compra; rejeições são avaliadas pelo time de risco | Recompra no mesmo dia é possível |
+| Custódia externa | Posições de outros canais aparecem no MT5 Swing | Conciliação precisa separar posições do proprietário e dos agentes |
+| Custos | Ver site de custos; taxas B3 no site da B3 | Custódia zero e MT5 gratuito (páginas públicas); corretagem sem RLP pendente |
+
+Perguntas enviadas por e-mail para `canaldotrader@genial.com.vc`: corretagem no canal MT5 Swing sem RLP, taxas nos negócios do MT5, limites de envio automatizado, comportamento em queda de conexão e canal alternativo, uso em VPS, posição única ou separada entre PETR4 e PETR4F, consulta de saldo e retorno de rejeição, e tipo de preenchimento `Return`.
+
 ### O que continua não confirmado
 
 - Nome exato do servidor Swing exibido no terminal. Só o proprietário consegue ler após o login.

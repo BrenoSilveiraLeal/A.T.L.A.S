@@ -177,10 +177,11 @@ export function RealMoneyChecklist({ connected }: { connected: boolean }) {
   const items: [string, boolean | null, string][] = [
     ["Ponte com a Genial conectada", live ? Boolean(live.available && live.health?.healthy && !live.health.reason) : null, "MetaTrader aberto e ponte rodando neste computador."],
     ["Conta real em reais", live?.available ? live.account?.mode === "REAL" : null, "Conferido pela ponte."],
-    ["Saldo na conta do MetaTrader", live?.available && live.balance ? Number(live.balance.balance) > 0 : null, "Hoje o MetaTrader mostra R$ 0,00: deposite pelo app da Genial e, se preciso, aloque limite para a plataforma (pergunta 5)."],
+    ["Dinheiro depositado na conta Genial", null, "O MetaTrader SwingTrade não mostra o saldo (confirmado pela Genial). Deposite pelo app da Genial e confira o saldo lá; não é preciso alocar limite no Swing."],
     ["Teto de dinheiro definido", controls ? Number(controls.ceiling) > 0 : null, "Defina na Carteira quanto as IAs podem usar."],
-    ["Plataforma SwingTrade confirmada", false, "Confirme no app da Genial (Plataformas e Produtos) e me avise."],
-    ["Respostas da Genial (lote, preenchimento, limite, custos, liquidação)", false, "Cole as respostas no chat com o Claude."],
+    ["Plataforma SwingTrade confirmada", true, "Genial confirmou: MT5 SwingTrade, servidor GenialInvestimentos-PRD, posição pode passar de um dia para o outro."],
+    ["Regras de lote e saldo confirmadas", true, "Lote padrão em múltiplos de 100; 1 a 99 ações pelo código F (fracionário); Swing usa o saldo da conta."],
+    ["Respostas pendentes da Genial (corretagem, taxas, limites, VPS, fracionário)", false, "Enviadas por e-mail para canaldotrader@genial.com.vc. Cole a resposta no chat com o Claude."],
     ["Regra das IAs aprovada no backtest", false, "Nenhuma regra testada superou o CDI e o comprar e segurar ainda (docs/BACKTEST_STRATEGIES.md)."],
     ["Primeira ordem real de validação autorizada por você", false, "Pequena, com ação, quantidade e preço escolhidos por você."],
   ];

@@ -21,7 +21,7 @@ python -m venv .venv-mt5
 .\.venv-mt5\Scripts\python.exe -m pip install -r gateways/mt5/requirements.txt
 ```
 
-3. Criar uma configuração privada em `.supabase/mt5-instruments.json`, partindo de `instruments.example.json`. Ela começa vazia. Preencher somente símbolos comprovados de ações à vista B3, `terminalExchange` e ISIN reportados pelo terminal, com `contractSize` verificado. Não usar sufixos/nomes de Forex, CFD ou futuros como substitutos de ações.
+3. Criar uma configuração privada (na Genial: código padrão com `"roundLot": 100`; código fracionário `F` com `"maxQuantity": 99`) em `.supabase/mt5-instruments.json`, partindo de `instruments.example.json`. Ela começa vazia. Preencher somente símbolos comprovados de ações à vista B3, `terminalExchange` e ISIN reportados pelo terminal, com `contractSize` verificado. Não usar sufixos/nomes de Forex, CFD ou futuros como substitutos de ações.
 4. Configurar as variáveis abaixo **no ambiente do processo da ponte**. O script Python não carrega `.env.local` automaticamente. Segredos devem vir do gerenciador de segredos/ambiente privado do serviço, sem constar de comandos salvos, Git ou logs.
 
 | Variável | Conteúdo |

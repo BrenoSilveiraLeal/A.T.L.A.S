@@ -51,11 +51,10 @@ export function GenialPanel({ connected }: { connected: boolean }) {
             Conta {live.account.mode === "REAL" ? "real" : live.account.mode} {live.account.accountId} · {live.provider} ·
             ordens pelo ATLAS <strong>bloqueadas</strong> · lido às {time(live.observedAt)}
           </p>
-          {live.balance && <div className="metrics-row compact-metrics">
-            <div className="metric"><span>Saldo na Genial (MetaTrader)</span><strong>{formatBrl(live.balance.balance)}</strong><small>Informado pelo terminal</small></div>
-            <div className="metric"><span>Patrimônio (saldo + ações)</span><strong>{formatBrl(live.balance.equity)}</strong><small>Informado pelo terminal</small></div>
-            <div className="metric"><span>Livre para operar</span><strong>{formatBrl(live.balance.marginFree)}</strong><small>Pode não ser o saldo sacável (D+2)</small></div>
-          </div>}
+          <div className="notice">
+            <strong>Saldo:</strong> no MetaTrader SwingTrade a Genial usa o saldo da sua conta, mas <strong>o terminal não mostra esse saldo</strong>
+            (confirmado pela Genial em 22/10/2026). Confira o saldo no app da Genial; as IAs só usam o teto que você define em &quot;Dinheiro do ATLAS na Genial&quot;.
+          </div>
           <div className="two-columns">
             <div>
               <h3>Posições na corretora</h3>

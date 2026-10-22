@@ -186,6 +186,19 @@ class GenialProfileTests(unittest.TestCase):
         self.assertEqual("2026-10-22T17:50:00.000Z", self.rpc("quote", {"symbol": "TEST3"})["quotedAt"])
         self.fails("INVALID_CONFIGURATION", replace(self.config, server_utc_offset_minutes=900).validate)
 
+    def test_genial_lot_rules_route_quantities_to_the_right_symbol(self):
+        spec = {"market": "B3_CASH_EQUITY", "terminalExchange": "TEST-B3-EXCHANGE", "isin": "BRTESTACNOR0", "contractSize": "1"}
+        self.gateway.config = replace(self.config, instruments={"TEST3": {**spec, "roundLot": 100}})
+        self.request["quantity"] = 37
+        self.fails("USE_FRACTIONAL_SYMBOL", self.submit)
+        self.request["quantity"] = 200
+        self.assertEqual("OPEN", self.submit()["status"])
+        self.gateway.config = replace(self.config, instruments={"TEST3": {**spec, "maxQuantity": 99}})
+        self.request["quantity"] = 150
+        self.fails("USE_STANDARD_LOT_SYMBOL", lambda: self.submit("intent-lot-2"))
+        self.fails("INVALID_INSTRUMENT_CONFIGURATION", replace(self.config, instruments={"TEST3": {**spec, "roundLot": 0}}).validate)
+        self.fails("INVALID_REQUEST", replace(self.config, instruments={"TEST3": {**spec, "lot": 100}}).validate)
+
     def test_quote_without_tick_is_explicit(self):
         self.api.tick.time_msc = 0
         self.fails("NO_LIVE_TICK_YET", lambda: self.rpc("quote", {"symbol": "TEST3"}))

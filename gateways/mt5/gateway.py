@@ -162,9 +162,15 @@ class Config:
             raise GatewayError("HALT_FILE_REQUIRED")
         for symbol, spec in self.instruments.items():
             identifier(symbol)
-            object_with(spec, {"market", "terminalExchange", "isin", "contractSize"})
+            # Optional broker lot rules (Genial: standard symbols in lots of 100, "F" symbols 1-99).
+            base = {"market", "terminalExchange", "isin", "contractSize"}
+            if not isinstance(spec, dict) or not base <= set(spec) <= base | {"roundLot", "maxQuantity"}:
+                raise GatewayError("INVALID_REQUEST", 400)
             if spec["market"] != "B3_CASH_EQUITY" or not re.fullmatch(r"BR[A-Z0-9]{10}", spec["isin"]):
                 raise GatewayError("INVALID_INSTRUMENT_CONFIGURATION")
+            for rule in ("roundLot", "maxQuantity"):
+                if rule in spec and (type(spec[rule]) is not int or not 1 <= spec[rule] <= 1_000_000):
+                    raise GatewayError("INVALID_INSTRUMENT_CONFIGURATION")
             identifier(spec["terminalExchange"])
             amount(spec["contractSize"], positive=True)
 
@@ -611,6 +617,11 @@ class Gateway:
             if request["kind"] != "LIMIT" or request["timeInForce"] != "DAY" or request["stopPrice"] is not None or request["side"] not in ("BUY", "SELL"):
                 raise GatewayError("UNSUPPORTED_ORDER_TERMS", 400)
             info = self._instrument(identifier(request["symbol"]))
+            lots = self.config.instruments[request["symbol"]]
+            if type(request["quantity"]) is int and "roundLot" in lots and request["quantity"] % lots["roundLot"]:
+                raise GatewayError("USE_FRACTIONAL_SYMBOL", 400)
+            if type(request["quantity"]) is int and "maxQuantity" in lots and request["quantity"] > lots["maxQuantity"]:
+                raise GatewayError("USE_STANDARD_LOT_SYMBOL", 400)
             if not get(info, "order_mode") & SYMBOL_ORDER_LIMIT or not get(info, "expiration_mode") & SYMBOL_EXPIRATION_DAY:
                 raise GatewayError("LIMIT_DAY_NOT_SUPPORTED")
             native = {"action": self.api.TRADE_ACTION_PENDING, "symbol": request["symbol"],
