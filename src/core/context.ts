@@ -30,7 +30,8 @@ export function companyProfile(ticker: string): CompanyProfile {
 }
 
 export interface MaterialFact { cvmCode: string; deliveredOn: string; subject: string; url: string }
-export interface ContextHeadline { title: string; url: string; seenAt: string }
+export interface ContextHeadline { title: string; url: string; seenAt: string; source?: string }
+const quoted = (h: ContextHeadline) => `"${h.title}"${h.source ? ` (${h.source})` : ""}`;
 export interface DollarPoint { observationDate: string; value: string }
 
 export type ContextAction = "ALLOW" | "REDUCE" | "BLOCK_BUY" | "EXIT";
@@ -103,10 +104,10 @@ export function assessContext(input: {
     const positive = text.reduce((n, t) => n + count(t, POSITIVE), 0);
     const severe = about.filter((h) => count(normalize(h.title), SEVERE_NEWS) > 0);
     if (severe.length >= 2)
-      raise("BLOCK_BUY", 30, { code: "SEVERE_COMPANY_NEWS", text: `${severe.length} manchetes graves sobre ${company.name}: "${severe[0].title}"`, source: severe[0].url });
+      raise("BLOCK_BUY", 30, { code: "SEVERE_COMPANY_NEWS", text: `${severe.length} manchetes graves sobre ${company.name}: ${quoted(severe[0])}`, source: severe[0].url });
     else if (negative >= 3 && negative >= 2 * Math.max(positive, 1)) {
       const first = about.find((h) => count(normalize(h.title), NEGATIVE) > 0)!;
-      raise("BLOCK_BUY", 20, { code: "NEGATIVE_COMPANY_NEWS", text: `Cobertura negativa sobre ${company.name} (${negative} termos negativos x ${positive} positivos): "${first.title}"`, source: first.url });
+      raise("BLOCK_BUY", 20, { code: "NEGATIVE_COMPANY_NEWS", text: `Cobertura negativa sobre ${company.name} (${negative} termos negativos x ${positive} positivos): ${quoted(first)}`, source: first.url });
     }
   }
 
@@ -115,9 +116,9 @@ export function assessContext(input: {
   else {
     const breaker = input.marketHeadlines.find((h) => CIRCUIT_BREAKER.test(normalize(h.title)));
     const stressed = input.marketHeadlines.filter((h) => count(normalize(h.title), MARKET_STRESS) > 0);
-    if (breaker) raise("BLOCK_BUY", 40, { code: "CIRCUIT_BREAKER", text: `Circuit breaker na bolsa: "${breaker.title}"`, source: breaker.url });
+    if (breaker) raise("BLOCK_BUY", 40, { code: "CIRCUIT_BREAKER", text: `Circuit breaker na bolsa: ${quoted(breaker)}`, source: breaker.url });
     else if (stressed.length >= 2)
-      raise("REDUCE", 20, { code: "MARKET_STRESS", text: `${stressed.length} manchetes de estresse no mercado: "${stressed[0].title}"`, source: stressed[0].url });
+      raise("REDUCE", 20, { code: "MARKET_STRESS", text: `${stressed.length} manchetes de estresse no mercado: ${quoted(stressed[0])}`, source: stressed[0].url });
   }
 
   // 4. Dollar shock (BCB PTAX): a ≥2% daily move halves new buys.

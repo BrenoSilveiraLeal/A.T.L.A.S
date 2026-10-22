@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseCvmMaterialFacts } from "@/providers/cvm";
 import { fetchHeadlines, gdeltUrl, parseGdeltHeadlines } from "@/providers/gdelt";
+import { fetchAgenciaBrasilHeadlines, parseAgenciaBrasilRss } from "@/providers/agencia-brasil";
 import { zip } from "./zip-fixture";
 
 const header = "CNPJ_Companhia;Nome_Companhia;Codigo_CVM;Data_Referencia;Categoria;Tipo;Especie;Assunto;Data_Entrega;Tipo_Apresentacao;Protocolo_Entrega;Versao;Link_Download";
@@ -50,3 +51,30 @@ describe("GDELT headlines", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Agência Brasil RSS", () => {
+  const now = Date.parse("2026-10-22T12:00:00Z");
+  const item = (title: string, link: string, date = "Wed, 21 Oct 2026 20:07:00 -0300") =>
+    `<item><title>${title}</title><link>${link}</link><description>&lt;p&gt;texto&lt;/p&gt;</description><pubDate>${date}</pubDate></item>`;
+  const rss = (items: string) => `<?xml version="1.0"?><rss version="2.0"><channel><title>Feed</title>${items}</channel></rss>`;
+
+  it("keeps title, official link and date, decoding entities", () => {
+    const parsed = parseAgenciaBrasilRss(rss(item("Petrobras &amp; Vale: Ibovespa &#233; destaque", "https://agenciabrasil.ebc.com.br/economia/noticia/x")), now);
+    expect(parsed).toEqual([{ title: "Petrobras & Vale: Ibovespa é destaque", url: "https://agenciabrasil.ebc.com.br/economia/noticia/x",
+      domain: "agenciabrasil.ebc.com.br", language: "Portuguese", seenAt: "2026-10-21T23:07:00.000Z" }]);
+  });
+
+  it("drops foreign links and rejects future items or non-RSS bodies", () => {
+    expect(parseAgenciaBrasilRss(rss(item("x", "https://evil.test/x")), now)).toEqual([]);
+    expect(() => parseAgenciaBrasilRss(rss(item("x", "https://agenciabrasil.ebc.com.br/x", "Fri, 23 Oct 2026 20:00:00 -0300")), now)).toThrow("FUTURE_DATA");
+    expect(() => parseAgenciaBrasilRss("<html></html>", now)).toThrow("INVALID_RESPONSE");
+  });
+
+  it("merges the four feeds without duplicates", async () => {
+    const send = vi.fn<typeof fetch>(async () => new Response(rss(item("Mesma notícia", "https://agenciabrasil.ebc.com.br/geral/noticia/y"))));
+    const headlines = await fetchAgenciaBrasilHeadlines(send);
+    expect(send).toHaveBeenCalledTimes(4);
+    expect(headlines).toHaveLength(1);
+  });
+});
+

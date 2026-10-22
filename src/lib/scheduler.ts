@@ -64,7 +64,7 @@ export async function runScheduler() {
     macro.status === "rejected" ? "MACRO_UNAVAILABLE" : "",
   ].filter(Boolean);
   // Context is loaded once per tick, before the parallel analyses: GDELT needs paced requests.
-  let sources: ContextSources = { facts: null, market: null, dollar: null, company: new Map() };
+  let sources: ContextSources = { facts: null, agency: null, market: null, dollar: null, company: new Map() };
   try {
     const claimedAgents = await db.from("agents").select("asset_id").eq("owner_id", owner).in("id", jobs.map((j) => j.agent_id));
     const claimedAssets = claimedAgents.error ? null : await db.from("assets").select("ticker").eq("owner_id", owner)
