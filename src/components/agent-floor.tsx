@@ -84,6 +84,33 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
         <div><span>Piloto automático</span><strong className={account?.autopilot ? "up" : ""}>{account?.autopilot ? "Ligado" : "Desligado"}</strong>
           <small>{account ? `Morte ao perder ${text(account.agent_max_loss_pct)}% do orçamento` : "Simulação não criada"}</small></div>
       </div>
+      <section className="panel ranking-panel">
+        <div className="section-heading"><h2>Ranking da equipe</h2><span className="muted">Simulação</span></div>
+        <div className="table-scroll"><table>
+          <thead><tr><th>#</th><th>Agente</th><th>Resultado virtual</th><th>Vendas fechadas</th><th>Acerto</th><th>Vida</th></tr></thead>
+          <tbody>{[...agents]
+            .map((agent) => {
+              const sells = (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL");
+              const wins = sells.filter((f) => Number(f.realized_pnl) > 0).length;
+              const vital = vitalOf(agent.id);
+              return { agent, pnl: pnlOf(vital), life: vital ? Number(vital.life_pct) : null, sells: sells.length, wins,
+                dead: ["DEAD", "FIRED"].includes(text(agent.status)) };
+            })
+            // Living agents first, then by virtual result; unmeasured agents last.
+            .sort((a, b) => Number(a.dead) - Number(b.dead) || (b.pnl ?? -Infinity) - (a.pnl ?? -Infinity))
+            .map((row, index) => (
+              <tr key={text(row.agent.id)} className={row.dead ? "muted" : ""}>
+                <td>{index + 1}</td>
+                <td>{text(row.agent.name)} · {text(assets.find((a) => a.id === row.agent.asset_id)?.ticker)}{row.dead ? " · eliminado" : ""}</td>
+                <td className={row.pnl == null ? "" : row.pnl > 0 ? "up" : row.pnl < 0 ? "down" : ""}>{row.pnl == null ? "—" : formatBrl(row.pnl.toFixed(2))}</td>
+                <td>{row.sells}</td>
+                <td>{row.sells ? `${Math.round((row.wins / row.sells) * 100)}%` : "—"}</td>
+                <td>{row.life == null ? "—" : `${row.life.toFixed(0)}%`}</td>
+              </tr>
+            ))}</tbody>
+        </table></div>
+        <p className="muted">Acerto = vendas virtuais com lucro ÷ vendas fechadas. Poucas operações não provam nada: use o ranking depois de semanas.</p>
+      </section>
       <div className="floor-grid">
         {agents.map((agent) => {
           const status = text(agent.status), vital = vitalOf(agent.id), pnl = pnlOf(vital);

@@ -2,7 +2,7 @@
 
 **Autonomous Trading & Learning Agent System** — plataforma pessoal de análise, agentes por ativo, controles de risco e auditoria para ações à vista B3.
 
-**Estado: aplicação local com Supabase Free; execução real bloqueada.** O ATLAS tem leitura de fontes públicas, análises dos agentes em **HOLD**, backtest de pesquisa e um livro de **Paper Trading separado e explicitamente virtual**. O proprietário pode criar proposta, aprovar, abrir ordem limite virtual e verificar preenchimento com uma cotação posterior. O projeto Supabase foi reativado em 25/09/2026 após pausa do plano Free; confirme que está `ACTIVE_HEALTHY` antes de usar o painel. A integração real tem Executor e gateway MT5 ainda sem conta/corretora homologada. O computador precisa ficar ligado. Não há PIX automático nem ordem real enviada.
+**Estado (22/10/2026): análise e simulação na nuvem; execução real bloqueada.** O painel roda na Vercel em https://atlas-pi-bice.vercel.app (login com senha + TOTP) e o Supabase Cron chama a função `atlas-tick` a cada minuto, então agentes, Paper Trading com piloto automático e "vida" dos agentes funcionam **com o PC desligado**. A ponte MT5 com a conta Genial (`GENIAL_MT5_SWING`) foi validada somente leitura e só roda com o PC ligado e o MetaTrader aberto; ordens reais continuam bloqueadas até homologação e decisão do proprietário. Não há PIX automático nem ordem real enviada.
 
 Comece pela [decisão do Executor/gateway](docs/EXECUTION_GATEWAY_DECISION.md), [pesquisa de corretoras](docs/BROKER_RESEARCH.md), [custos](COST.md) e [roadmap](docs/ROADMAP.md). Os 37 tópicos do pedido estão na [matriz de requisitos](docs/REQUIREMENTS.md).
 
@@ -174,6 +174,16 @@ Remove-Item Env:ATLAS_PUBLIC_DATA_SMOKE
 ```
 
 Esse smoke consulta dados públicos reais, sem enviar ordem. Ele não comprova SLA, licença profissional, autenticação de broker, sessão de mercado ou qualidade point-in-time de dataset.
+
+## Implantação atual (22/10/2026)
+
+| Componente | Onde | Observação |
+| --- | --- | --- |
+| Painel + API | Vercel Hobby, projeto `atlas`, região `gru1` | `vercel.json`; variáveis de produção sem chaves da ponte; `ATLAS_EXECUTOR_ENABLED=false` |
+| Scheduler | Supabase Cron `atlas-central-scheduler` (`* * * * *`) → Edge Function `atlas-tick` → `/api/cron` | URL e segredo no Vault; comprovado com o agendador local desligado |
+| Ponte MT5 + Executor | PC do proprietário | `C:\atlas-data\start-gateway.ps1` e `npm run local` + `npm run executor`; execução desligada |
+
+A rede do proprietário bloqueia a porta 5432 do pooler, por isso migrations são aplicadas pelo SQL Editor. Para operar ordens reais sem o PC, falta uma VPS Windows (seção abaixo).
 
 ## 10. Hospedar o frontend/backend
 
