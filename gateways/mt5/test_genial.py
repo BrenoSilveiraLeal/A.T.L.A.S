@@ -163,6 +163,19 @@ class GenialProfileTests(unittest.TestCase):
         self.assertIsNone(self.rpc("quote", {"symbol": "TEST3"})["bid"])
         self.fails("UNAPPROVED_INSTRUMENT", lambda: self.rpc("quote", {"symbol": "OTHER3"}))
 
+    def test_quote_adds_symbol_to_market_watch_when_needed(self):
+        tick, self.api.tick = self.api.tick, None
+        def select(symbol, enable):
+            self.assertTrue(enable)
+            self.api.tick = tick
+            return True
+        self.api.symbol_select = select
+        self.assertEqual("25.5", self.rpc("quote", {"symbol": "TEST3"})["last"])
+
+    def test_quote_without_tick_is_explicit(self):
+        self.api.tick.time_msc = 0
+        self.fails("NO_LIVE_TICK_YET", lambda: self.rpc("quote", {"symbol": "TEST3"}))
+
     def test_owner_removing_halt_file_resumes(self):
         self.gateway._halt("RECOVERY_ORDER_MISMATCH")
         self.halt.unlink()

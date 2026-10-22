@@ -407,7 +407,16 @@ class Gateway:
     def quote(self, symbol: str):
         """Live top of book from the terminal. Zero bid/ask means no offer and is reported as null."""
         self._instrument(symbol)
-        tick = self._call("symbol_info_tick", symbol)
+        try:
+            tick = self._call("symbol_info_tick", symbol)
+        except GatewayError as exc:
+            # The terminal only streams ticks for Market Watch symbols; add the approved one once.
+            if exc.code != "TERMINAL_CALL_FAILED" or not hasattr(self.api, "symbol_select"):
+                raise
+            self._call("symbol_select", symbol, True)
+            tick = self._call("symbol_info_tick", symbol)
+        if not get(tick, "time_msc"):
+            raise GatewayError("NO_LIVE_TICK_YET", 503)  # Freshly selected symbol; retry later.
         stamp = integer(get(tick, "time_msc"), positive=True)
         side = lambda value: amount(value, positive=True) if decimal(value) > 0 else None
         return {"symbol": symbol, "bid": side(get(tick, "bid")), "ask": side(get(tick, "ask")),
