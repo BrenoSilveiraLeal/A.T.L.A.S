@@ -25,9 +25,10 @@ export async function localDevBypass(): Promise<boolean> {
   let app: URL;
   try { app = new URL(process.env.ATLAS_APP_URL ?? ""); } catch { return false; }
   if (app.hostname !== "127.0.0.1" || app.protocol !== "http:") return false;
-  // Same loopback port, by IP or by name: the login is disabled locally until setup ends.
-  const host = (await headers()).get("host");
-  return host === app.host || host === `localhost:${app.port}`;
+  // Any loopback address and port (npm run local on 3000, npm run dev on 3001, 3002...):
+  // both servers bind to 127.0.0.1 only, so other devices cannot reach them.
+  const host = (await headers()).get("host") ?? "";
+  return /^(127\.0\.0\.1|localhost):\d{2,5}$/.test(host);
 }
 
 export async function requireOwner(mfa = true) {
