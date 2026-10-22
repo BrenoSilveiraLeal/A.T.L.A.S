@@ -58,6 +58,16 @@ function gdeltPacer(maxFetches: number) {
   };
 }
 
+/** Last cached snapshot without fetching or spending any rate allowance (null if absent or too old). */
+export async function cachedOnly<T>(provider: string, key: string, maxStaleMs: number): Promise<T | null> {
+  const found = await adminClient().from("market_data_cache").select("payload,retrieved_at").eq("owner_id", required("ATLAS_OWNER_ID"))
+    .eq("provider", provider).eq("ticker", key).eq("data_kind", "READ_CACHE_V1")
+    .order("retrieved_at", { ascending: false }).limit(1).maybeSingle();
+  if (found.error || !found.data) return null;
+  const age = Date.now() - Date.parse(found.data.retrieved_at);
+  return age >= 0 && age < maxStaleMs ? (found.data.payload as T) : null;
+}
+
 export interface ContextSources {
   facts: CvmMaterialFact[] | null;
   /** CVM filer directory (code and name) used to recognise newly registered companies. */

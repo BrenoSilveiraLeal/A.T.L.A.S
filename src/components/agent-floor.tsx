@@ -6,6 +6,7 @@ import { formatBrl } from "@/core/format";
 import { statusLabel } from "./labels";
 import { CandleChart } from "./candle-chart";
 import { FleetAutopilot } from "./controls-panel";
+import { DIRECTION, Gestora, NewsTv, Telao, useNews, type NewsItem } from "./news-tv";
 import type { HistoricalBar } from "@/providers/types";
 
 type Row = Record<string, unknown>;
@@ -37,12 +38,15 @@ function useFloor(connected: boolean, revision: number): Floor {
   return connected ? state : { paper: null, decisions: [], error: "", loading: false };
 }
 
-/** Character drawn from the agent's recorded state only; nothing animates without a real status. */
-function Character({ avatar, status, trend }: { avatar: string; status: string; trend: number | null }) {
+/**
+ * Character drawn from the agent's recorded state only. "tv": a recent headline about its
+ * stock; "coffee": alive, not working and holding no position (waiting for a signal).
+ */
+function Character({ avatar, status, trend, mode }: { avatar: string; status: string; trend: number | null; mode: "tv" | "coffee" | null }) {
   const dead = status === "DEAD" || status === "FIRED";
   const line = trend == null ? "M10 30 L46 30" : trend >= 0 ? "M10 36 L20 30 L28 33 L38 22 L46 18" : "M10 18 L20 24 L28 21 L38 32 L46 36";
   return (
-    <svg className={`character ${WORKING.has(status) ? "working" : ""} ${dead ? "dead" : ""}`} viewBox="0 0 96 80" aria-hidden="true">
+    <svg className={`character ${WORKING.has(status) ? "working" : ""} ${dead ? "dead" : ""} ${mode ?? ""}`} viewBox="0 0 96 80" aria-hidden="true">
       <rect x="4" y="8" width="48" height="36" rx="4" className="monitor" />
       <path d={line} className={`monitor-line ${trend != null && trend < 0 ? "down" : ""}`} />
       <rect x="24" y="44" width="8" height="8" className="desk-detail" />
@@ -53,6 +57,8 @@ function Character({ avatar, status, trend }: { avatar: string; status: string; 
       {!dead && avatar === "researcher" && <rect x="80" y="40" width="9" height="11" rx="1" className="accessory-fill" />}
       {!dead && avatar === "strategist" && <path d="M74 38 l3 3 -3 3 -3 -3 Z" className="accessory-fill" />}
       {dead && <path d="M69 18 l4 4 m0 -4 l-4 4 M76 18 l4 4 m0 -4 l-4 4" className="accessory" />}
+      {!dead && mode === "tv" && <g className="tv-bubble"><rect x="60" y="0" width="28" height="9" rx="2" /><path d="M72 9 l2 3 2 -3" /><text x="74" y="7">!</text></g>}
+      {!dead && mode === "coffee" && <g className="coffee"><rect x="86" y="44" width="7" height="8" rx="1" /><path d="M93 46 q3 1 0 4" /><path className="steam" d="M88 41 q-2 -3 0 -6 M91 41 q-2 -3 0 -6" /></g>}
     </svg>
   );
 }
@@ -60,6 +66,7 @@ function Character({ avatar, status, trend }: { avatar: string; status: string; 
 export function AgentFloor({ connected, revision }: { connected: boolean; revision: number }) {
   const [local, setLocal] = useState(0);
   const floor = useFloor(connected, revision + local);
+  const news = useNews(connected);
   if (!connected) return null;
   if (floor.loading) return <div className="loading-state" role="status">Abrindo o escritório…</div>;
   if (floor.error) return <div className="notice error-text" role="alert">{floor.error}</div>;
@@ -86,6 +93,8 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
         <div><span>Piloto automático</span><strong className={account?.autopilot ? "up" : ""}>{account?.autopilot ? "Ligado" : "Desligado"}</strong>
           <small>{account ? `Morte ao perder ${text(account.agent_max_loss_pct)}% do orçamento` : "Simulação não criada"}</small></div>
       </div>
+      <Telao account={account} totalPnl={totalPnl} />
+      <NewsTv items={news.items} error={news.error} team={alive.map((a) => ({ name: text(a.name), ticker: text(assets.find((x) => x.id === a.asset_id)?.ticker) }))} />
       <FleetAutopilot agents={agents} onChange={() => setLocal((n) => n + 1)} />
       <section className="panel ranking-panel">
         <div className="section-heading"><h2>Ranking da equipe</h2><span className="muted">Simulação</span></div>
@@ -114,6 +123,9 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
         </table></div>
         <p className="muted">Acerto = vendas virtuais com lucro ÷ vendas fechadas. Poucas operações não provam nada: use o ranking depois de semanas.</p>
       </section>
+      <Gestora agents={agents.map((agent) => ({ id: text(agent.id), name: text(agent.name), ticker: text(assets.find((a) => a.id === agent.asset_id)?.ticker),
+        budget: Number(agent.budget), pnl: pnlOf(vitalOf(agent.id)), dead: ["DEAD", "FIRED"].includes(text(agent.status)),
+        sells: (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL").length }))} />
       <div className="floor-grid">
         {agents.map((agent) => {
           const status = text(agent.status), vital = vitalOf(agent.id), pnl = pnlOf(vital);
@@ -121,6 +133,9 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
           const dead = status === "DEAD" || status === "FIRED";
           const decision = floor.decisions.find((d) => d.agent_id === agent.id);
           const ticker = text(assets.find((a) => a.id === agent.asset_id)?.ticker);
+          const headline = recentHeadline(news.items, ticker);
+          const holding = (paper.paper_positions ?? []).some((p) => p.agent_id === agent.id && Number(p.quantity) > 0);
+          const mode = dead ? null : headline ? "tv" : !WORKING.has(status) && !holding ? "coffee" : null;
           return (
             <Link key={text(agent.id)} href={`/app/agents/${text(agent.id)}`} className={`floor-station ${dead ? "is-dead" : ""}`}>
               <div className="station-top">
@@ -129,7 +144,7 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
                   {dead && <Skull size={11} />} {statusLabel(status)}
                 </span>
               </div>
-              <Character avatar={text(agent.avatar)} status={status} trend={pnl} />
+              <Character avatar={text(agent.avatar)} status={status} trend={pnl} mode={mode} />
               <h3>{text(agent.name)}</h3>
               <div className="life" aria-label={life == null ? "Vida ainda não medida" : `Vida ${life.toFixed(0)}%`}>
                 <div className="life-label"><span>Vida</span><span>{life == null ? "sem medição" : `${life.toFixed(0)}%`}</span></div>
@@ -140,6 +155,9 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
                 <div><dt>Resultado virtual</dt><dd className={pnl == null ? "" : pnl > 0 ? "up" : pnl < 0 ? "down" : ""}>{pnl == null ? "—" : formatBrl(pnl.toFixed(2))}</dd></div>
               </dl>
               {agent.autopilot === false && !dead && <p className="station-context"><span className="status-label warning">Piloto desligado</span> Só você decide por esta IA.</p>}
+              {headline ? <p className="station-context" title={headline.item.title}>
+                <span className={`status-label ${DIRECTION[headline.tag.direction][1]}`}>Viu na TV: {DIRECTION[headline.tag.direction][0]}</span> {headline.item.title}
+              </p> : mode === "coffee" && <p className="station-context">Tomando café: sem posição, esperando um sinal da regra.</p>}
               <ContextChip decision={decision} />
               <p className="station-decision">
                 {decision ? <><Zap size={12} /> <strong title={text(decision.decision)}>{statusLabel(text(decision.decision))}</strong> · {ago(decision.created_at)}</> : "Ainda sem análise registrada"}
@@ -151,6 +169,16 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
       <p className="muted floor-note">Vida e resultado são da <strong>simulação</strong>, medidos a cada análise com cotação atrasada da brapi. Um agente eliminado não pode ser reativado; suas posições virtuais ficam registradas.</p>
     </>
   );
+}
+
+/** Latest headline about this stock from the last 3 hours (market-wide news excluded). */
+function recentHeadline(items: NewsItem[] | null, ticker: string) {
+  for (const item of items ?? []) {
+    if (Date.now() - Date.parse(item.published_at) > 3 * 3600000) continue;
+    const tag = item.tags.find((t) => t.ticker === ticker);
+    if (tag) return { item, tag };
+  }
+  return null;
 }
 
 /** Daily candles of the agent's asset (delayed brapi history, cached server-side). */

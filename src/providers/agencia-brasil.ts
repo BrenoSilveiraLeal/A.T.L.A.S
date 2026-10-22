@@ -12,7 +12,7 @@ const ORIGIN = "https://agenciabrasil.ebc.com.br/";
 const MAX_BYTES = 1024 * 1024;
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'" };
-const decode = (text: string) => text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+export const decodeXml = (text: string) => text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
   .replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (match, entity: string) => {
     if (entity[0] === "#") {
       const code = entity[1].toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
@@ -25,9 +25,9 @@ const tag = (item: string, name: string) => item.match(new RegExp(`<${name}>([\\
 export function parseAgenciaBrasilRss(xml: string, now: number): Headline[] {
   if (xml.length > MAX_BYTES || !/<rss[\s>]/.test(xml)) throw new ProviderError("agenciabrasil", "INVALID_RESPONSE");
   return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 50).flatMap(([, item]) => {
-    const title = decode(tag(item, "title") ?? "");
-    const url = decode(tag(item, "link") ?? "");
-    const published = Date.parse(decode(tag(item, "pubDate") ?? ""));
+    const title = decodeXml(tag(item, "title") ?? "");
+    const url = decodeXml(tag(item, "link") ?? "");
+    const published = Date.parse(decodeXml(tag(item, "pubDate") ?? ""));
     if (!title || !url.startsWith(ORIGIN) || !Number.isFinite(published)) return [];
     if (published > now + 60_000) throw new ProviderError("agenciabrasil", "FUTURE_DATA");
     return [{ title: title.slice(0, 500), url, domain: "agenciabrasil.ebc.com.br", language: "Portuguese",

@@ -1558,3 +1558,35 @@ code {
 .manual-order label { max-width: none; margin: 0; }
 @media (max-width: 700px) { .manual-order { grid-template-columns: 1fr; } }
 
+/* Office TV, big screen and manager */
+.news-tv, .telao, .gestora { margin-bottom: 24px; }
+.news-tv h2 { display: inline-flex; align-items: center; gap: 8px; }
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--red); margin-right: 4px; animation: live-blink 1.6s ease-in-out infinite; }
+@keyframes live-blink { 50% { opacity: 0.25; } }
+.news-band { overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #0d1011; margin: 4px 0 14px; }
+.news-band-track { display: inline-flex; gap: 36px; padding: 9px 0; white-space: nowrap; font-size: 12px; animation: news-scroll 120s linear infinite; }
+.news-band:hover .news-band-track { animation-play-state: paused; }
+.news-band-track strong { color: var(--amber); margin-right: 6px; font-weight: 700; }
+@keyframes news-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.news-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 12px; }
+.news-list li { border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.news-list a { color: var(--text); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.news-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+.news-reactions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.telao-rows { display: grid; gap: 12px; margin: 6px 0 12px; }
+.telao-rows > div { display: grid; grid-template-columns: 110px 1fr 80px; align-items: center; gap: 12px; font-size: 13px; }
+.telao-rows strong { text-align: right; font-variant-numeric: tabular-nums; }
+.telao-track { height: 14px; border-radius: 7px; background: #2b3235; overflow: hidden; }
+.telao-fill { height: 100%; background: var(--green); border-radius: 7px; transition: width 0.6s ease; }
+.telao-fill.down { background: var(--red); }
+.telao-fill.cdi { background: var(--amber); }
+.character .tv-bubble rect { fill: var(--amber); }
+.character .tv-bubble path { fill: var(--amber); }
+.character .tv-bubble text { font-size: 8px; font-weight: 800; fill: #16291e; text-anchor: middle; }
+.character.tv .tv-bubble { animation: bubble-bob 1.8s ease-in-out infinite; }
+@keyframes bubble-bob { 50% { transform: translateY(-2px); } }
+.character .coffee rect { fill: #e8e2d6; }
+.character .coffee path { fill: none; stroke: #e8e2d6; stroke-width: 1.4; }
+.character .coffee .steam { stroke: var(--muted); opacity: 0.7; animation: steam 2.6s ease-in-out infinite; }
+@keyframes steam { 0% { opacity: 0; transform: translateY(2px); } 50% { opacity: 0.8; } 100% { opacity: 0; transform: translateY(-3px); } }
+@media (max-width: 700px) { .telao-rows > div { grid-template-columns: 80px 1fr 64px; gap: 8px; } }

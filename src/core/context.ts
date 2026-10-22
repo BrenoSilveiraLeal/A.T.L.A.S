@@ -100,6 +100,15 @@ const CIRCUIT_BREAKER = /\bcircuit breaker\b/;
 const count = (text: string, pattern: RegExp) => (text.match(pattern) ?? []).length;
 const ORDER: ContextAction[] = ["ALLOW", "REDUCE", "BLOCK_BUY", "EXIT"];
 
+/** Headline tone with the same word lists the context analyst brakes on. */
+export function headlineTone(title: string): { tone: "UP" | "DOWN" | "NEUTRAL"; severe: boolean; stress: boolean } {
+  const text = normalize(title);
+  const severe = count(text, SEVERE_NEWS) > 0, stress = count(text, MARKET_STRESS) > 0;
+  const balance = count(text, POSITIVE) - count(text, NEGATIVE);
+  return { tone: severe || stress || balance < 0 ? "DOWN" : balance > 0 ? "UP" : "NEUTRAL", severe, stress };
+}
+export { normalize as normalizeText };
+
 export function assessContext(input: {
   ticker: string;
   company?: CompanyProfile;

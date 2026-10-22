@@ -1,3 +1,5 @@
+import { loadNews } from "@/lib/news";
+import { cdiSince } from "@/lib/benchmark";
 import { z } from "zod";
 import { ApiError, requireOwner } from "@/lib/auth";
 import { adminClient } from "@/lib/supabase";
@@ -61,6 +63,12 @@ export async function GET(request: Request, context: RouteContext) {
     if (resource === "paper") return json(await loadPaper(adminClient(), user.id));
     if (resource === "broker-live") return json(await readBrokerLive(user.id));
     if (resource === "controls") return json(await loadControls(adminClient(), user.id));
+    if (resource === "benchmark")
+      return json(await cdiSince(z.iso.date().parse(url.searchParams.get("from"))));
+    if (resource === "news-tv") {
+      const ticker = url.searchParams.get("ticker");
+      return json(await loadNews(adminClient(), user.id, ticker === null ? undefined : tickerSchema.parse(ticker)));
+    }
     if (resource === "levels")
       return json(await agentLevels(adminClient(), tickerSchema.parse(url.searchParams.get("ticker"))));
     if (resource === "accounting") {

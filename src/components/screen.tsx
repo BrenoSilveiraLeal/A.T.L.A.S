@@ -12,6 +12,7 @@ import { AgentConfigForm } from "./agent-config-form";
 import { PaperPanel } from "./paper-panel";
 import { AgentContextPanel, AgentFloor, AgentLevels, AgentMarket } from "./agent-floor";
 import { GenialPanel } from "./genial-panel";
+import { AgentNews } from "./news-tv";
 import { AgentControls, CapitalPanel, RealMoneyChecklist } from "./controls-panel";
 import { statusLabel } from "./labels";
 import { parsePortfolioHistory } from "@/lib/portfolio";
@@ -639,6 +640,8 @@ export function Screen({
           {chosen && (
             <AgentContextPanel decision={records.rows.find((r) => r.agent_id === agentId)} />
           )}
+          {chosen && <AgentNews key={`news-${String(chosen.id)}`} connected={connected} name={String(chosen.name)}
+            ticker={(assets.rows.find((x) => x.id === chosen.asset_id)?.ticker as string | undefined) ?? null} />}
           {chosen && <AgentLevels ticker={(assets.rows.find((a) => a.id === chosen.asset_id)?.ticker as string | undefined) ?? null} />}
           {chosen && (
             <AgentMarket

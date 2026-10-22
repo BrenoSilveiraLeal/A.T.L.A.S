@@ -28,9 +28,15 @@ describe("local development login bypass", () => {
     expect(await localDevBypass()).toBe(false);
   });
 
+  it("accepts the loopback name on the same port", async () => {
+    local();
+    request.host = "localhost:3000";
+    expect(await localDevBypass()).toBe(true);
+  });
+
   it("refuses requests addressed to any other host", async () => {
     local();
-    for (const host of ["localhost:3000", "192.168.0.10:3000", "atlas-pi-bice.vercel.app", "127.0.0.1:3001"]) {
+    for (const host of ["localhost:3001", "192.168.0.10:3000", "atlas-pi-bice.vercel.app", "127.0.0.1:3001"]) {
       request.host = host;
       expect(await localDevBypass()).toBe(false);
     }
