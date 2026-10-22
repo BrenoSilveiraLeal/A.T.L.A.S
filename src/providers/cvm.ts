@@ -197,7 +197,7 @@ function extractCsv(bytes: Buffer, entry: ZipEntry): string {
 }
 
 /** Quoted semicolon CSV, including embedded newlines. Retains one row at a time. */
-export function* parseCvmCsv(csv: string): Generator<Record<string, string>> {
+export function* parseCvmCsv(csv: string, headerPattern = /^[A-Z][A-Z0-9_]*$/): Generator<Record<string, string>> {
   let headers: string[] | undefined;
   let fields: string[] = [];
   let cell = "";
@@ -246,7 +246,7 @@ export function* parseCvmCsv(csv: string): Generator<Record<string, string>> {
       if (!headers) {
         headers = fields;
         if (
-          headers.some((h) => !/^[A-Z][A-Z0-9_]*$/.test(h)) ||
+          headers.some((h) => !headerPattern.test(h)) ||
           new Set(headers).size !== headers.length
         )
           throw new CvmProviderError("INVALID_DATA");
@@ -438,7 +438,11 @@ export async function fetchCvmFundamentals(
   rawQuery: CvmQuery,
 ): Promise<CvmFundamentals> {
   const query = validateCvmQuery(rawQuery);
-  const url = `${SOURCE}dfp_cia_aberta_${query.year}.zip`;
+  const bytes = await downloadCvmArchive(`${SOURCE}dfp_cia_aberta_${query.year}.zip`);
+  return parseCvmDfpArchive(bytes, query, new Date().toISOString());
+}
+
+async function downloadCvmArchive(url: string): Promise<Buffer> {
   try {
     const response = await fetch(url, {
       method: "GET",
@@ -490,13 +494,50 @@ export async function fetchCvmFundamentals(
     } finally {
       reader.releaseLock();
     }
-    return parseCvmDfpArchive(
-      Buffer.concat(chunks, length),
-      query,
-      new Date().toISOString(),
-    );
+    return Buffer.concat(chunks, length);
   } catch (error) {
     if (error instanceof CvmProviderError) throw error;
     throw new CvmProviderError("UNAVAILABLE");
   }
+}
+
+export interface CvmMaterialFact {
+  cvmCode: string;
+  company: string;
+  deliveredOn: string;
+  subject: string;
+  url: string;
+}
+
+const IPE_SOURCE = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/";
+
+/**
+ * "Fato Relevante" filings from the CVM IPE open dataset (weekly refresh), limited to
+ * the last 45 days. Public for deterministic tests; runtime uses fetchCvmMaterialFacts.
+ */
+export function parseCvmMaterialFacts(data: Uint8Array, year: number, retrievedAt: string): CvmMaterialFact[] {
+  const nowMs = timestamp(retrievedAt);
+  const today = new Date(nowMs).toISOString().slice(0, 10);
+  const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  const index = zipDirectory(bytes).get(`ipe_cia_aberta_${year}.csv`);
+  if (!index) throw new CvmProviderError("INVALID_ARCHIVE");
+  const since = new Date(nowMs - 45 * 86400000).toISOString().slice(0, 10);
+  const facts: CvmMaterialFact[] = [];
+  for (const row of parseCvmCsv(extractCsv(bytes, index), /^[A-Za-z][A-Za-z0-9_]*$/)) {
+    requireColumns(row, ["Codigo_CVM", "Nome_Companhia", "Categoria", "Assunto", "Data_Entrega", "Link_Download"]);
+    if (row.Categoria !== "Fato Relevante") continue;
+    const delivered = validateCvmDate(row.Data_Entrega);
+    if (delivered > today) throw new CvmProviderError("FUTURE_DATA");
+    if (delivered < since) continue;
+    if (!row.Link_Download.startsWith("https://www.rad.cvm.gov.br/")) throw new CvmProviderError("INVALID_DATA");
+    facts.push({ cvmCode: cvmCode(row.Codigo_CVM), company: row.Nome_Companhia.slice(0, 200),
+      deliveredOn: delivered, subject: row.Assunto.slice(0, 500), url: row.Link_Download });
+    if (facts.length > 5000) throw new CvmProviderError("INVALID_DATA");
+  }
+  return facts.sort((a, b) => b.deliveredOn.localeCompare(a.deliveredOn));
+}
+
+export async function fetchCvmMaterialFacts(year = new Date().getUTCFullYear()): Promise<CvmMaterialFact[]> {
+  const bytes = await downloadCvmArchive(`${IPE_SOURCE}ipe_cia_aberta_${year}.zip`);
+  return parseCvmMaterialFacts(bytes, year, new Date().toISOString());
 }

@@ -1537,3 +1537,6 @@ code {
   }
 }
 .ranking-panel { margin-bottom: 24px; }
+.station-context { margin: 0; font-size: 10px; color: var(--muted); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.station-context .status-label { margin-right: 4px; }
+.context-reasons { margin: 12px 0; padding-left: 18px; font-size: 12px; line-height: 1.8; }

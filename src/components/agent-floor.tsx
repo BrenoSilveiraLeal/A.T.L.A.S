@@ -136,6 +136,7 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
                 <div><dt>Orçamento</dt><dd>{formatBrl(agent.budget)}</dd></div>
                 <div><dt>Resultado virtual</dt><dd className={pnl == null ? "" : pnl > 0 ? "up" : pnl < 0 ? "down" : ""}>{pnl == null ? "—" : formatBrl(pnl.toFixed(2))}</dd></div>
               </dl>
+              <ContextChip decision={decision} />
               <p className="station-decision">
                 {decision ? <><Zap size={12} /> <strong title={text(decision.decision)}>{statusLabel(text(decision.decision))}</strong> · {ago(decision.created_at)}</> : "Ainda sem análise registrada"}
               </p>
@@ -168,3 +169,42 @@ export function AgentMarket({ ticker }: { ticker: string | null }) {
   if (state.error) return <div className="notice error-text" role="alert">{state.error}</div>;
   return <section className="panel">{state.bars.length ? <CandleChart ticker={ticker} bars={state.bars} /> : <p className="muted">Sem candles para {ticker}.</p>}</section>;
 }
+
+type ContextView = { action: "ALLOW" | "REDUCE" | "BLOCK_BUY" | "EXIT"; riskScore: number;
+  reasons: { code: string; text: string; source: string | null }[]; unavailable: string[]; assessedAt: string };
+const CONTEXT_LABELS: Record<ContextView["action"], [string, string]> = {
+  ALLOW: ["Clima normal", ""], REDUCE: ["Cautela: compras pela metade", "warning"],
+  BLOCK_BUY: ["Compras bloqueadas", "warning"], EXIT: ["Sair da posição", "danger"],
+};
+const SOURCE_LABELS: Record<string, string> = { CVM_FACTS: "fatos relevantes (CVM)", COMPANY_NEWS: "notícias da empresa",
+  MARKET_NEWS: "notícias do mercado", DOLLAR: "dólar (Banco Central)" };
+
+function contextOf(decision: Row | undefined): ContextView | null {
+  const value = (decision?.inputs as { context?: ContextView } | undefined)?.context;
+  return value && CONTEXT_LABELS[value.action] ? value : null;
+}
+
+/** Latest rule-based context recorded with the agent's analysis. */
+function ContextChip({ decision }: { decision: Row | undefined }) {
+  const context = contextOf(decision);
+  if (!context) return null;
+  const [label, tone] = CONTEXT_LABELS[context.action];
+  return <p className="station-context" title={context.reasons.map((r) => r.text).join(" · ") || "Sem eventos relevantes"}>
+    <span className={`status-label ${tone}`}>{label}</span> {context.reasons[0]?.text ?? "Sem eventos relevantes nas fontes."}
+  </p>;
+}
+
+export function AgentContextPanel({ decision }: { decision: Row | undefined }) {
+  const context = contextOf(decision);
+  return <section className="panel">
+    <div className="section-heading"><h2>Contexto de mercado</h2><span className="muted">Regras gratuitas · CVM, GDELT, Banco Central</span></div>
+    {!context ? <p className="muted">A próxima análise registrará o contexto deste agente.</p> : <>
+      <p><span className={`status-label ${CONTEXT_LABELS[context.action][1]}`}>{CONTEXT_LABELS[context.action][0]}</span> Risco de contexto: {context.riskScore}/100 · avaliado {ago(context.assessedAt)}</p>
+      {context.reasons.length ? <ul className="context-reasons">{context.reasons.map((r) => <li key={r.code + r.text}>{r.text}{r.source && <> · <a href={r.source} target="_blank" rel="noopener noreferrer">fonte</a></>}</li>)}</ul>
+        : <p className="muted">Nenhum fato relevante recente, manchete negativa forte, estresse de mercado ou choque do dólar.</p>}
+      {context.unavailable.length > 0 && <p className="muted">Fontes indisponíveis nesta análise: {context.unavailable.map((u) => SOURCE_LABELS[u] ?? u).join(", ")}. Sem dado, nada é presumido.</p>}
+      <p className="muted">O contexto só freia: bloqueia compras, reduz o tamanho ou pede saída. Ele nunca inicia uma compra.</p>
+    </>}
+  </section>;
+}
+

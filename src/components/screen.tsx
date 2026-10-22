@@ -10,7 +10,7 @@ import { FundamentalsPanel } from "./fundamentals-panel";
 import { PortfolioPanel } from "./portfolio-panel";
 import { AgentConfigForm } from "./agent-config-form";
 import { PaperPanel } from "./paper-panel";
-import { AgentFloor, AgentMarket } from "./agent-floor";
+import { AgentContextPanel, AgentFloor, AgentMarket } from "./agent-floor";
 import { statusLabel } from "./labels";
 import { parsePortfolioHistory } from "@/lib/portfolio";
 import {
@@ -632,6 +632,9 @@ export function Screen({
             <Empty title="Agente não encontrado" icon="agents">
               <p>Selecione um agente cadastrado na equipe.</p>
             </Empty>
+          )}
+          {chosen && (
+            <AgentContextPanel decision={records.rows.find((r) => r.agent_id === agentId)} />
           )}
           {chosen && (
             <AgentMarket

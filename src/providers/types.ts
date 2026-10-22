@@ -1,4 +1,4 @@
-export type ProviderName = "brapi" | "bcb" | "ibge";
+export type ProviderName = "brapi" | "bcb" | "ibge" | "gdelt";
 
 export type ProviderErrorCode =
   | "INVALID_INPUT"
@@ -59,10 +59,10 @@ export interface AssetSearchResult {
 }
 
 export interface MacroObservation {
-  series: "432";
-  name: "Meta Selic";
+  series: "432" | "1";
+  name: "Meta Selic" | "Dólar (PTAX venda)";
   value: string;
-  unit: "% a.a.";
+  unit: "% a.a." | "R$/US$";
   observationDate: string;
   /** Reference date, not a publication timestamp or a forecast. */
   dataTimestamp: string;

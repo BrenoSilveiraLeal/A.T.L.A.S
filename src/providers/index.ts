@@ -1,7 +1,8 @@
 import "server-only";
 
 export { fetchQuote, fetchHistory, searchAssets } from "./brapi";
-export { fetchMacro } from "./bcb";
+export { fetchMacro, fetchDollar } from "./bcb";
+export { fetchHeadlines } from "./gdelt";
 export { fetchNews } from "./ibge";
 export { ProviderError } from "./http";
 export type {

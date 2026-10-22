@@ -83,4 +83,16 @@ describe("paper autopilot rule", () => {
     other.quote = { ...other.quote, ticker: "OTHER3" };
     expect(() => autopilotDecision(other)).toThrow("ASSET_MISMATCH");
   });
+  it("lets the context brake buys, halve them or force an exit, never start a buy", () => {
+    const blocked = autopilotDecision(input({ context: { action: "BLOCK_BUY", summary: "fato relevante" } }));
+    expect(blocked.action).toBe("HOLD");
+    expect(blocked.reason).toContain("bloqueado pelo contexto");
+    const reduced = autopilotDecision(input({ context: { action: "REDUCE", summary: "dólar" } }));
+    expect(reduced.action === "BUY" && reduced.quantity).toBe(15);
+    const exit = autopilotDecision(input({ position: { quantity: 5, averageCost: "15.00" }, context: { action: "EXIT", summary: "recuperação judicial" } }));
+    expect(exit).toMatchObject({ action: "SELL", quantity: 5 });
+    expect(autopilotDecision(input({ context: { action: "EXIT", summary: "x" } })).action).toBe("HOLD");
+    expect(autopilotDecision(input({}, falling, "10.10")).action).toBe("HOLD");
+  });
 });
+

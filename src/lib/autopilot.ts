@@ -6,6 +6,7 @@ import type { MarketHistory, MarketQuote } from "@/providers/types";
 import { AUTOPILOT_VERSION, autopilotDecision } from "@/core/autopilot";
 import { paperReferencePrice } from "@/core/paper";
 import { b3Session } from "@/core/b3-calendar";
+import type { ContextAction } from "@/core/context";
 
 const STOP_LOSS_PCT = 8;
 const accountSchema = z.object({
@@ -31,6 +32,7 @@ function maybe<T>(result: { data: T | null; error: unknown }): T | null {
 export async function runPaperAutopilot(db: SupabaseClient, input: {
   owner: string; jobId: string; agentId: string; assetId: string; ticker: string;
   quote: MarketQuote; history: MarketHistory;
+  context?: { action: ContextAction; summary: string };
 }) {
   const { owner, agentId, assetId, quote } = input;
   const found = maybe(await db.from("paper_accounts").select("*").eq("owner_id", owner).maybeSingle());
@@ -77,6 +79,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     maxOrderValue: account.max_order_value, availableCash: availableCash.toFixed(2),
     lotSize: rows(asset).lot_size, tickSize: String(rows(asset).tick_size),
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,
+    context: input.context,
   });
   if (decision.action === "HOLD") return { filled, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };
   const proposal = z.object({ id: z.uuid() }).loose().parse(rows(await db.rpc("paper_create_proposal", {

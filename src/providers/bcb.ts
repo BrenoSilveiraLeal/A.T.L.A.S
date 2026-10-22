@@ -18,12 +18,16 @@ function sgsDate(date: string): string {
 }
 
 /** Explicit bounded window, ending at today's civil date in São Paulo. */
-export async function fetchMacro(): Promise<MacroObservation[]> {
+export const fetchMacro = () => fetchSgsSeries("432", "Meta Selic", "% a.a.", 30);
+/** Daily commercial dollar (PTAX, sell), used to detect currency shocks. */
+export const fetchDollar = () => fetchSgsSeries("1", "Dólar (PTAX venda)", "R$/US$", 14);
+
+async function fetchSgsSeries(series: MacroObservation["series"], name: MacroObservation["name"], unit: MacroObservation["unit"], days: number): Promise<MacroObservation[]> {
   const now = Date.now();
   const endDate = brazilDate(now);
-  const startDate = brazilDate(now - 30 * 24 * 60 * 60 * 1000);
+  const startDate = brazilDate(now - days * 24 * 60 * 60 * 1000);
   const url = new URL(
-    "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados",
+    `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${series}/dados`,
   );
   url.search = new URLSearchParams({
     formato: "json",
@@ -48,10 +52,10 @@ export async function fetchMacro(): Promise<MacroObservation[]> {
         throw new ProviderError("bcb", "INVALID_RESPONSE");
       seen.add(observationDate);
       return {
-        series: "432",
-        name: "Meta Selic",
+        series,
+        name,
         value: row.valor,
-        unit: "% a.a.",
+        unit,
         observationDate,
         dataTimestamp,
         retrievedAt,

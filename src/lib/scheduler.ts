@@ -8,6 +8,7 @@ import { analyzeAsset } from "@/core/analysis";
 import { loadAgentObservationConfiguration } from "./agent-config";
 import { runPaperAutopilot } from "./autopilot";
 import { sendAlert } from "./alerts";
+import { contextFor, contextSummary, loadContextSources, type ContextSources } from "./context";
 
 const jobSchema = z.object({
   job_id: z.uuid(),
@@ -62,6 +63,16 @@ export async function runScheduler() {
     news.status === "rejected" ? "NEWS_UNAVAILABLE" : "",
     macro.status === "rejected" ? "MACRO_UNAVAILABLE" : "",
   ].filter(Boolean);
+  // Context is loaded once per tick, before the parallel analyses: GDELT needs paced requests.
+  let sources: ContextSources = { facts: null, market: null, dollar: null, company: new Map() };
+  try {
+    const claimedAgents = await db.from("agents").select("asset_id").eq("owner_id", owner).in("id", jobs.map((j) => j.agent_id));
+    const claimedAssets = claimedAgents.error ? null : await db.from("assets").select("ticker").eq("owner_id", owner)
+      .in("id", claimedAgents.data.map((a) => a.asset_id));
+    if (claimedAssets && !claimedAssets.error) sources = await loadContextSources(claimedAssets.data.map((a) => a.ticker));
+  } catch {
+    errors.push("CONTEXT_UNAVAILABLE");
+  }
   const results = await Promise.all(
     jobs.map(async (job) => {
       let label = "Agente";
@@ -102,6 +113,7 @@ export async function runScheduler() {
           macro: macroData,
           contextErrors: errors,
         });
+        const context = contextFor(asset.data.ticker, sources);
         const commit = await db.rpc("finish_agent_analysis", {
           p_owner_id: owner,
           p_job_id: job.job_id,
@@ -113,6 +125,7 @@ export async function runScheduler() {
             news: newsData.slice(0, 5),
             macro: macroData,
             configuration,
+            context,
           },
         });
         if (commit.error) throw commit.error;
@@ -122,6 +135,7 @@ export async function runScheduler() {
           paper = await runPaperAutopilot(db, {
             owner, jobId: job.job_id, agentId: job.agent_id, assetId: asset.data.id,
             ticker: asset.data.ticker, quote, history,
+            context: { action: context.action, summary: contextSummary(context) },
           });
         } catch {
           paper = { status: "FAILED" };
