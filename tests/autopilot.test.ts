@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTOPILOT_VERSION, AutopilotError, autopilotDecision, type AutopilotInput } from "@/core/autopilot";
+import { AUTOPILOT_VERSION, AutopilotError, autopilotDecision, TRAILING_VERSION, type AutopilotInput } from "@/core/autopilot";
 import type { MarketHistory, MarketQuote } from "@/providers/types";
 
 const now = "2026-10-22T18:00:00.000Z";
@@ -93,6 +93,20 @@ describe("paper autopilot rule", () => {
     expect(exit).toMatchObject({ action: "SELL", quantity: 5 });
     expect(autopilotDecision(input({ context: { action: "EXIT", summary: "x" } })).action).toBe("HOLD");
     expect(autopilotDecision(input({}, falling, "10.10")).action).toBe("HOLD");
+  });
+  it("trailing rule: enters at once, holds while near the top, exits after a 15% fall, re-enters on a new 20-day high", () => {
+    const trailing = (patch: Partial<NonNullable<AutopilotInput["trailing"]>>) => ({ peak: null, priorHigh: "17.00", everHeld: false, trailPct: 15, ...patch });
+    const first = autopilotDecision(input({ trailing: trailing({}) }, falling, "10.10"));
+    expect(first.action).toBe("BUY");
+    expect(first.reason).toContain(TRAILING_VERSION);
+    const holding = autopilotDecision(input({ position: { quantity: 10, averageCost: "15" }, trailing: trailing({ peak: "18.00", everHeld: true }) }, rising, "16.00"));
+    expect(holding.action).toBe("HOLD");
+    expect(holding.reason).toContain("15.30");
+    const stopped = autopilotDecision(input({ position: { quantity: 10, averageCost: "15" }, trailing: trailing({ peak: "19.00", everHeld: true }) }, rising, "16.00"));
+    expect(stopped).toMatchObject({ action: "SELL", quantity: 10 });
+    expect(autopilotDecision(input({ trailing: trailing({ everHeld: true }) }, rising, "16.00")).action).toBe("HOLD");
+    expect(autopilotDecision(input({ trailing: trailing({ everHeld: true, priorHigh: "15.50" }) }, rising, "16.00")).action).toBe("BUY");
+    expect(autopilotDecision(input({ trailing: trailing({}), context: { action: "BLOCK_BUY", summary: "x" } }, rising, "16.00")).action).toBe("HOLD");
   });
 });
 

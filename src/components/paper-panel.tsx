@@ -96,7 +96,7 @@ export function PaperPanel({ connected }: { connected: boolean }) {
           <h2>Piloto automático</h2>
           <span className={`status-label ${account.autopilot ? "success" : ""}`}>{account.autopilot ? "LIGADO" : "DESLIGADO"}</span>
         </div>
-        <p>Ligado, cada agente ativo decide sozinho a cada análise: compra quando a média de 20 dias está acima da de 50 e o preço acima da média de 20; vende tudo quando a tendência vira ou o preço cai 8% abaixo do custo. Toda proposta passa pelos mesmos limites de risco abaixo, e as ordens são conferidas na próxima cotação. É uma regra simples para testar a empresa, <strong>não uma estratégia validada</strong>.</p>
+        <p>Ligado, cada agente ativo decide sozinho a cada análise com a regra &quot;segurar com stop móvel de 15%&quot; (a melhor no backtest oficial de 2023–2026): compra, segura enquanto sobe e vende se cair 15% a partir do topo desde a compra; volta a comprar quando a ação faz nova máxima de 20 pregões. Toda proposta passa pelos mesmos limites de risco abaixo, e as ordens são conferidas na próxima cotação. É uma regra simples para testar a empresa, <strong>não uma estratégia validada</strong>.</p>
         <p>Regra de sobrevivência: o agente é <strong>eliminado</strong> quando o prejuízo virtual dele chega à porcentagem do orçamento definida aqui. Eliminado não volta; você contrata outro.</p>
         <form className="form-grid" onSubmit={(event) => {
           event.preventDefault(); const form = new FormData(event.currentTarget);

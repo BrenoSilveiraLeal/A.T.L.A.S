@@ -3,10 +3,14 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MarketHistory, MarketQuote } from "@/providers/types";
-import { AUTOPILOT_VERSION, autopilotDecision, corporateActionSuspected } from "@/core/autopilot";
+import { AUTOPILOT_VERSION, autopilotDecision, corporateActionSuspected, TRAILING_VERSION } from "@/core/autopilot";
 import { paperReferencePrice } from "@/core/paper";
 import { b3Session } from "@/core/b3-calendar";
 import { applyPaperCorporateActions } from "./corporate-actions";
+import { loadBars } from "./market-bars";
+import { adjustStoredBars } from "@/core/strategies";
+import { saoPauloClock } from "@/core/b3-calendar";
+import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
 
 const STOP_LOSS_PCT = 8;
@@ -41,7 +45,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   let account = accountSchema.parse(found);
   const price = paperReferencePrice(quote.price);
   // Official dividends and stock events first, so marking never sees a fake gain or loss.
-  let events = { applied: 0, knownDates: [] as string[], unavailable: true };
+  let events = { applied: 0, knownDates: [] as string[], stockEvents: [] as CorporateEvent[], unavailable: true };
   try { events = await applyPaperCorporateActions(db, owner, assetId, input.ticker, price); } catch { /* guard below still protects */ }
   let filled = 0;
   if (account.autopilot && !account.paused) {
@@ -81,6 +85,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   const reserved = new D(account.reserved_cash);
   const exposure = rows(allPositions).reduce((sum, p) => sum.plus(new D(p.quantity).times(String(p.average_cost))), new D(0));
   const availableCash = D.min(new D(account.cash).minus(reserved), new D(account.max_exposure).minus(exposure).minus(reserved));
+  const trailing = await trailingInputs(db, owner, agentId, assetId, input.ticker, held.quantity, events.stockEvents).catch(() => undefined);
   const decision = autopilotDecision({
     ticker: input.ticker, quote, history: input.history, now: new Date().toISOString(),
     position: { quantity: held.quantity, averageCost: String(held.average_cost) },
@@ -90,6 +95,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     lotSize: rows(asset).lot_size, tickSize: String(rows(asset).tick_size),
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,
     context: input.context,
+    trailing,
   });
   if (decision.action === "HOLD") return { filled, corporateActions: events.applied, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };
   const proposal = z.object({ id: z.uuid() }).loose().parse(rows(await db.rpc("paper_create_proposal", {
@@ -97,7 +103,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     p_limit_price: decision.limitPrice, p_reference_price: decision.referencePrice,
     p_quote_source: quote.source, p_quote_timestamp: quote.dataTimestamp,
     p_history_source: input.history.source, p_history_retrieved_at: input.history.retrievedAt,
-    p_strategy_version: AUTOPILOT_VERSION, p_reasoning: decision.reason, p_indicators: decision.indicators,
+    p_strategy_version: trailing ? TRAILING_VERSION : AUTOPILOT_VERSION, p_reasoning: decision.reason, p_indicators: decision.indicators,
     p_idempotency_key: input.jobId,
   })));
   const review = z.object({ status: z.string() }).loose().parse(rows(
@@ -105,3 +111,32 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   return { filled, corporateActions: events.applied, status: review.status === "OPEN" ? "ORDER_OPENED" as const : "RISK_REJECTED" as const,
     side: decision.action, quantity: decision.quantity, limitPrice: decision.limitPrice, lifePct: vitals.lifePct };
 }
+
+/**
+ * Inputs for the trailing-stop rule from the long adjusted history: highest close since
+ * the current position was opened, highest close of the prior 20 sessions and whether the
+ * agent ever held the asset. Undefined (SMA rule fallback) when history is too short.
+ */
+async function trailingInputs(db: SupabaseClient, owner: string, agentId: string, assetId: string, ticker: string,
+  heldQuantity: number, stockEvents: readonly CorporateEvent[]) {
+  const today = saoPauloClock(new Date()).date;
+  const stored = (await loadBars(db, ticker, 120)).filter((b) => b.trade_date < today);
+  if (stored.length < 20) return undefined;
+  const adjusted = adjustStoredBars(stored, stockEvents).map((b, i) => ({ date: stored[i].trade_date, close: Number(b.close) }));
+  const fills = maybe(await db.from("paper_fills").select("side,quantity,filled_at").eq("owner_id", owner).eq("agent_id", agentId)
+    .eq("asset_id", assetId).order("filled_at", { ascending: true })) as { side: string; quantity: number; filled_at: string }[] | null;
+  let quantity = 0, entryDate: string | null = null;
+  for (const fill of fills ?? []) {
+    const before = quantity;
+    quantity += fill.side === "BUY" ? fill.quantity : -fill.quantity;
+    if (before === 0 && quantity > 0) entryDate = saoPauloClock(new Date(fill.filled_at)).date;
+  }
+  const sinceEntry = heldQuantity > 0 && entryDate ? adjusted.filter((b) => b.date >= entryDate!) : [];
+  return {
+    peak: sinceEntry.length ? Math.max(...sinceEntry.map((b) => b.close)).toFixed(2) : null,
+    priorHigh: Math.max(...adjusted.slice(-20).map((b) => b.close)).toFixed(2),
+    everHeld: (fills ?? []).length > 0,
+    trailPct: 15,
+  };
+}
+

@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchB3Events, b3EventsUrl } from "@/providers/b3-events";
-import { applicableEvents, stockEventDates, type CorporateEvent } from "@/core/corporate-actions";
+import { applicableEvents, isinPrefix, stockEventDates, type CorporateEvent } from "@/core/corporate-actions";
 import { saoPauloClock } from "@/core/b3-calendar";
 import { softCached } from "./context";
 
@@ -15,12 +15,14 @@ export async function applyPaperCorporateActions(db: SupabaseClient, owner: stri
   const issuer = ticker.slice(0, 4);
   const events = await softCached<CorporateEvent[]>("b3", `EVENTS:${issuer}`, 12 * 3600000, 7 * 86400000, 100,
     b3EventsUrl(issuer), () => fetchB3Events(issuer), undefined, 1800);
-  if (!events) return { applied: 0, knownDates: [] as string[], unavailable: true };
+  if (!events) return { applied: 0, knownDates: [] as string[], stockEvents: [] as CorporateEvent[], unavailable: true };
   const knownDates = stockEventDates(events, ticker);
+  const prefix = isinPrefix(ticker);
+  const stockEvents = events.filter((e) => e.kind !== "CASH" && prefix !== null && e.isin.startsWith(prefix));
   const first = await db.from("paper_fills").select("filled_at").eq("owner_id", owner).eq("asset_id", assetId)
     .order("filled_at", { ascending: true }).limit(1).maybeSingle();
   if (first.error) throw first.error;
-  if (!first.data) return { applied: 0, knownDates, unavailable: false };
+  if (!first.data) return { applied: 0, knownDates, stockEvents, unavailable: false };
   const firstHolding = saoPauloClock(new Date(first.data.filled_at)).date;
   let applied = 0;
   for (const event of applicableEvents(events, ticker, firstHolding, saoPauloClock(new Date()).date)) {
@@ -32,5 +34,5 @@ export async function applyPaperCorporateActions(db: SupabaseClient, owner: stri
     if (result.error) throw result.error;
     if ((result.data as { applied?: boolean } | null)?.applied) applied++;
   }
-  return { applied, knownDates, unavailable: false };
+  return { applied, knownDates, stockEvents, unavailable: false };
 }

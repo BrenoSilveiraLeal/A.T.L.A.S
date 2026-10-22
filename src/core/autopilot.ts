@@ -9,6 +9,12 @@ import type { ContextAction } from "./context";
  * Long-only: enter when SMA20 > SMA50 and price > SMA20; exit on SMA20 < SMA50 or stop loss.
  */
 export const AUTOPILOT_VERSION = "paper-autopilot-sma20x50/1.0.0";
+/**
+ * Best rule in the 2023–2026 official backtest (docs/BACKTEST_STRATEGIES.md), still below
+ * CDI and buy-and-hold: hold; sell after a 15% fall from the highest close since entry;
+ * re-enter on a new 20-day closing high. The first entry is immediate.
+ */
+export const TRAILING_VERSION = "paper-autopilot-trailing15/1.0.0";
 const D = Decimal.clone({ precision: 32, rounding: Decimal.ROUND_HALF_EVEN });
 const LIMIT_BUFFER_BPS = 20;
 
@@ -30,6 +36,12 @@ export interface AutopilotInput {
   stopLossPct: number;
   /** Rule-based context; it can only brake: block buys, halve size or force an exit. */
   context?: { action: ContextAction; summary: string };
+  /**
+   * Trailing-stop rule inputs from the long adjusted history: highest close since the
+   * current position was opened (null without position), highest close of the prior
+   * 20 sessions and whether this agent ever held the asset.
+   */
+  trailing?: { peak: string | null; priorHigh: string; everHeld: boolean; trailPct: number };
 }
 
 export type AutopilotDecision =
@@ -70,12 +82,37 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
   const sellAll = (why: string): AutopilotDecision => ({ action: "SELL", quantity: input.position.quantity,
     limitPrice: D.max(toTick(price.times(1 - (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "down"), tick).toFixed(2),
     referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
-    reason: `${input.ticker}: venda virtual automática (${why}). Regra ${AUTOPILOT_VERSION}, simulação.` });
+    reason: `${input.ticker}: venda virtual automática (${why}). Regra ${input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION}, simulação.` });
   if (input.context?.action === "EXIT" && input.position.quantity > 0) return sellAll(`contexto: ${input.context.summary}`);
+  const buy = (why: string): AutopilotDecision => {
+    if (input.context?.action === "BLOCK_BUY" || input.context?.action === "EXIT")
+      return hold(`sinal de compra bloqueado pelo contexto: ${input.context.summary}`);
+    const limit = toTick(price.times(1 + (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "up");
+    const fullRoom = D.min(new D(input.budgetRoom), new D(input.maxOrderValue), new D(input.availableCash));
+    const room = input.context?.action === "REDUCE" ? fullRoom.div(2) : fullRoom;
+    const perShare = limit.times(1 + input.feeBps / 10000);
+    const lots = room.lte(0) ? 0 : room.div(perShare.times(input.lotSize)).floor().toNumber();
+    // Order value is checked against the limit price, which is what the risk review uses.
+    const quantity = Math.min(lots * input.lotSize, 1000000);
+    if (quantity < input.lotSize || limit.times(quantity).gt(input.maxOrderValue))
+      return hold(`sinal de compra, mas orçamento/caixa virtual não cobre um lote a ${limit.toFixed(2)}.`);
+    return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
+      reason: `${input.ticker}: compra virtual automática (${why}${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION}, simulação.` };
+  };
+  if (input.trailing) {
+    const t = input.trailing;
+    if (input.position.quantity > 0) {
+      const peak = D.max(new D(t.peak ?? price), price);
+      const stop = peak.times(1 - t.trailPct / 100);
+      if (price.lte(stop)) return sellAll(`caiu ${t.trailPct}% do topo de R$ ${peak.toFixed(2)} desde a compra`);
+      return hold(`mantém posição; topo desde a compra R$ ${peak.toFixed(2)}, vende se cair a R$ ${stop.toFixed(2)}.`);
+    }
+    if (!t.everHeld) return buy("primeira entrada da regra de segurar com stop móvel");
+    if (price.gt(t.priorHigh)) return buy(`nova máxima de 20 pregões acima de R$ ${new D(t.priorHigh).toFixed(2)}`);
+    return hold(`fora da ação desde o stop; volta a comprar acima da máxima de 20 pregões (R$ ${new D(t.priorHigh).toFixed(2)}).`);
+  }
   if (!fast || !slow) return hold(`histórico de ${closes.length} pregões; são necessários 50 para SMA20/SMA50.`);
   const trend = `SMA20 ${new D(fast).toFixed(2)} / SMA50 ${new D(slow).toFixed(2)}, preço ${price.toFixed(2)}`;
-  const referencePrice = price.toDecimalPlaces(2).toFixed(2);
-  const buffer = (input.slippageBps + LIMIT_BUFFER_BPS) / 10000;
 
   if (input.position.quantity > 0) {
     const average = new D(input.position.averageCost);
@@ -86,19 +123,7 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     return sellAll(`${exit}; ${trend}`);
   }
   if (!(new D(fast).gt(slow) && price.gt(fast))) return hold(`sem sinal de entrada; ${trend}.`);
-  if (input.context?.action === "BLOCK_BUY" || input.context?.action === "EXIT")
-    return hold(`sinal de compra bloqueado pelo contexto: ${input.context.summary}`);
-  const limit = toTick(price.times(1 + buffer), tick, "up");
-  const fullRoom = D.min(new D(input.budgetRoom), new D(input.maxOrderValue), new D(input.availableCash));
-  const room = input.context?.action === "REDUCE" ? fullRoom.div(2) : fullRoom;
-  const perShare = limit.times(1 + input.feeBps / 10000);
-  const lots = room.lte(0) ? 0 : room.div(perShare.times(input.lotSize)).floor().toNumber();
-  // Order value is checked against the limit price, which is what the risk review uses.
-  const quantity = Math.min(lots * input.lotSize, 1000000);
-  if (quantity < input.lotSize || limit.times(quantity).gt(input.maxOrderValue))
-    return hold(`sinal de compra, mas orçamento/caixa virtual não cobre um lote a ${limit.toFixed(2)}.`);
-  return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice, indicators,
-    reason: `${input.ticker}: compra virtual automática (tendência de alta${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}); ${trend}. Regra ${AUTOPILOT_VERSION}, simulação.` };
+  return buy(`tendência de alta; ${trend}`);
 }
 
 /**
