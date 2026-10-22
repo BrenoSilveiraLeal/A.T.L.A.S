@@ -38,6 +38,11 @@ export function OwnerSetupForm({ configured }: { configured: boolean }) {
       setError("Use uma senha de 14 a 128 caracteres.");
       return;
     }
+    const totp = String(fields.get("totp") ?? "").replace(/\s/g, "");
+    if (totp && !/^\d{6}$/.test(totp)) {
+      setError("O código do autenticador tem 6 dígitos.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -47,7 +52,7 @@ export function OwnerSetupForm({ configured }: { configured: boolean }) {
         credentials: "same-origin",
         cache: "no-store",
         redirect: "error",
-        body: JSON.stringify({ tokenHash: tokenHash.current, password }),
+        body: JSON.stringify({ tokenHash: tokenHash.current, password, ...(totp ? { totp } : {}) }),
       });
       const result = await response.json();
       if (!response.ok || result.ok !== true || result.next !== "login") {
@@ -74,8 +79,8 @@ export function OwnerSetupForm({ configured }: { configured: boolean }) {
       <Link className="brand" href="/login"><span className="brand-mark">A</span>ATLAS</Link>
       <section className="login-panel">
         <ShieldCheck size={32} aria-hidden="true" />
-        <h1>Crie sua senha de acesso</h1>
-        <p>Depois, entre com seu e-mail e cadastre seu aplicativo autenticador.</p>
+        <h1>Crie ou redefina sua senha</h1>
+        <p>No primeiro acesso, depois cadastre o aplicativo autenticador. Para redefinir, informe também o código atual do autenticador.</p>
         {!configured ? (
           <div className="notice">A configuração do servidor ainda está pendente.</div>
         ) : linkState === "loading" ? (
@@ -93,7 +98,10 @@ export function OwnerSetupForm({ configured }: { configured: boolean }) {
             <label>Confirmar nova senha
               <input name="confirmation" type="password" minLength={14} maxLength={128} autoComplete="new-password" disabled={busy} required />
             </label>
-            <button disabled={busy}>{busy ? "Definindo senha…" : "Criar senha e continuar"}</button>
+            <label>Código do autenticador (só para redefinir)
+              <input name="totp" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" maxLength={7} disabled={busy} />
+            </label>
+            <button disabled={busy}>{busy ? "Definindo senha…" : "Salvar senha e continuar"}</button>
           </form>
         )}
         {error && <p className="error-text" role="alert">{error}</p>}

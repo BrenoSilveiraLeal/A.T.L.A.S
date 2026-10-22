@@ -39,9 +39,11 @@ const navigation = [
 export function Shell({
   children,
   configured,
+  localDev = false,
 }: {
   children: React.ReactNode;
   configured: boolean;
+  localDev?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -212,6 +214,11 @@ export function Shell({
         {message && (
           <div className="notice global-message" role="status">
             {message}
+          </div>
+        )}
+        {localDev && (
+          <div className="notice global-message" role="status">
+            <strong>Modo desenvolvimento:</strong> login desligado neste computador (127.0.0.1). Na Vercel o login continua obrigatório.
           </div>
         )}
         <main id="content" className="main-content">

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { configured } from "@/lib/env";
-import { requireOwner, ApiError } from "@/lib/auth";
+import { requireOwner, ApiError, localDevBypass } from "@/lib/auth";
 import { Shell } from "@/components/shell";
 
 export default async function AppLayout({
@@ -18,5 +18,5 @@ export default async function AppLayout({
       throw error;
     }
   }
-  return <Shell configured={ready}>{children}</Shell>;
+  return <Shell configured={ready} localDev={ready && (await localDevBypass())}>{children}</Shell>;
 }

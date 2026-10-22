@@ -7,6 +7,8 @@ import { sessionClient } from "@/lib/supabase";
 const schema = z.strictObject({
   tokenHash: z.string().min(32).max(512).regex(/^[A-Za-z0-9_-]+$/),
   password: z.string().min(14).max(128).refine((value) => value.trim().length >= 14),
+  /** Required to reset the password once an authenticator is enrolled. */
+  totp: z.string().regex(/^\d{6}$/).optional(),
 });
 
 export async function POST(request: Request) {
@@ -39,9 +41,19 @@ export async function POST(request: Request) {
       const factors = await db.auth.mfa.listFactors();
       if (factors.error || !factors.data)
         throw new ApiError(503, "MFA_STATUS_UNAVAILABLE", "Não foi possível verificar a proteção da conta. Gere um novo link e tente novamente.");
-      // First onboarding only. A recovery link must never bypass an existing MFA factor.
-      if (factors.data.all.some((factor) => factor.status === "verified"))
-        throw new ApiError(403, "SETUP_ALREADY_PROTECTED", "O primeiro acesso já foi concluído. Entre com sua senha e autenticador.");
+      // A recovery link alone never replaces an enrolled factor: a password reset must
+      // also prove possession of the authenticator (the session becomes AAL2 first).
+      const verifiedFactors = factors.data.all.filter((factor) => factor.status === "verified");
+      const enrolled = verifiedFactors.find((factor) => factor.factor_type === "totp");
+      if (verifiedFactors.some((factor) => factor.factor_type !== "totp"))
+        throw new ApiError(403, "SETUP_ALREADY_PROTECTED", "Esta conta usa outro tipo de segundo fator; a redefinição por link não é permitida.");
+      if (enrolled) {
+        if (!body.totp)
+          throw new ApiError(403, "TOTP_REQUIRED", "Esta conta já tem autenticador. Informe o código de 6 dígitos para redefinir a senha.");
+        const verifiedFactor = await db.auth.mfa.challengeAndVerify({ factorId: enrolled.id, code: body.totp });
+        if (verifiedFactor.error)
+          throw new ApiError(401, "TOTP_INVALID", "Código do autenticador inválido ou expirado. Gere um novo link e tente de novo.");
+      }
 
       const updated = await db.auth.updateUser({ password: body.password });
       if (updated.error || updated.data.user?.id !== owner) {

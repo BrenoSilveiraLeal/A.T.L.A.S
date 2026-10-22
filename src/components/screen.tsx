@@ -11,6 +11,7 @@ import { PortfolioPanel } from "./portfolio-panel";
 import { AgentConfigForm } from "./agent-config-form";
 import { PaperPanel } from "./paper-panel";
 import { AgentContextPanel, AgentFloor, AgentMarket } from "./agent-floor";
+import { GenialPanel } from "./genial-panel";
 import { statusLabel } from "./labels";
 import { parsePortfolioHistory } from "@/lib/portfolio";
 import {
@@ -810,6 +811,7 @@ export function Screen({
           </section>
         </>
       )}
+      {(section === "portfolio" || section === "overview") && <GenialPanel connected={connected} />}
       {section === "portfolio" && (
         <PortfolioPanel
           data={history.data}

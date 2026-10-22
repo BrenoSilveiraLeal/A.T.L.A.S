@@ -6,7 +6,7 @@ const auth = vi.hoisted(() => ({
   getUser: vi.fn(),
   updateUser: vi.fn(),
   signOut: vi.fn(),
-  mfa: { listFactors: vi.fn() },
+  mfa: { listFactors: vi.fn(), challengeAndVerify: vi.fn() },
 }));
 vi.mock("@/lib/supabase", () => ({ sessionClient: async () => ({ auth }) }));
 
@@ -100,12 +100,29 @@ describe("owner first-access endpoint", () => {
     expect(auth.signOut).toHaveBeenCalled();
   });
 
-  it.each(["totp", "phone", "webauthn"])("never resets an existing %s-protected owner through first setup", async (factorType) => {
+  it.each(["phone", "webauthn"])("never resets an existing %s-protected owner through a link", async (factorType) => {
     auth.mfa.listFactors.mockResolvedValue({ data: { all: [{ factor_type: factorType, status: "verified" }] }, error: null });
     const response = await POST(request());
     expect(response.status).toBe(403);
     expect((await response.json()).code).toBe("SETUP_ALREADY_PROTECTED");
     expect(auth.updateUser).not.toHaveBeenCalled();
+    expect(auth.signOut).toHaveBeenCalled();
+  });
+
+  it("resets a TOTP-protected owner only with a valid authenticator code, verified before the change", async () => {
+    auth.mfa.listFactors.mockResolvedValue({ data: { all: [{ id: "factor-1", factor_type: "totp", status: "verified" }] }, error: null });
+    const missing = await POST(request());
+    expect(missing.status).toBe(403);
+    expect((await missing.json()).code).toBe("TOTP_REQUIRED");
+    auth.mfa.challengeAndVerify.mockResolvedValueOnce({ data: null, error: new Error("invalid code") });
+    const wrong = await POST(request({ tokenHash, password, totp: "000000" }));
+    expect(wrong.status).toBe(401);
+    expect((await wrong.json()).code).toBe("TOTP_INVALID");
+    expect(auth.updateUser).not.toHaveBeenCalled();
+    auth.mfa.challengeAndVerify.mockResolvedValueOnce({ data: {}, error: null });
+    expect((await POST(request({ tokenHash, password, totp: "123456" }))).status).toBe(200);
+    expect(auth.mfa.challengeAndVerify).toHaveBeenLastCalledWith({ factorId: "factor-1", code: "123456" });
+    expect(auth.mfa.challengeAndVerify.mock.invocationCallOrder.at(-1)).toBeLessThan(auth.updateUser.mock.invocationCallOrder[0]);
     expect(auth.signOut).toHaveBeenCalled();
   });
 

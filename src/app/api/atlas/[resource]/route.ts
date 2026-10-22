@@ -7,6 +7,7 @@ import { riskConfigSchema } from "@/lib/risk-config";
 import { normalizeHealth } from "@/lib/health";
 import { loadPortfolioHistory } from "@/lib/portfolio";
 import { loadPaper, mutatePaper } from "@/lib/paper";
+import { readBrokerLive } from "@/lib/broker-live";
 import {
   configureAgent,
   publishObservationStrategy,
@@ -56,6 +57,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (resource === "readiness")
       return json({ liveEnabled: false, gates: readiness() });
     if (resource === "paper") return json(await loadPaper(adminClient(), user.id));
+    if (resource === "broker-live") return json(await readBrokerLive(user.id));
     if (resource === "accounting") {
       const { data, error } = await adminClient().rpc(
         "get_accounting_snapshot",
