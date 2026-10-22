@@ -16,11 +16,13 @@ describe("B3 corporate events", () => {
     ], stockDividends: [
       { isinCode: "BRMGLUACNOR2", label: "GRUPAMENTO", factor: "0,10000000000", lastDatePrior: "24/05/2024" },
       { isinCode: "BRMGLUACNOR2", label: "DESDOBRAMENTO", factor: "300,00000000000", lastDatePrior: "13/10/2020" },
+      { isinCode: "BRMGLUACNOR2", label: "DESDOBRAMENTO", factor: "4.900,00000000000", lastDatePrior: "08/06/2009" },
     ] }]);
     expect(events).toEqual([
       { kind: "CASH", label: "DIVIDENDO", isin: "BRMGLUACNOR2", value: "0.08130019210", lastDatePrior: "2026-04-24", paymentDate: "2026-05-08" },
       { kind: "GROUPING", label: "GRUPAMENTO", isin: "BRMGLUACNOR2", value: "0.10000000000", lastDatePrior: "2024-05-24", paymentDate: null },
       { kind: "SPLIT", label: "DESDOBRAMENTO", isin: "BRMGLUACNOR2", value: "300.00000000000", lastDatePrior: "2020-10-13", paymentDate: null },
+      { kind: "SPLIT", label: "DESDOBRAMENTO", isin: "BRMGLUACNOR2", value: "4900.00000000000", lastDatePrior: "2009-06-08", paymentDate: null },
     ]);
     expect(() => parseB3Events({})).toThrow("INVALID_RESPONSE");
   });

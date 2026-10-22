@@ -20,7 +20,9 @@ const KINDS: Record<string, B3Event["kind"]> = {
   DESDOBRAMENTO: "SPLIT", GRUPAMENTO: "GROUPING", BONIFICACAO: "BONUS",
 };
 const date = z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/);
-const decimal = z.string().regex(/^\d{1,12}(,\d{1,11})?$/);
+// B3 formats numbers in pt-BR, sometimes with thousands separators ("4.900,00000000000").
+const decimal = z.string().regex(/^(\d{1,3}(\.\d{3})+|\d{1,12})(,\d{1,11})?$/);
+const plain = (value: string) => value.replace(/\./g, "").replace(",", ".");
 const eventSchema = z.object({ isinCode: z.string().regex(/^BR[A-Z0-9]{10}$/), label: z.string().max(60), lastDatePrior: date }).loose();
 const payloadSchema = z.array(z.object({
   cashDividends: z.array(eventSchema.extend({ rate: decimal, paymentDate: date.or(z.literal("")) })).max(2000).optional(),
@@ -43,13 +45,13 @@ export function parseB3Events(json: unknown): B3Event[] {
   for (const row of company.cashDividends ?? []) {
     const kind = KINDS[row.label.trim()];
     if (kind !== "CASH" || !row.paymentDate) continue; // payment date not set yet: nothing to credit
-    events.push({ kind, label: row.label.trim(), isin: row.isinCode, value: row.rate.replace(",", "."),
+    events.push({ kind, label: row.label.trim(), isin: row.isinCode, value: plain(row.rate),
       lastDatePrior: iso(row.lastDatePrior), paymentDate: iso(row.paymentDate) });
   }
   for (const row of company.stockDividends ?? []) {
     const kind = KINDS[row.label.trim()];
     if (!kind || kind === "CASH") continue;
-    events.push({ kind, label: row.label.trim(), isin: row.isinCode, value: row.factor.replace(",", "."),
+    events.push({ kind, label: row.label.trim(), isin: row.isinCode, value: plain(row.factor),
       lastDatePrior: iso(row.lastDatePrior), paymentDate: null });
   }
   return events;

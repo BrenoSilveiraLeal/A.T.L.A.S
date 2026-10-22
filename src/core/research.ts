@@ -225,6 +225,12 @@ export interface ResearchConfig {
   costs: ResearchCosts;
   periodsPerYear: number;
   annualRiskFreeRate: number;
+  /**
+   * Fractions created by a split/bonus/grouping. REJECT (default) stops the run;
+   * CASH_IN_LIEU keeps whole shares and credits the fraction at the event bar's open,
+   * as B3 issuers do when they auction fractions.
+   */
+  fractionalShares?: "REJECT" | "CASH_IN_LIEU";
 }
 export interface ResearchFill {
   decisionAt: string;
@@ -436,9 +442,16 @@ export function runBacktest(
       .filter((action) => time(action.effectiveAt) === opened)
       .forEach((action) => {
         if (action.type === "SPLIT") {
-          const shares = quantity.mul(action.ratio);
-          if (!shares.isInteger())
-            throw new ResearchError("FRACTIONAL_SPLIT_UNSUPPORTED");
+          let shares = quantity.mul(action.ratio);
+          if (!shares.isInteger()) {
+            if (config.fractionalShares !== "CASH_IN_LIEU")
+              throw new ResearchError("FRACTIONAL_SPLIT_UNSUPPORTED");
+            const whole = shares.floor();
+            const proceeds = shares.minus(whole).mul(decimal(bar.open, true));
+            cash = cash.plus(proceeds);
+            income = income.plus(proceeds);
+            shares = whole;
+          }
           quantity = shares;
           // A submitted quantity before a split is ambiguous; do not silently change its meaning.
           if (pending?.signal.action === "BUY") {
