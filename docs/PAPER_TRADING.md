@@ -14,6 +14,18 @@ Implementado em 25/09/2026 como **simulação separada**. Não é corretora, con
 
 O botão global **PARAR TODAS AS OPERAÇÕES** mantém o bloqueio real e tenta pausar a simulação. A confirmação informa separadamente se a pausa virtual falhou. Retomar a simulação não habilita live.
 
+## Piloto automático e sobrevivência dos agentes (22/10/2026)
+
+Migration `20261022120000_atlas_paper_autopilot.sql`. Continua sendo somente simulação: nenhuma tabela real, comando do Executor ou ordem B3 é tocada.
+
+- **Ligar:** em **Simulação → Piloto automático**, informe a perda que elimina um agente (% do orçamento dele, padrão 20) e clique **Ligar**. Requer `npm run local` aberto, porque é o scheduler que dispara as análises.
+- **A cada análise de um agente ativo**, o scheduler: (1) confere as ordens virtuais abertas daquele ativo com a cotação nova; (2) mede a "vida" do agente; (3) aplica a regra `paper-autopilot-sma20x50/1.0.0` e, se houver sinal, cria a proposta e a submete à mesma revisão de risco do fluxo manual (`paper_review_proposal`). O ID do job é a chave de idempotência, então um job repetido não abre outra ordem.
+- **Regra:** só compra (sem venda descoberta). Entra quando SMA20 > SMA50 e o preço está acima da SMA20. Sai com a posição inteira quando SMA20 < SMA50 ou o preço cai 8% abaixo do custo médio. Uma ordem aberta por agente. O preço limite tem folga de slippage + 0,20%. **Não é estratégia validada**; serve para exercitar a "empresa" com regras determinísticas e auditáveis.
+- **Vida:** parcela da perda permitida (orçamento × %) ainda não consumida pelo resultado virtual do agente (realizado + posição marcada na última cotação). Ganhos não passam de 100%. As taxas da compra não entram na marcação, que é aproximada.
+- **Eliminação:** quando o prejuízo atinge o limite, o agente vira `DEAD`, a análise é desligada e suas ordens virtuais abertas são canceladas. Isso é registrado em `paper_events` e `audit_logs`. As posições virtuais permanecem e não há venda automática. Agente `DEAD` não pode ser reativado (`ATLAS_AGENT_RETIRED`); contrate outro. Como `agents` é compartilhado, um agente eliminado na simulação também fica indisponível para a execução real futura, o que é intencional: ele não provou resultado.
+- **Escritório:** a tela **Trading Floor** mostra estação, personagem, vida, resultado virtual e última decisão de cada agente, além de capital virtual e estado do piloto. Tudo vem de registros do banco; sem medição, a tela mostra "sem medição".
+- O histórico da brapi passou de 1 para 3 meses (limite do plano gratuito). Com 1 mês, SMA50 nunca tinha dados suficientes.
+
 ## Premissas e limites
 
 - Fonte de preço: cotação brapi **DELAYED**, que pode estar atrasada ou indisponível. Proposta e verificação recusam cotação com mais de 72 horas; histórico recuperado há mais de 24 horas também bloqueia proposta. Um feriado prolongado pode impedir propostas: essa é uma recusa segura.

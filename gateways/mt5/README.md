@@ -36,6 +36,14 @@ python -m venv .venv-mt5
 | `ATLAS_MT5_ENABLE_EXECUTION` | `false` inicialmente |
 | `ATLAS_MT5_PORT` | `8785` por padrão |
 | `ATLAS_MT5_PROVIDER_ID` | `MT5` por padrão; idêntico a `ATLAS_GATEWAY_PROVIDER_ID` |
+| `ATLAS_MT5_BROKER_PROFILE` | `GENERIC` por padrão; `GENIAL_SWING` ou `GENIAL_DAY_TRADE` ativam regras da Genial ([integração Genial](../../docs/research/GENIAL_MT5_INTEGRATION.md)) |
+| `ATLAS_MT5_HALT_FILE` | Trava local; obrigatória nos perfis Genial. Liga sozinha em inconsistência e só o proprietário a remove |
+
+Antes de iniciar a ponte, valide a conexão **somente leitura** com `probe.py` (nunca envia nem verifica ordens):
+
+```powershell
+.\.venv-mt5\Scripts\python.exe gateways/mt5/probe.py --profile GENIAL_SWING --symbols PETR4,VALE3 --expected-server "<servidor>"
+```
 
 5. Iniciar explicitamente a ponte:
 

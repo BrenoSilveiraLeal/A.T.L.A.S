@@ -162,6 +162,17 @@ describe("brapi public adapters", () => {
     });
   });
 
+  it("tolerates a provider envelope slightly ahead of this machine's clock only", async () => {
+    const ahead = quote();
+    ahead.requestedAt = new Date(NOW.getTime() + 9_400).toISOString();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(ahead)));
+    await expect(fetchQuote("TEST3")).resolves.toMatchObject({ ticker: "TEST3" });
+    const far = quote();
+    far.requestedAt = new Date(NOW.getTime() + 120_000).toISOString();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(far)));
+    await expect(fetchQuote("TEST3")).rejects.toMatchObject({ code: "FUTURE_DATA" });
+  });
+
   it("does not accept a fresh quote under an older upstream envelope", async () => {
     const body = quote();
     body.requestedAt = "2026-09-14T14:00:00Z";
@@ -211,6 +222,7 @@ describe("brapi public adapters", () => {
       tradable: false,
     });
     expect(fetcher.mock.calls[0][0].searchParams.get("interval")).toBe("1d");
+    expect(fetcher.mock.calls[0][0].searchParams.get("range")).toBe("3mo");
   });
 
   it.each([

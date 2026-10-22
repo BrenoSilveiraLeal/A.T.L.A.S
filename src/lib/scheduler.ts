@@ -6,6 +6,7 @@ import { ProviderError } from "@/providers";
 import { readQuote, readHistory, readNews, readMacro } from "./data";
 import { analyzeAsset } from "@/core/analysis";
 import { loadAgentObservationConfiguration } from "./agent-config";
+import { runPaperAutopilot } from "./autopilot";
 
 const jobSchema = z.object({
   job_id: z.uuid(),
@@ -112,10 +113,21 @@ export async function runScheduler() {
           },
         });
         if (commit.error) throw commit.error;
+        // Virtual book only. A paper failure never turns a committed analysis into a failure.
+        let paper: Awaited<ReturnType<typeof runPaperAutopilot>> | { status: "FAILED" };
+        try {
+          paper = await runPaperAutopilot(db, {
+            owner, jobId: job.job_id, agentId: job.agent_id, assetId: asset.data.id,
+            ticker: asset.data.ticker, quote, history,
+          });
+        } catch {
+          paper = { status: "FAILED" };
+        }
         return {
           jobId: job.job_id,
           decisionId: commit.data,
           status: "SUCCEEDED",
+          paper,
         };
       } catch (error) {
         const code =
@@ -139,6 +151,8 @@ export async function runScheduler() {
       }
     }),
   );
+  const paperFailed = results.some((r) => "paper" in r && r.paper?.status === "FAILED");
+  if (paperFailed) errors.push("PAPER_AUTOPILOT_FAILED");
   await health(
     results.some((r) => r.status === "FAILED")
       ? "RED"

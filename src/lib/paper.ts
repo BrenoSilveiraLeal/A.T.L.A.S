@@ -14,6 +14,7 @@ const inputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("settle"), assetId: z.uuid() }),
   z.object({ action: z.literal("cancel"), orderId: z.uuid() }),
   z.object({ action: z.literal("pause"), paused: z.boolean() }),
+  z.object({ action: z.literal("autopilot"), enabled: z.boolean(), agentMaxLossPct: z.string().regex(/^\d{1,3}(?:\.\d{1,2})?$/) }),
 ]);
 
 function checked<T>(result: { data: T | null; error: { message: string } | null }): NonNullable<T> {
@@ -40,8 +41,8 @@ function paperErrorMessage(code: string) {
 }
 
 export async function loadPaper(db: SupabaseClient, ownerId: string) {
-  const tables = ["paper_accounts", "paper_positions", "paper_proposals", "paper_orders", "paper_fills", "paper_ledger_entries", "paper_events", "agents", "assets"] as const;
-  const sort: Record<string, string> = { paper_accounts: "owner_id", paper_positions: "updated_at", paper_proposals: "created_at", paper_orders: "placed_at", paper_fills: "filled_at", paper_ledger_entries: "created_at", paper_events: "created_at", agents: "created_at", assets: "created_at" };
+  const tables = ["paper_accounts", "paper_positions", "paper_proposals", "paper_orders", "paper_fills", "paper_ledger_entries", "paper_events", "paper_agent_vitals", "agents", "assets"] as const;
+  const sort: Record<string, string> = { paper_accounts: "owner_id", paper_agent_vitals: "checked_at", paper_positions: "updated_at", paper_proposals: "created_at", paper_orders: "placed_at", paper_fills: "filled_at", paper_ledger_entries: "created_at", paper_events: "created_at", agents: "created_at", assets: "created_at" };
   const results = await Promise.all(tables.map((table) => db.from(table).select("*").eq("owner_id", ownerId).order(sort[table], { ascending: false }).limit(200)));
   return Object.fromEntries(tables.map((table, index) => [table, checked(results[index])])) as Record<typeof tables[number], Record<string, unknown>[]>;
 }
@@ -95,6 +96,9 @@ export async function mutatePaper(db: SupabaseClient, ownerId: string, raw: unkn
   }));
   if (input.action === "cancel") return checked(await db.rpc("paper_cancel_order", {
     p_owner_id: ownerId, p_order_id: input.orderId,
+  }));
+  if (input.action === "autopilot") return checked(await db.rpc("paper_set_autopilot", {
+    p_owner_id: ownerId, p_enabled: input.enabled, p_agent_max_loss_pct: input.agentMaxLossPct,
   }));
   if (input.action === "pause") return checked(await db.rpc("paper_set_paused", {
     p_owner_id: ownerId, p_paused: input.paused,

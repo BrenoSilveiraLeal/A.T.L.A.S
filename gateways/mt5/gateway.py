@@ -26,6 +26,18 @@ PAGE_SIZE = 500
 # Documented MQL5 flag values. The official Python wheel does not export these.
 SYMBOL_ORDER_LIMIT = 2
 SYMBOL_EXPIRATION_DAY = 2
+ACCOUNT_MARGIN_MODE_RETAIL_NETTING, ACCOUNT_MARGIN_MODE_EXCHANGE, ACCOUNT_MARGIN_MODE_RETAIL_HEDGING = 0, 1, 2
+# Broker profiles add stricter, broker-specific gates; they never widen GENERIC behaviour.
+# Genial (protocol 3975509, 2026-10-06): Day Trade and Swing Trade are distinct MT5
+# environments, there is no demo, and Swing is limited to Netting.
+PROFILES = ("GENERIC", "GENIAL_SWING", "GENIAL_DAY_TRADE")
+PROFILE_PROVIDER = {"GENERIC": "MT5", "GENIAL_SWING": "GENIAL_MT5_SWING", "GENIAL_DAY_TRADE": "GENIAL_MT5_DAY_TRADE"}
+# Outcomes that mean local and broker state may disagree. They latch the halt file:
+# new submits/modifies stay blocked until the owner reconciles and removes it.
+HALT_CODES = {"AMBIGUOUS_DISPATCH_DO_NOT_RETRY", "DUPLICATE_DISPATCH_DO_NOT_RETRY", "RECOVERY_ORDER_MISMATCH",
+              "SUBMITTED_ORDER_TERMS_MISMATCH", "AMBIGUOUS_MODIFICATION", "INCONSISTENT_ORDER_FILLS",
+              "GATEWAY_ORDER_MISMATCH", "AMBIGUOUS_ORDER_LOOKUP", "EXECUTION_CORRECTION_REQUIRES_RECONCILIATION",
+              "GATEWAY_ACCOUNT_MISMATCH", "JOURNAL_ACCOUNT_MISMATCH", "HEDGING_ACCOUNT_UNSUPPORTED"}
 DOCUMENTATION = "https://www.mql5.com/en/docs/python_metatrader5"
 
 
@@ -122,6 +134,12 @@ class Config:
     execution_enabled: bool = False
     port: int = 8785
     provider_id: str = "MT5"
+    profile: str = "GENERIC"
+    halt_file: Path | None = None
+
+    @property
+    def genial(self) -> bool:
+        return self.profile.startswith("GENIAL_")
 
     def validate(self):
         if not self.token.isascii() or len(self.token) < 32 or any(c.isspace() for c in self.token):
@@ -131,8 +149,12 @@ class Config:
         identifier(self.provider_id)
         if self.mode not in ("REAL", "OFFICIAL_SANDBOX") or not (1024 <= self.port <= 65535):
             raise GatewayError("INVALID_CONFIGURATION")
-        if not self.terminal_path or not isinstance(self.instruments, dict):
+        if not self.terminal_path or not isinstance(self.instruments, dict) or self.profile not in PROFILES:
             raise GatewayError("INVALID_CONFIGURATION")
+        if self.genial and self.mode != "REAL":
+            raise GatewayError("GENIAL_HAS_NO_OFFICIAL_DEMO")
+        if self.genial and self.halt_file is None:
+            raise GatewayError("HALT_FILE_REQUIRED")
         for symbol, spec in self.instruments.items():
             identifier(symbol)
             object_with(spec, {"market", "terminalExchange", "isin", "contractSize"})
@@ -148,13 +170,16 @@ class Config:
             enabled = os.environ.get("ATLAS_MT5_ENABLE_EXECUTION", "false")
             if enabled not in ("true", "false"):
                 raise ValueError
+            profile = os.environ.get("ATLAS_MT5_BROKER_PROFILE", "GENERIC")
+            halt = os.environ.get("ATLAS_MT5_HALT_FILE")
             config = cls(
                 token=os.environ["ATLAS_MT5_TOKEN"], login=os.environ["ATLAS_MT5_EXPECTED_LOGIN"],
                 server=os.environ["ATLAS_MT5_EXPECTED_SERVER"], mode=os.environ["ATLAS_MT5_ACCOUNT_MODE"],
                 instruments=instruments, journal_path=Path(os.environ["ATLAS_MT5_JOURNAL_PATH"]),
                 terminal_path=os.environ["ATLAS_MT5_TERMINAL_PATH"], execution_enabled=enabled == "true",
                 port=int(os.environ.get("ATLAS_MT5_PORT", "8785")),
-                provider_id=os.environ.get("ATLAS_MT5_PROVIDER_ID", "MT5"),
+                provider_id=os.environ.get("ATLAS_MT5_PROVIDER_ID", PROFILE_PROVIDER.get(profile, "MT5")),
+                profile=profile, halt_file=Path(halt) if halt else None,
             )
         except (KeyError, ValueError, OSError, TypeError):
             raise GatewayError("MISSING_OR_INVALID_CONFIGURATION") from None
@@ -239,6 +264,11 @@ class Gateway:
 
     def _identity(self, mutation: bool = False):
         info, terminal = self.api.account_info(), self.api.terminal_info()
+        if (info is None or terminal is None) and hasattr(self.api, "initialize"):
+            # The terminal was restarted: reattach once. Identity is re-verified below,
+            # so a different account logged into the new terminal is still refused.
+            self.api.initialize(self.config.terminal_path, timeout=5000)
+            info, terminal = self.api.account_info(), self.api.terminal_info()
         if info is None or terminal is None or not get(terminal, "connected"):
             raise GatewayError("TERMINAL_UNAVAILABLE", 503)
         if str(get(info, "login")) != self.config.login or get(info, "server") != self.config.server:
@@ -246,6 +276,12 @@ class Gateway:
         expected_mode = self.api.ACCOUNT_TRADE_MODE_REAL if self.config.mode == "REAL" else self.api.ACCOUNT_TRADE_MODE_DEMO
         if get(info, "trade_mode") != expected_mode or get(info, "currency") != "BRL":
             raise GatewayError("UNSUPPORTED_ACCOUNT")
+        if self.config.genial:
+            margin_mode = get(info, "margin_mode")
+            if margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING:
+                raise GatewayError("HEDGING_ACCOUNT_UNSUPPORTED")
+            if margin_mode not in (ACCOUNT_MARGIN_MODE_RETAIL_NETTING, ACCOUNT_MARGIN_MODE_EXCHANGE):
+                raise GatewayError("UNSUPPORTED_ACCOUNT")
         if mutation and (not get(info, "trade_allowed") or not get(info, "trade_expert") or
                          not get(terminal, "trade_allowed") or get(terminal, "tradeapi_disabled")):
             raise GatewayError("TERMINAL_TRADING_DISABLED")
@@ -298,7 +334,35 @@ class Gateway:
             raise GatewayError("INVALID_PRICE_TICK")
         return float(value)
 
+    def halted(self) -> str | None:
+        path = self.config.halt_file
+        if path is None or not path.exists():
+            return None
+        try:
+            return strict_json(path.read_text(encoding="utf-8"))["reason"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return "UNREADABLE_HALT_FILE"  # Still halted: presence is what matters.
+
+    def _halt(self, reason: str):
+        path = self.config.halt_file
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with path.open("x", encoding="utf-8") as file:  # First reason wins; never overwritten.
+                file.write(canonical({"reason": reason, "at": now()}))
+        except FileExistsError:
+            pass
+
     def rpc(self, payload: Any):
+        try:
+            return self._rpc(payload)
+        except GatewayError as exc:
+            if exc.code in HALT_CODES:
+                self._halt(exc.code)
+            raise
+
+    def _rpc(self, payload: Any):
         object_with(payload, {"version", "accountId", "method", "params"})
         if type(payload["version"]) is not int or payload["version"] != 1 or payload["accountId"] != self.config.login:
             raise GatewayError("GATEWAY_ACCOUNT_OR_VERSION_MISMATCH", 400)
@@ -314,7 +378,8 @@ class Gateway:
                         "orderKinds": ["LIMIT"], "clientOrderLookup": True, "nativeIdempotency": False,
                         "completeAccountReconciliation": False, "cloudAuthorized": False}
             if method == "health":
-                return {"healthy": True, "observedAt": now(), "reason": None}
+                # Halted stays "healthy" for reads/cancels; the reason blocks new orders upstream.
+                return {"healthy": True, "observedAt": now(), "reason": "GATEWAY_HALTED" if self.halted() else None}
             if method == "account":
                 return {"accountId": self.config.login, "currency": "BRL", "mode": self.config.mode, "cashOnly": False, "observedAt": now()}
             if method == "cash":
@@ -489,6 +554,11 @@ class Gateway:
         replay = self.journal.replay(key, method, params)
         if replay is not None:
             return replay
+        if method != "cancel" and self.halted():
+            raise GatewayError("GATEWAY_HALTED")  # Cancelling only reduces exposure.
+        if method == "submit" and self.config.profile == "GENIAL_DAY_TRADE":
+            # Day Trade environment may zero positions compulsorily; ATLAS agents hold overnight.
+            raise GatewayError("DAY_TRADE_ENVIRONMENT_SUBMIT_UNSUPPORTED")
         if not self.config.execution_enabled:
             raise GatewayError("EXECUTION_DISABLED")
         self._identity(mutation=True)
@@ -649,7 +719,9 @@ def main():
         gateway._identity()
         # Deliberately serial: the SDK's connected terminal/account is process-global.
         with HTTPServer(("127.0.0.1", config.port), handler_for(gateway)) as server:
-            print(f"ATLAS MT5 gateway: http://127.0.0.1:{config.port}; execution={'enabled' if config.execution_enabled else 'disabled'}", flush=True)
+            print(f"ATLAS MT5 gateway: http://127.0.0.1:{config.port}; profile={config.profile}; "
+                  f"execution={'enabled' if config.execution_enabled else 'disabled'}"
+                  f"{'; HALTED' if gateway.halted() else ''}", flush=True)
             server.serve_forever()
     except GatewayError as exc:
         print(exc.code, flush=True)

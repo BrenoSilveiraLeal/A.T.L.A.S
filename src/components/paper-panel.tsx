@@ -6,7 +6,7 @@ import { formatBrl } from "@/core/format";
 type Row = Record<string, unknown>;
 type PaperState = Record<
   "paper_accounts" | "paper_positions" | "paper_proposals" | "paper_orders" |
-  "paper_fills" | "paper_ledger_entries" | "paper_events" | "agents" | "assets",
+  "paper_fills" | "paper_ledger_entries" | "paper_events" | "paper_agent_vitals" | "agents" | "assets",
   Row[]
 >;
 const label = (value: unknown) => value == null ? "—" : String(value);
@@ -46,6 +46,7 @@ export function PaperPanel({ connected }: { connected: boolean }) {
         ? Number(result.filled) > 0 ? `${result.filled} ordem(ns) preenchida(s) virtualmente.` : "Nenhuma ordem preenchida. É preciso uma cotação posterior à abertura e dentro do preço limite."
         : payload.action === "review" ? result.status === "OPEN" ? "Risco aprovado; ordem virtual aberta." : `Proposta ${result.status === "REJECTED" ? "recusada" : "já analisada"}: ${Array.isArray(result.risk?.reasons) ? result.risk.reasons.join(", ") : "consulte o histórico"}.`
         : payload.action === "propose" ? "Proposta virtual criada. Revise e aprove antes de abrir a ordem."
+        : payload.action === "autopilot" ? payload.enabled ? "Piloto automático ligado. Os agentes ativos passam a operar a simulação a cada análise." : "Piloto automático desligado. Nenhuma nova proposta automática será criada."
         : "Alteração virtual registrada.");
       if (payload.action === "propose") requestKey.current = null;
       refresh();
@@ -89,8 +90,24 @@ export function PaperPanel({ connected }: { connected: boolean }) {
         <div className="metric"><span>Posições virtuais</span><strong>{positions.length}</strong><small>Somente ações simuladas</small></div>
         <div className="metric"><span>Estado</span><strong>{account.paused ? "Pausado" : "Ativo"}</strong><small>Execução real bloqueada</small></div>
       </div>
+      <section className={`panel autopilot-panel ${account.autopilot ? "on" : ""}`}>
+        <div className="section-heading">
+          <h2>Piloto automático</h2>
+          <span className={`status-label ${account.autopilot ? "success" : ""}`}>{account.autopilot ? "LIGADO" : "DESLIGADO"}</span>
+        </div>
+        <p>Ligado, cada agente ativo decide sozinho a cada análise: compra quando a média de 20 dias está acima da de 50 e o preço acima da média de 20; vende tudo quando a tendência vira ou o preço cai 8% abaixo do custo. Toda proposta passa pelos mesmos limites de risco abaixo, e as ordens são conferidas na próxima cotação. É uma regra simples para testar a empresa, <strong>não uma estratégia validada</strong>.</p>
+        <p>Regra de sobrevivência: o agente é <strong>eliminado</strong> quando o prejuízo virtual dele chega à porcentagem do orçamento definida aqui. Eliminado não volta; você contrata outro.</p>
+        <form className="form-grid" onSubmit={(event) => {
+          event.preventDefault(); const form = new FormData(event.currentTarget);
+          void action({ action: "autopilot", enabled: !account.autopilot, agentMaxLossPct: String(form.get("agentMaxLossPct")) });
+        }}>
+          <label>Perda que elimina o agente (% do orçamento)<input name="agentMaxLossPct" inputMode="decimal" pattern="[0-9]{1,3}([.][0-9]{1,2})?" defaultValue={label(account.agent_max_loss_pct ?? "20")} required /></label>
+          <div className="form-actions"><button disabled={busy || Boolean(account.paused)} className={account.autopilot ? "secondary" : ""}>{account.autopilot ? "Desligar piloto automático" : "Ligar piloto automático"}</button></div>
+        </form>
+        <p className="muted">Requer <code>npm run local</code> aberto: é o scheduler que dispara as análises. Nada aqui envia ordem para a B3.</p>
+      </section>
       <section className="panel">
-        <h2>2. Analisar e propor ordem virtual</h2>
+        <h2>2. Analisar e propor ordem virtual (manual)</h2>
         <p>Escolha o agente e a direção. O ATLAS consulta cotação e histórico reais, calcula SMA3/SMA8 e registra a justificativa. A escolha da direção é sua; o sinal não promete ganho.</p>
         <form className="form-grid" onSubmit={(event) => {
           event.preventDefault(); const form = new FormData(event.currentTarget);

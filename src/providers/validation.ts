@@ -29,15 +29,19 @@ export function checkedTicker(ticker: string): string {
   return parsed.data;
 }
 
+/** Tolerated difference between a provider's server clock and this machine's clock. */
+export const ENVELOPE_CLOCK_SKEW_MS = 60_000;
+
 export function checkedTimestamp(
   provider: ProviderName,
   value: string | number,
   now: number,
+  toleranceMs = 0,
 ): string {
   const timestamp = typeof value === "number" ? value : Date.parse(value);
   if (!Number.isFinite(timestamp) || timestamp < 0)
     throw new ProviderError(provider, "INVALID_RESPONSE");
-  if (timestamp > now) throw new ProviderError(provider, "FUTURE_DATA");
+  if (timestamp > now + toleranceMs) throw new ProviderError(provider, "FUTURE_DATA");
   return new Date(timestamp).toISOString();
 }
 

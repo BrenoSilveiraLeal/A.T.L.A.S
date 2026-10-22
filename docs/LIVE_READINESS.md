@@ -4,6 +4,8 @@ Atualizado em **25/09/2026**. O ATLAS tem Executor desacoplado, persistência de
 
 A API privada de uma corretora deixou de ser requisito principal. O caminho é ATLAS → Risk/OMS → Executor → gateway MT5 → corretora → B3. ProfitDLL e API oficial direta são alternativas futuras no mesmo contrato. Consulte a [decisão de integração](EXECUTION_GATEWAY_DECISION.md).
 
+**Genial (22/10/2026):** a corretora confirmou por atendimento (protocolo 3975509) automação Python externa, envio/consulta de ordens com limitações, MT5 gratuito, ambientes Day Trade e Swing distintos e ausência de demo. A ponte ganhou o perfil `GENIAL_SWING`, um probe somente leitura e trava local por inconsistência. Isso não homologa a conta. Consulte a [integração Genial](research/GENIAL_MT5_INTEGRATION.md).
+
 ## O que a implementação pode comprovar localmente
 
 - Contrato de gateway separado da inteligência, da corretora e dos agentes.

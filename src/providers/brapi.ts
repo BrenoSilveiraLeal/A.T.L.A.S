@@ -6,6 +6,7 @@ import {
   brazilDate,
   checkedTicker,
   checkedTimestamp,
+  ENVELOPE_CLOCK_SKEW_MS,
   isoTimestampSchema,
   positivePriceSchema,
   tickerSchema,
@@ -112,7 +113,7 @@ export async function fetchQuote(input: string): Promise<MarketQuote> {
     await getJson("brapi", url, { token: token() }),
   );
   const now = Date.now();
-  checkedTimestamp("brapi", payload.requestedAt, now);
+  checkedTimestamp("brapi", payload.requestedAt, now, ENVELOPE_CLOCK_SKEW_MS);
   const row = payload.results[0];
   validateIdentity(row, ticker);
   const dataTimestamp = checkedTimestamp(
@@ -137,13 +138,13 @@ export async function fetchQuote(input: string): Promise<MarketQuote> {
   };
 }
 
-/** One month of daily bars. Today's possibly incomplete candle is excluded. */
+/** Three months of daily bars (brapi free-plan limit), enough for SMA50. Today's possibly incomplete candle is excluded. */
 export async function fetchHistory(input: string): Promise<MarketHistory> {
   const ticker = checkedTicker(input);
   const url = new URL("https://brapi.dev/api/v2/stocks/historical");
   url.search = new URLSearchParams({
     symbols: ticker,
-    range: "1mo",
+    range: "3mo",
     interval: "1d",
     sortOrder: "asc",
   }).toString();
@@ -153,7 +154,7 @@ export async function fetchHistory(input: string): Promise<MarketHistory> {
     await getJson("brapi", url, { token: token() }),
   );
   const now = Date.now();
-  checkedTimestamp("brapi", payload.requestedAt, now);
+  checkedTimestamp("brapi", payload.requestedAt, now, ENVELOPE_CLOCK_SKEW_MS);
   const row = payload.results[0];
   validateIdentity(row, ticker);
   if (!row.data.historicalDataPrice.length)

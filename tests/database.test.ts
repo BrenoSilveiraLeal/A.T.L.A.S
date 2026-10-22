@@ -288,6 +288,92 @@ describe("paper trading isolated virtual book", () => {
   });
 });
 
+describe("paper autopilot and agent survival", () => {
+  const quoteAt = () => new Date(Date.now() - 60000).toISOString();
+  async function boughtAgent(name: string) {
+    await db.query("select public.paper_open_account($1,1000,200,500,50)", [owner]);
+    const a = await agent(name);
+    await db.query("select public.update_agent_enabled($1,$2,true)", [owner, a.id]);
+    const proposal = (await db.query<{ id: string }>(
+      `select id from public.paper_create_proposal($1,$2,'BUY',10,'10.00','10.00','https://example.test/q',$3,'https://example.test/h',$3,'paper-autopilot-sma20x50/1.0.0','Compra virtual automática de teste.','{}'::jsonb,$4)`,
+      [owner, a.id, quoteAt(), "40000000-0000-4000-8000-000000000001"],
+    )).rows[0];
+    const review = await db.query<{ result: { orderId: string } }>("select public.paper_review_proposal($1,$2,true) as result", [owner, proposal.id]);
+    await admin();
+    await db.query("update public.paper_orders set placed_at=now()-interval '2 minutes' where id=$1", [review.rows[0].result.orderId]);
+    await service();
+    await db.query("select public.paper_settle_quote($1,$2,9.90,'https://example.test/q',$3)", [owner, assetId, quoteAt()]);
+    return a;
+  }
+  async function mark(agentId: string, price: string) {
+    return (await db.query<{ result: { lifePct: number; eliminated: boolean } }>(
+      "select public.paper_mark_agent($1,$2,$3,'https://example.test/q',$4) as result", [owner, agentId, price, quoteAt()],
+    )).rows[0].result;
+  }
+
+  it("toggles autopilot with a validated loss limit and audits it", async () => {
+    await db.query("select public.paper_open_account($1,1000,200,500,50)", [owner]);
+    const on = await db.query<{ autopilot: boolean; agent_max_loss_pct: string }>(
+      "select autopilot,agent_max_loss_pct from public.paper_set_autopilot($1,true,25)", [owner]);
+    expect(on.rows[0]).toMatchObject({ autopilot: true });
+    expect(Number(on.rows[0].agent_max_loss_pct)).toBe(25);
+    await rejected("select public.paper_set_autopilot($1,true,0)", [owner], "ATLAS_PAPER_INVALID_LIMITS");
+    await rejected("select public.paper_set_autopilot($1,true,101)", [owner], "ATLAS_PAPER_INVALID_LIMITS");
+    const events = await db.query("select 1 from public.paper_events where owner_id=$1 and event='AUTOPILOT_CHANGED'", [owner]);
+    expect(events.rows).toHaveLength(1);
+  });
+
+  it("records life from realized and unrealized virtual P&L", async () => {
+    const a = await boughtAgent("Vital fixture");
+    // Budget 125.10 × 20% = 25.02 allowed loss. 10 shares bought at ~9.95.
+    const healthy = await mark(a.id, "10.50");
+    expect(healthy).toMatchObject({ lifePct: 100, eliminated: false });
+    const hurt = await mark(a.id, "8.70");
+    expect(hurt.eliminated).toBe(false);
+    expect(hurt.lifePct).toBeGreaterThan(0);
+    expect(hurt.lifePct).toBeLessThan(100);
+    const vitals = await db.query<{ life_pct: string; mark_price: string }>(
+      "select life_pct,mark_price from public.paper_agent_vitals where agent_id=$1", [a.id]);
+    expect(Number(vitals.rows[0].mark_price)).toBe(8.7);
+  });
+
+  it("eliminates an agent at its loss limit, cancels its orders and never revives it", async () => {
+    const a = await boughtAgent("Mortal fixture");
+    const sell = (await db.query<{ id: string }>(
+      `select id from public.paper_create_proposal($1,$2,'SELL',10,'12.00','10.00','https://example.test/q',$3,'https://example.test/h',$3,'paper-autopilot-sma20x50/1.0.0','Venda virtual automática de teste.','{}'::jsonb,$4)`,
+      [owner, a.id, quoteAt(), "40000000-0000-4000-8000-000000000002"],
+    )).rows[0];
+    await db.query("select public.paper_review_proposal($1,$2,true)", [owner, sell.id]);
+    const dead = await mark(a.id, "7.00");
+    expect(dead).toMatchObject({ lifePct: 0, eliminated: true });
+    const row = await db.query<{ status: string; enabled: boolean }>("select status,enabled from public.agents where id=$1", [a.id]);
+    expect(row.rows[0]).toEqual({ status: "DEAD", enabled: false });
+    const orders = await db.query<{ status: string }>("select status from public.paper_orders where agent_id=$1 and side='SELL'", [a.id]);
+    expect(orders.rows[0].status).toBe("CANCELLED");
+    const positions = await db.query<{ quantity: number }>("select quantity from public.paper_positions where agent_id=$1", [a.id]);
+    expect(positions.rows[0].quantity).toBe(10);
+    await rejected("select public.update_agent_enabled($1,$2,true)", [owner, a.id], "ATLAS_AGENT_RETIRED");
+    const again = await mark(a.id, "7.00");
+    expect(again.eliminated).toBe(false);
+    const events = await db.query("select 1 from public.paper_events where owner_id=$1 and event='AGENT_ELIMINATED'", [owner]);
+    expect(events.rows).toHaveLength(1);
+    const audit = await db.query("select 1 from public.audit_logs where owner_id=$1 and action='AGENT_ELIMINATED_BY_PAPER_LOSS'", [owner]);
+    expect(audit.rows).toHaveLength(1);
+    const real = await db.query<{ count: string }>("select count(*) from public.orders where owner_id=$1", [owner]);
+    expect(Number(real.rows[0].count)).toBe(0);
+  });
+
+  it("refuses stale marks and denies non-backend roles", async () => {
+    const a = await boughtAgent("Guarded fixture");
+    await rejected("select public.paper_mark_agent($1,$2,10,'https://example.test/q',now()-interval '4 days')", [owner, a.id], "ATLAS_PAPER_QUOTE_INVALID");
+    await db.exec("set local role anon");
+    await rejected("select public.paper_set_autopilot($1,true,20)", [owner], "permission denied");
+    await rejected("select * from public.paper_agent_vitals", [], "permission denied");
+    await signedIn(outsider);
+    expect((await db.query("select * from public.paper_agent_vitals")).rows).toHaveLength(0);
+  });
+});
+
 it.skipIf(process.env.ATLAS_PUBLIC_DATA_SMOKE !== "1")(
   "real public data -> analysis -> PostgreSQL decision, memory and audit",
   async () => {

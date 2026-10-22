@@ -35,6 +35,8 @@ export async function runExecutor() {
   let accounted = 0, recovered = 0, dispatched = 0;
   const health = await gateway.healthCheck();
   if (!health.healthy) issues.push("GATEWAY_UNHEALTHY");
+  // A healthy gateway may still report a latched halt; any issue restricts dispatch to CANCEL.
+  else if (health.reason) issues.push(health.reason);
 
   // A DISPATCHED record may mean crash-after-send. Read only, never reset it to PENDING.
   const recoveries = await db.from("executor_commands").select("id").eq("owner_id", owner).eq("broker_account_id", brokerId)

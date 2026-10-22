@@ -10,6 +10,8 @@ import { FundamentalsPanel } from "./fundamentals-panel";
 import { PortfolioPanel } from "./portfolio-panel";
 import { AgentConfigForm } from "./agent-config-form";
 import { PaperPanel } from "./paper-panel";
+import { AgentFloor, AgentMarket } from "./agent-floor";
+import { statusLabel } from "./labels";
 import { parsePortfolioHistory } from "@/lib/portfolio";
 import {
   ArrowRight,
@@ -124,14 +126,14 @@ function Empty({
 }
 function Status({ value }: { value: unknown }) {
   const text = s(value);
-  const tone = /BLOCK|ERROR|REJECT|STALE/.test(text)
+  const tone = /BLOCK|ERROR|REJECT|STALE|DEAD|FIRED|^RED$/.test(text)
     ? "danger"
     : /PENDING|DELAY|PAUSED|UNKNOWN/.test(text)
       ? "warning"
       : /FILLED|IDLE|OPEN|COMPLETE/.test(text)
         ? "success"
         : "neutral";
-  return <span className={`status-label ${tone}`}>{text}</span>;
+  return <span className={`status-label ${tone}`} title={text}>{statusLabel(text)}</span>;
 }
 function Table({ rows, fields }: { rows: Row[]; fields: [string, string][] }) {
   return (
@@ -554,25 +556,19 @@ export function Screen({
               </Link>
             </section>
           )}
-          <section
-            className={`panel ${section === "office" ? "office-panel" : ""}`}
-          >
-            <div className="section-heading">
-              <h2>
-                {section === "office"
-                  ? "Estações de trabalho"
-                  : "Equipe de análise"}
-              </h2>
-              <span className="muted">
-                {connected ? `${agents.rows.length} agentes` : "Sem conexão"}
-              </span>
-            </div>
-            <AgentList
-              agents={agents}
-              assets={assets.rows}
-              office={section === "office"}
-            />
-          </section>
+          {section === "office" ? (
+            <AgentFloor connected={connected} revision={revision} />
+          ) : (
+            <section className="panel">
+              <div className="section-heading">
+                <h2>Equipe de análise</h2>
+                <span className="muted">
+                  {connected ? `${agents.rows.length} agentes` : "Sem conexão"}
+                </span>
+              </div>
+              <AgentList agents={agents} assets={assets.rows} />
+            </section>
+          )}
           {section === "office" && (
             <section className="panel">
               <div className="section-heading">
@@ -636,6 +632,13 @@ export function Screen({
             <Empty title="Agente não encontrado" icon="agents">
               <p>Selecione um agente cadastrado na equipe.</p>
             </Empty>
+          )}
+          {chosen && (
+            <AgentMarket
+              ticker={
+                (assets.rows.find((a) => a.id === chosen.asset_id)?.ticker as string | undefined) ?? null
+              }
+            />
           )}
           <section className="panel">
             <h2>Histórico de decisões</h2>
