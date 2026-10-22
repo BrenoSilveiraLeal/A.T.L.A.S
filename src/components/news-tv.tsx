@@ -48,7 +48,7 @@ function reactions(tags: NewsTag[], team: { name: string; ticker: string }[]) {
     : team.filter((a) => a.ticker === tag.ticker).map((a) => ({ key: a.name + tag.ticker, label: `${a.name} (${a.ticker}) · ${tag.why}`, direction: tag.direction })));
 }
 
-export function NewsTv({ items, error, team }: { items: NewsItem[] | null; error: string; team: { name: string; ticker: string }[] }) {
+export function NewsTv({ items, error, team, band: showBand = true }: { items: NewsItem[] | null; error: string; team: { name: string; ticker: string }[]; band?: boolean }) {
   const tagged = (items ?? []).filter((i) => reactions(readingOf(i).tags, team).length).slice(0, 8);
   const band = (items ?? []).slice(0, 14);
   return (
@@ -59,10 +59,10 @@ export function NewsTv({ items, error, team }: { items: NewsItem[] | null; error
       </div>
       {error && <p className="notice error-text" role="alert">{error}</p>}
       {items === null && !error ? <p className="muted" role="status">Ligando a TV…</p> : band.length === 0 ? <p className="muted">Nenhuma manchete nas últimas 48 horas ainda. A TV atualiza a cada 5 minutos.</p> : <>
-        <div className="news-band"><div className="news-band-track">
+        {showBand && <div className="news-band"><div className="news-band-track">
           {[...band, ...band].map((item, index) => <span key={`${item.url}-${index}`} aria-hidden={index >= band.length}>
             <strong>{item.source}</strong> {item.title}</span>)}
-        </div></div>
+        </div></div>}
         {tagged.length ? <ul className="news-list">{tagged.map((item) => (
           <li key={item.url}>
             <div className="news-meta"><span>{hour(item.published_at)}</span><span>{item.source}</span><span>lido por {readingOf(item).by}</span></div>
@@ -75,6 +75,20 @@ export function NewsTv({ items, error, team }: { items: NewsItem[] | null; error
       <p className="muted">Leitura grátis: palavras-chave na hora e, com o Ollama ligado, uma IA no seu PC relendo as manchetes mais importantes. Mostra o que pode fazer a ação subir ou cair; as compras seguem a regra testada e a notícia só freia.</p>
     </section>
   );
+}
+
+/** Accumulated CDI (%) since `from`, or null while unknown. */
+export function useCdi(from: string | null) {
+  const [cdi, setCdi] = useState<{ from: string; pct: number | null } | null>(null);
+  useEffect(() => {
+    if (!from) return;
+    const controller = new AbortController();
+    fetch(`/api/atlas/benchmark?from=${from}`, { signal: controller.signal }).then((r) => r.json())
+      .then((b) => !controller.signal.aborted && setCdi({ from, pct: b.available ? b.pct : null }))
+      .catch(() => !controller.signal.aborted && setCdi({ from, pct: null }));
+    return () => controller.abort();
+  }, [from]);
+  return cdi && cdi.from === from ? cdi.pct : null;
 }
 
 /** Big screen: virtual equity against the CDI over the same period. */

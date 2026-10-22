@@ -10,6 +10,8 @@ export async function cdiSince(from: string) {
     if (!response.ok) throw new Error("CDI_UNAVAILABLE");
     return ((await response.json()) as { data: string; valor: string }[]).slice(-3000);
   });
+  // The BCB publishes each day's CDI only the next business day: a brand-new simulation has earned 0 so far.
+  if (!rows?.length && Date.now() - Date.parse(from) < 4 * 86400000) return { from, available: true as const, to: from, pct: 0 };
   if (!rows?.length) return { from, available: false as const };
   const factor = rows.reduce((f, r) => f * (1 + Number(r.valor) / 100), 1);
   return { from, available: true as const, to: rows.at(-1)!.data.split("/").reverse().join("-"), pct: (factor - 1) * 100 };

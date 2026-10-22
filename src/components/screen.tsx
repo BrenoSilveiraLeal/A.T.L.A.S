@@ -205,7 +205,7 @@ const names: Record<string, [string, string]> = {
   ],
   office: [
     "ATLAS Trading Floor",
-    "Cada estação representa o estado registrado de um agente.",
+    "Veja o que cada IA está fazendo agora. Toque numa IA para saber mais.",
   ],
   agents: [
     "Especialistas por ativo",
@@ -410,6 +410,7 @@ export function Screen({
       )}
       {section === "overview" && (
         <>
+          <AgentFloor connected={connected} revision={revision} mode="summary" />
           <div className="metrics-row">
             {[
               [

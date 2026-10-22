@@ -1,12 +1,14 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Skull, Zap } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { formatBrl } from "@/core/format";
-import { statusLabel } from "./labels";
 import { CandleChart, type ChartMarker } from "./candle-chart";
 import { FleetAutopilot } from "./controls-panel";
-import { DIRECTION, Gestora, NewsTv, readingOf, Telao, useNews, type NewsItem } from "./news-tv";
+import { Gestora, NewsTv, readingOf, useCdi, useNews, type NewsItem } from "./news-tv";
+import { AgentCard, OfficeLegend, OfficeMap, Scoreboard, useNow, type OfficeAgent } from "./office-map";
+import { placeAgent } from "@/core/office";
+import { b3Session } from "@/core/b3-calendar";
 import type { HistoricalBar } from "@/providers/types";
 
 type Row = Record<string, unknown>;
@@ -17,7 +19,6 @@ const ago = (v: unknown) => {
   const minutes = Math.round((Date.now() - Date.parse(String(v))) / 60000);
   return minutes < 1 ? "agora" : minutes < 60 ? `há ${minutes} min` : minutes < 1440 ? `há ${Math.round(minutes / 60)} h` : `há ${Math.round(minutes / 1440)} d`;
 };
-const WORKING = new Set(["ANALYZING", "WATCHING_MARKET", "READING_NEWS", "NEWS_REVIEW", "PREPARING_ORDER", "ORDER_PENDING", "MONITORING"]);
 
 function useFloor(connected: boolean, revision: number): Floor {
   const [state, setState] = useState<Floor>({ paper: null, decisions: [], error: "", loading: true });
@@ -39,45 +40,27 @@ function useFloor(connected: boolean, revision: number): Floor {
 }
 
 /**
- * Character drawn from the agent's recorded state only. "tv": a recent headline about its
- * stock; "coffee": alive, not working and holding no position (waiting for a signal).
+ * The office. `mode`: "full" (office page with controls), "summary" (home page) or "tv"
+ * (full-screen broadcast). Refreshes every 30 s so the agents walk between rooms live.
  */
-function Character({ avatar, status, trend, mode }: { avatar: string; status: string; trend: number | null; mode: "tv" | "coffee" | null }) {
-  const dead = status === "DEAD" || status === "FIRED";
-  const line = trend == null ? "M10 30 L46 30" : trend >= 0 ? "M10 36 L20 30 L28 33 L38 22 L46 18" : "M10 18 L20 24 L28 21 L38 32 L46 36";
-  return (
-    <svg className={`character ${WORKING.has(status) ? "working" : ""} ${dead ? "dead" : ""} ${mode ?? ""}`} viewBox="0 0 96 80" aria-hidden="true">
-      <rect x="4" y="8" width="48" height="36" rx="4" className="monitor" />
-      <path d={line} className={`monitor-line ${trend != null && trend < 0 ? "down" : ""}`} />
-      <rect x="24" y="44" width="8" height="8" className="desk-detail" />
-      <rect x="0" y="52" width="96" height="5" rx="2" className="desk" />
-      <circle cx="74" cy="22" r="10" className="head" />
-      <path d="M58 52 Q58 34 74 34 Q90 34 90 52 Z" className="body" />
-      {!dead && avatar === "analyst" && <g className="accessory"><circle cx="70" cy="22" r="3" /><circle cx="78" cy="22" r="3" /><path d="M73 22 h2" /></g>}
-      {!dead && avatar === "researcher" && <rect x="80" y="40" width="9" height="11" rx="1" className="accessory-fill" />}
-      {!dead && avatar === "strategist" && <path d="M74 38 l3 3 -3 3 -3 -3 Z" className="accessory-fill" />}
-      {dead && <path d="M69 18 l4 4 m0 -4 l-4 4 M76 18 l4 4 m0 -4 l-4 4" className="accessory" />}
-      {!dead && mode === "tv" && <g className="tv-bubble"><rect x="60" y="0" width="28" height="9" rx="2" /><path d="M72 9 l2 3 2 -3" /><text x="74" y="7">!</text></g>}
-      {!dead && mode === "coffee" && <g className="coffee"><rect x="86" y="44" width="7" height="8" rx="1" /><path d="M93 46 q3 1 0 4" /><path className="steam" d="M88 41 q-2 -3 0 -6 M91 41 q-2 -3 0 -6" /></g>}
-    </svg>
-  );
-}
-
-/** `tv`: full-screen broadcast view (no controls), used by /tv for streaming. */
-export function AgentFloor({ connected, revision, tv = false }: { connected: boolean; revision: number; tv?: boolean }) {
+export function AgentFloor({ connected, revision, tv = false, mode }: { connected: boolean; revision: number; tv?: boolean; mode?: "full" | "summary" | "tv" }) {
+  const view = mode ?? (tv ? "tv" : "full");
+  const now = useNow(30000);
   const [local, setLocal] = useState(0);
-  const floor = useFloor(connected, revision + local);
+  const [selected, setSelected] = useState("");
+  const floor = useFloor(connected, revision + local + Math.floor(now / 30000));
   const news = useNews(connected);
+  const account = floor.paper?.paper_accounts?.[0];
+  const cdiPct = useCdi(account?.created_at ? String(account.created_at).slice(0, 10) : null);
   if (!connected) return null;
   if (floor.loading) return <div className="loading-state" role="status">Abrindo o escritório…</div>;
   if (floor.error) return <div className="notice error-text" role="alert">{floor.error}</div>;
   const paper = floor.paper ?? {};
   const agents = paper.agents ?? [], assets = paper.assets ?? [], vitals = paper.paper_agent_vitals ?? [];
-  const account = paper.paper_accounts?.[0];
   if (!agents.length) return (
     <section className="panel empty-floor">
       <h2>O escritório está vazio.</h2>
-      <p>Cadastre um ativo em Mercado e contrate o primeiro agente. Cada agente ganha uma estação aqui.</p>
+      <p>Cadastre um ativo em Mercado e contrate o primeiro agente. Cada agente ganha uma mesa aqui.</p>
       <Link className="text-link" href="/app/agents">Contratar agente <ArrowRight size={14} /></Link>
     </section>
   );
@@ -85,90 +68,81 @@ export function AgentFloor({ connected, revision, tv = false }: { connected: boo
   const pnlOf = (v: Row | undefined) => v ? Number(v.realized_pnl) + Number(v.unrealized_pnl) : null;
   const alive = agents.filter((a) => !["DEAD", "FIRED"].includes(text(a.status)));
   const totalPnl = vitals.reduce((sum, v) => sum + (pnlOf(v) ?? 0), 0);
+  const session = b3Session(new Date(now));
+  const maxLossPct = Number(account?.agent_max_loss_pct ?? 20);
+  const office: OfficeAgent[] = agents.map((agent) => {
+    const asset = assets.find((a) => a.id === agent.asset_id);
+    const ticker = text(asset?.ticker);
+    const holding = Number((paper.paper_positions ?? []).find((p) => p.agent_id === agent.id)?.quantity ?? 0);
+    const order = (paper.paper_orders ?? []).find((o) => o.agent_id === agent.id && o.status === "OPEN");
+    const headline = recentHeadline(news.items, ticker);
+    const fresh = headline !== null && now - Date.parse(headline.item.published_at) < 3600000;
+    const place = placeAgent({ id: text(agent.id), status: text(agent.status), enabled: agent.enabled !== false, autopilot: agent.autopilot !== false,
+      holding, openOrder: order ? { side: order.side === "SELL" ? "SELL" : "BUY" } : null,
+      lastAnalysisAt: agent.last_analysis_at ? String(agent.last_analysis_at) : null, freshNews: fresh, marketOpen: session.status === "OPEN", now });
+    const budget = Number(agent.budget);
+    const vital = vitalOf(agent.id);
+    return { id: text(agent.id), name: text(agent.name), ticker, company: text(asset?.company_name ?? ticker), ...place,
+      pnl: pnlOf(vital), life: vital ? Number(vital.life_pct) : null, budget, holding,
+      maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
+      headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null };
+  });
+  const items = news.items ?? [];
+  const top = items.find((i) => readingOf(i).tags.length) ?? items[0] ?? null;
+  const chosen = office.find((a) => a.id === selected) ?? null;
+  const band = items.slice(0, 14);
   return (
     <>
-      <div className="company-strip">
-        <div><span>Capital virtual</span><strong>{account ? formatBrl(account.cash) : "—"}</strong><small>{account ? `Início ${formatBrl(account.initial_cash)}` : "Crie a carteira em Simulação"}</small></div>
-        <div><span>Resultado virtual dos agentes</span><strong className={totalPnl > 0 ? "up" : totalPnl < 0 ? "down" : ""}>{vitals.length ? formatBrl(totalPnl.toFixed(2)) : "—"}</strong><small>Realizado + posição marcada na última cotação</small></div>
-        <div><span>Equipe</span><strong>{alive.length}<em> / {agents.length}</em></strong><small>{agents.length - alive.length ? `${agents.length - alive.length} eliminado(s)` : "Nenhum eliminado"}</small></div>
-        <div><span>Piloto automático</span><strong className={account?.autopilot ? "up" : ""}>{account?.autopilot ? "Ligado" : "Desligado"}</strong>
-          <small>{account ? `Morte ao perder ${text(account.agent_max_loss_pct)}% do orçamento` : "Simulação não criada"}</small></div>
+      <div className={`office ${view === "tv" ? "office-tv-mode" : ""}`}>
+        <Scoreboard initial={account ? Number(account.initial_cash) : null} pnl={totalPnl} cdiPct={cdiPct}
+          marketOpen={session.status === "OPEN"}
+          marketNote={session.status === "OPEN" ? "As IAs podem comprar e vender (10h05 às 16h50)." : `${session.reason} As IAs só operam das 10h05 às 16h50 em dias úteis.`}
+          alive={alive.length} total={agents.length} />
+        <OfficeLegend />
+        <div className={`office-stage ${view === "tv" ? "no-card" : ""}`}>
+          <OfficeMap agents={office} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected} />
+          {view !== "tv" && <AgentCard agent={chosen} agents={office} now={now} onSelect={setSelected} />}
+        </div>
+        {band.length > 0 && <div className="news-band office-band" aria-label="Últimas manchetes"><div className="news-band-track">
+          {[...band, ...band].map((item, index) => <span key={`${item.url}-${index}`} aria-hidden={index >= band.length}>
+            <strong>{item.source}</strong> {item.title}</span>)}
+        </div></div>}
       </div>
-      <Telao account={account} totalPnl={totalPnl} />
-      <NewsTv items={news.items} error={news.error} team={alive.map((a) => ({ name: text(a.name), ticker: text(assets.find((x) => x.id === a.asset_id)?.ticker) }))} />
-      {!tv && <FleetAutopilot agents={agents} onChange={() => setLocal((n) => n + 1)} />}
-      {!tv && <section className="panel ranking-panel">
-        <div className="section-heading"><h2>Ranking da equipe</h2><span className="muted">Simulação</span></div>
-        <div className="table-scroll"><table>
-          <thead><tr><th>#</th><th>Agente</th><th>Resultado virtual</th><th>Vendas fechadas</th><th>Acerto</th><th>Vida</th></tr></thead>
-          <tbody>{[...agents]
-            .map((agent) => {
-              const sells = (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL");
-              const wins = sells.filter((f) => Number(f.realized_pnl) > 0).length;
-              const vital = vitalOf(agent.id);
-              return { agent, pnl: pnlOf(vital), life: vital ? Number(vital.life_pct) : null, sells: sells.length, wins,
-                dead: ["DEAD", "FIRED"].includes(text(agent.status)) };
-            })
-            // Living agents first, then by virtual result; unmeasured agents last.
-            .sort((a, b) => Number(a.dead) - Number(b.dead) || (b.pnl ?? -Infinity) - (a.pnl ?? -Infinity))
-            .map((row, index) => (
-              <tr key={text(row.agent.id)} className={row.dead ? "muted" : ""}>
-                <td>{index + 1}</td>
-                <td>{text(row.agent.name)} · {text(assets.find((a) => a.id === row.agent.asset_id)?.ticker)}{row.dead ? " · eliminado" : ""}</td>
-                <td className={row.pnl == null ? "" : row.pnl > 0 ? "up" : row.pnl < 0 ? "down" : ""}>{row.pnl == null ? "—" : formatBrl(row.pnl.toFixed(2))}</td>
-                <td>{row.sells}</td>
-                <td>{row.sells ? `${Math.round((row.wins / row.sells) * 100)}%` : "—"}</td>
-                <td>{row.life == null ? "—" : `${row.life.toFixed(0)}%`}</td>
-              </tr>
-            ))}</tbody>
-        </table></div>
-        <p className="muted">Acerto = vendas virtuais com lucro ÷ vendas fechadas. Poucas operações não provam nada: use o ranking depois de semanas.</p>
-      </section>}
-      {!tv && <Gestora agents={agents.map((agent) => ({ id: text(agent.id), name: text(agent.name), ticker: text(assets.find((a) => a.id === agent.asset_id)?.ticker),
-        budget: Number(agent.budget), pnl: pnlOf(vitalOf(agent.id)), dead: ["DEAD", "FIRED"].includes(text(agent.status)),
-        sells: (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL").length }))}
-        maxLossPct={Number(account?.agent_max_loss_pct ?? 20)} onApplied={() => setLocal((n) => n + 1)} />}
-      <div className={`floor-grid ${tv ? "tv-floor" : ""}`}>
-        {agents.map((agent) => {
-          const status = text(agent.status), vital = vitalOf(agent.id), pnl = pnlOf(vital);
-          const life = vital ? Number(vital.life_pct) : null;
-          const dead = status === "DEAD" || status === "FIRED";
-          const decision = floor.decisions.find((d) => d.agent_id === agent.id);
-          const ticker = text(assets.find((a) => a.id === agent.asset_id)?.ticker);
-          const headline = recentHeadline(news.items, ticker);
-          const holding = (paper.paper_positions ?? []).some((p) => p.agent_id === agent.id && Number(p.quantity) > 0);
-          const mode = dead ? null : headline ? "tv" : !WORKING.has(status) && !holding ? "coffee" : null;
-          return (
-            <Link key={text(agent.id)} href={`/app/agents/${text(agent.id)}`} className={`floor-station ${dead ? "is-dead" : ""}`}>
-              <div className="station-top">
-                <span className="ticker-chip">{ticker}</span>
-                <span className={`status-label ${dead ? "danger" : WORKING.has(status) ? "success" : status === "PAUSED" ? "warning" : ""}`} title={status}>
-                  {dead && <Skull size={11} />} {statusLabel(status)}
-                </span>
-              </div>
-              <Character avatar={text(agent.avatar)} status={status} trend={pnl} mode={mode} />
-              <h3>{text(agent.name)}</h3>
-              <div className="life" aria-label={life == null ? "Vida ainda não medida" : `Vida ${life.toFixed(0)}%`}>
-                <div className="life-label"><span>Vida</span><span>{life == null ? "sem medição" : `${life.toFixed(0)}%`}</span></div>
-                <div className="life-track"><div className={`life-fill ${life != null && life < 35 ? "low" : life != null && life < 70 ? "mid" : ""}`} style={{ width: `${life ?? 0}%` }} /></div>
-              </div>
-              <dl className="station-facts">
-                <div><dt>Orçamento</dt><dd>{formatBrl(agent.budget)}</dd></div>
-                <div><dt>Resultado virtual</dt><dd className={pnl == null ? "" : pnl > 0 ? "up" : pnl < 0 ? "down" : ""}>{pnl == null ? "—" : formatBrl(pnl.toFixed(2))}</dd></div>
-              </dl>
-              {agent.autopilot === false && !dead && <p className="station-context"><span className="status-label warning">Piloto desligado</span> Só você decide por esta IA.</p>}
-              {headline ? <p className="station-context" title={headline.item.title}>
-                <span className={`status-label ${DIRECTION[headline.tag.direction][1]}`}>Viu na TV: {DIRECTION[headline.tag.direction][0]}</span> {headline.item.title}
-              </p> : mode === "coffee" && <p className="station-context">Tomando café: sem posição, esperando um sinal da regra.</p>}
-              <ContextChip decision={decision} />
-              <p className="station-decision">
-                {decision ? <><Zap size={12} /> <strong title={text(decision.decision)}>{statusLabel(text(decision.decision))}</strong> · {ago(decision.created_at)}</> : "Ainda sem análise registrada"}
-              </p>
-            </Link>
-          );
-        })}
-      </div>
-      {!tv && <p className="muted floor-note">Vida e resultado são da <strong>simulação</strong>, medidos a cada análise com cotação atrasada da brapi. Um agente eliminado não pode ser reativado; suas posições virtuais ficam registradas.</p>}
+      {view === "full" && <NewsTv band={false} items={news.items} error={news.error} team={alive.map((a) => ({ name: text(a.name), ticker: text(assets.find((x) => x.id === a.asset_id)?.ticker) }))} />}
+      {view === "full" && <details className="panel office-advanced">
+        <summary>Controles, ranking e IA gestora</summary>
+        <FleetAutopilot agents={agents} onChange={() => setLocal((n) => n + 1)} />
+        <section className="ranking-panel">
+          <div className="section-heading"><h2>Ranking da equipe</h2><span className="muted">Simulação</span></div>
+          <div className="table-scroll"><table>
+            <thead><tr><th>#</th><th>Agente</th><th>Resultado virtual</th><th>Vendas fechadas</th><th>Acerto</th><th>Vida</th></tr></thead>
+            <tbody>{[...agents]
+              .map((agent) => {
+                const sells = (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL");
+                const wins = sells.filter((f) => Number(f.realized_pnl) > 0).length;
+                const vital = vitalOf(agent.id);
+                return { agent, pnl: pnlOf(vital), life: vital ? Number(vital.life_pct) : null, sells: sells.length, wins,
+                  dead: ["DEAD", "FIRED"].includes(text(agent.status)) };
+              })
+              .sort((a, b) => Number(a.dead) - Number(b.dead) || (b.pnl ?? -Infinity) - (a.pnl ?? -Infinity))
+              .map((row, index) => (
+                <tr key={text(row.agent.id)} className={row.dead ? "muted" : ""}>
+                  <td>{index + 1}</td>
+                  <td>{text(row.agent.name)} · {text(assets.find((a) => a.id === row.agent.asset_id)?.ticker)}{row.dead ? " · eliminado" : ""}</td>
+                  <td className={row.pnl == null ? "" : row.pnl > 0 ? "up" : row.pnl < 0 ? "down" : ""}>{row.pnl == null ? "—" : formatBrl(row.pnl.toFixed(2))}</td>
+                  <td>{row.sells}</td>
+                  <td>{row.sells ? `${Math.round((row.wins / row.sells) * 100)}%` : "—"}</td>
+                  <td>{row.life == null ? "—" : `${row.life.toFixed(0)}%`}</td>
+                </tr>
+              ))}</tbody>
+          </table></div>
+          <p className="muted">Acerto = vendas virtuais com lucro ÷ vendas fechadas. Poucas operações não provam nada: use o ranking depois de semanas.</p>
+        </section>
+        <Gestora agents={agents.map((agent) => ({ id: text(agent.id), name: text(agent.name), ticker: text(assets.find((a) => a.id === agent.asset_id)?.ticker),
+          budget: Number(agent.budget), pnl: pnlOf(vitalOf(agent.id)), dead: ["DEAD", "FIRED"].includes(text(agent.status)),
+          sells: (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL").length }))}
+          maxLossPct={maxLossPct} onApplied={() => setLocal((n) => n + 1)} />
+      </details>}
     </>
   );
 }
@@ -225,16 +199,6 @@ const signed = (x: number | null) => (x === null ? "—" : `${x > 0 ? "+" : ""}$
 function contextOf(decision: Row | undefined): ContextView | null {
   const value = (decision?.inputs as { context?: ContextView } | undefined)?.context;
   return value && CONTEXT_LABELS[value.action] ? value : null;
-}
-
-/** Latest rule-based context recorded with the agent's analysis. */
-function ContextChip({ decision }: { decision: Row | undefined }) {
-  const context = contextOf(decision);
-  if (!context) return null;
-  const [label, tone] = CONTEXT_LABELS[context.action];
-  return <p className="station-context" title={context.reasons.map((r) => r.text).join(" · ") || "Sem eventos relevantes"}>
-    <span className={`status-label ${tone}`}>{label}</span> {context.reasons[0]?.text ?? "Sem eventos relevantes nas fontes."}
-  </p>;
 }
 
 export function AgentContextPanel({ decision }: { decision: Row | undefined }) {
