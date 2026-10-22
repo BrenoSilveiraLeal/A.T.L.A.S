@@ -128,4 +128,11 @@ describe("gateway RPC adapter", () => {
     await expect(gateway.modifyOrder("other", { quantity: 2, limitPrice: "100", stopPrice: null }, "modify-1")).rejects.toThrow("GATEWAY_ORDER_MISMATCH");
     await expect(gateway.cancelOrder("other", "cancel-1")).rejects.toThrow("GATEWAY_ORDER_MISMATCH");
   });
+  it("reads the live terminal quote and refuses a different symbol or malformed prices", async () => {
+    const quote = { symbol: "TEST3", bid: "25.49", ask: "25.51", last: null, quotedAt: NOW, observedAt: NOW };
+    const gateway = await HttpExecutionGateway.connect(config, transport({ quote }));
+    await expect(gateway.getQuote("TEST3")).resolves.toEqual(quote);
+    await expect((await HttpExecutionGateway.connect(config, transport({ quote: { ...quote, symbol: "OTHR3" } }))).getQuote("TEST3")).rejects.toThrow("GATEWAY_SYMBOL_MISMATCH");
+    await expect((await HttpExecutionGateway.connect(config, transport({ quote: { ...quote, bid: 25.49 } }))).getQuote("TEST3")).rejects.toThrow("INVALID_GATEWAY_RESPONSE");
+  });
 });

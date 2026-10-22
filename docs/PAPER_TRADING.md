@@ -24,6 +24,9 @@ Migration `20261022120000_atlas_paper_autopilot.sql`. Continua sendo somente sim
 - **Vida:** parcela da perda permitida (orçamento × %) ainda não consumida pelo resultado virtual do agente (realizado + posição marcada na última cotação). Ganhos não passam de 100%. As taxas da compra não entram na marcação, que é aproximada.
 - **Eliminação:** quando o prejuízo atinge o limite, o agente vira `DEAD`, a análise é desligada e suas ordens virtuais abertas são canceladas. Isso é registrado em `paper_events` e `audit_logs`. As posições virtuais permanecem e não há venda automática. Agente `DEAD` não pode ser reativado (`ATLAS_AGENT_RETIRED`); contrate outro. Como `agents` é compartilhado, um agente eliminado na simulação também fica indisponível para a execução real futura, o que é intencional: ele não provou resultado.
 - **Escritório:** a tela **Trading Floor** mostra estação, personagem, vida, resultado virtual e última decisão de cada agente, além de capital virtual e estado do piloto. Tudo vem de registros do banco; sem medição, a tela mostra "sem medição".
+- **Horário:** o piloto só abre ordens dentro da janela segura da B3 (10h05–16h50, São Paulo), em dias úteis do calendário oficial de 2026 (`src/core/b3-calendar.ts`; 2027 provisório). Fora dela os agentes continuam sendo marcados e as ordens abertas conferidas.
+- **Imposto:** a aba Simulação estima o IR mensal como se as operações fossem reais (`src/core/tax.ts`): swing 15% com isenção até R$ 20 mil em vendas no mês, day trade 20%, compensação de prejuízo por tipo, IRRF e DARF 6015. É estimativa para conferência com contador.
+- **Alertas:** com `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` configurados, o scheduler avisa ordens abertas e executadas, agentes eliminados e falhas.
 - O histórico da brapi passou de 1 para 3 meses (limite do plano gratuito). Com 1 mês, SMA50 nunca tinha dados suficientes.
 
 ## Premissas e limites

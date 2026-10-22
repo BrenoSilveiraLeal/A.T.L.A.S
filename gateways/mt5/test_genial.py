@@ -20,6 +20,7 @@ class GenialFixture(TerminalFixture):
         self.account.limit_orders = 0
         self.terminal.company = "Fixture Broker"
         self.symbol.filling_mode = 0
+        self.tick = type(self.account)(bid=25.49, ask=25.51, last=25.5, time_msc=1_792_000_000_000)
 
     def version(self):
         return (500, 5000, "fixture")
@@ -29,6 +30,9 @@ class GenialFixture(TerminalFixture):
 
     def orders_total(self):
         return len(self.active)
+
+    def symbol_info_tick(self, symbol):
+        return self.tick if symbol == self.symbol.name else None
 
 
 class GenialProfileTests(unittest.TestCase):
@@ -150,6 +154,14 @@ class GenialProfileTests(unittest.TestCase):
         self.api.initialize = lambda path, timeout: setattr(self.api, "account", other) or True
         self.fails("GATEWAY_ACCOUNT_MISMATCH", lambda: self.rpc("account"))
         self.assertEqual("GATEWAY_ACCOUNT_MISMATCH", self.gateway.halted())
+
+    def test_live_quote_from_terminal(self):
+        quote = self.rpc("quote", {"symbol": "TEST3"})
+        self.assertEqual(("25.49", "25.51", "25.5"), (quote["bid"], quote["ask"], quote["last"]))
+        self.assertTrue(quote["quotedAt"].endswith("Z"))
+        self.api.tick.bid = 0
+        self.assertIsNone(self.rpc("quote", {"symbol": "TEST3"})["bid"])
+        self.fails("UNAPPROVED_INSTRUMENT", lambda: self.rpc("quote", {"symbol": "OTHER3"}))
 
     def test_owner_removing_halt_file_resumes(self):
         self.gateway._halt("RECOVERY_ORDER_MISMATCH")

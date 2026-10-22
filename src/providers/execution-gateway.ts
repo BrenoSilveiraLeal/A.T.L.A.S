@@ -127,6 +127,14 @@ export class HttpExecutionGateway implements BrokerProvider {
     if (result.brokerOrderId !== brokerOrderId) throw new GatewayError("GATEWAY_ORDER_MISMATCH");
     return result;
   }
+  /** Live top of book from the broker terminal; null sides mean no offer. */
+  async getQuote(symbol: string) {
+    const value = await this.call("quote", { symbol: id.parse(symbol) }, z.object({
+      symbol: id, bid: amount.nullable(), ask: amount.nullable(), last: amount.nullable(), quotedAt: at, observedAt: at,
+    }).strict());
+    if (value.symbol !== symbol) throw new GatewayError("GATEWAY_SYMBOL_MISMATCH");
+    return value;
+  }
   async getExecutions(cursor: string | null): Promise<{ executions: readonly BrokerExecution[]; nextCursor: string | null }> {
     const result = await this.call("executions", { cursor }, z.object({ executions: z.array(executionSchema), nextCursor: z.string().max(1000).nullable() }).strict());
     return { ...result, executions: result.executions.map((e) => this.account(e)) };

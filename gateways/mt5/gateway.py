@@ -387,6 +387,9 @@ class Gateway:
             if method == "positions":
                 return self.positions()
             return [self._order(item) for item in self._call("orders_get")]
+        if method == "quote":
+            object_with(params, {"symbol"})
+            return self.quote(identifier(params["symbol"]))
         if method == "order":
             object_with(params, {"brokerOrderId"})
             value = self._raw_order(ticket(params["brokerOrderId"]))
@@ -400,6 +403,17 @@ class Gateway:
         if method in ("submit", "modify", "cancel"):
             return self.mutate(method, params)
         raise GatewayError("UNKNOWN_METHOD", 400)
+
+    def quote(self, symbol: str):
+        """Live top of book from the terminal. Zero bid/ask means no offer and is reported as null."""
+        self._instrument(symbol)
+        tick = self._call("symbol_info_tick", symbol)
+        stamp = integer(get(tick, "time_msc"), positive=True)
+        side = lambda value: amount(value, positive=True) if decimal(value) > 0 else None
+        return {"symbol": symbol, "bid": side(get(tick, "bid")), "ask": side(get(tick, "ask")),
+                "last": side(get(tick, "last")),
+                "quotedAt": datetime.fromtimestamp(stamp / 1000, UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                "observedAt": now()}
 
     def positions(self):
         positions = {}

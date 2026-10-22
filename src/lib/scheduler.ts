@@ -7,6 +7,7 @@ import { readQuote, readHistory, readNews, readMacro } from "./data";
 import { analyzeAsset } from "@/core/analysis";
 import { loadAgentObservationConfiguration } from "./agent-config";
 import { runPaperAutopilot } from "./autopilot";
+import { sendAlert } from "./alerts";
 
 const jobSchema = z.object({
   job_id: z.uuid(),
@@ -63,10 +64,11 @@ export async function runScheduler() {
   ].filter(Boolean);
   const results = await Promise.all(
     jobs.map(async (job) => {
+      let label = "Agente";
       try {
         const agent = await db
           .from("agents")
-          .select("asset_id")
+          .select("asset_id,name")
           .eq("id", job.agent_id)
           .eq("owner_id", owner)
           .single();
@@ -79,6 +81,7 @@ export async function runScheduler() {
           .eq("active", true)
           .single();
         if (asset.error) throw asset.error;
+        label = `${agent.data.name} (${asset.data.ticker})`;
         const configuration = await loadAgentObservationConfiguration(
           db,
           owner,
@@ -127,6 +130,7 @@ export async function runScheduler() {
           jobId: job.job_id,
           decisionId: commit.data,
           status: "SUCCEEDED",
+          label,
           paper,
         };
       } catch (error) {
@@ -145,6 +149,7 @@ export async function runScheduler() {
         return {
           jobId: job.job_id,
           status: "FAILED",
+          label,
           code,
           statePersisted: !failed.error && failed.data === true,
         };
@@ -161,6 +166,19 @@ export async function runScheduler() {
         : "GREEN",
     `Análises: ${results.filter((r) => r.status === "SUCCEEDED").length}/${jobs.length}. Contexto indisponível: ${errors.join(", ") || "nenhum"}.`,
   );
+  // Owner notifications are best effort and only for events that need attention.
+  const alerts: string[] = [];
+  for (const r of results) {
+    if (r.status === "FAILED" && "code" in r) alerts.push(`Falha na análise de ${r.label}: ${r.code}`);
+    if (!("paper" in r) || !r.paper) continue;
+    const paper = r.paper;
+    if ("filled" in paper && (paper.filled ?? 0) > 0) alerts.push(`${r.label}: ${paper.filled} ordem(ns) virtual(is) executada(s).`);
+    if (paper.status === "ORDER_OPENED")
+      alerts.push(`${r.label}: ${paper.side === "BUY" ? "compra" : "venda"} virtual de ${paper.quantity} a até R$ ${paper.limitPrice}.`);
+    if (paper.status === "ELIMINATED") alerts.push(`${r.label} foi ELIMINADO: atingiu o limite de perda da simulação.`);
+    if (paper.status === "FAILED") alerts.push(`Piloto automático falhou para ${r.label}.`);
+  }
+  if (alerts.length) await sendAlert(alerts);
   return { jobs: results };
 
   async function health(status: string, message: string) {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatBrl } from "@/core/format";
+import { estimateMonthlyTax, TAX_RULES, type TaxFill } from "@/core/tax";
 
 type Row = Record<string, unknown>;
 type PaperState = Record<
@@ -135,6 +136,8 @@ export function PaperPanel({ connected }: { connected: boolean }) {
         {orders.length ? <div className="table-scroll"><table><thead><tr><th>Agente / ativo</th><th>Ordem limite virtual</th><th>Estado</th><th>Aberta em</th><th>Ação</th></tr></thead><tbody>{orders.map((row) => <tr key={label(row.id)}><td>{agentName(row.agent_id)} / {assetName(row.asset_id)}</td><td>{label(row.side)} {label(row.quantity)} a {formatBrl(row.limit_price)}</td><td>{label(row.status)}</td><td>{date(row.placed_at)}</td><td>{row.status === "OPEN" && <><button disabled={busy || Boolean(account.paused)} onClick={() => void action({ action: "settle", assetId: row.asset_id })}>Verificar nova cotação</button> <button className="secondary" disabled={busy} onClick={() => void action({ action: "cancel", orderId: row.id })}>Cancelar</button></>}</td></tr>)}</tbody></table></div> : <p className="muted">Nenhuma ordem virtual aberta.</p>}
         {Boolean(state?.paper_fills.length) && <div className="table-scroll"><table><thead><tr><th>Preenchimento SIMULADO</th><th>Preço</th><th>Taxa hipotética</th><th>Fonte e horário</th></tr></thead><tbody>{state?.paper_fills.map((row) => <tr key={label(row.id)}><td>{label(row.side)} {label(row.quantity)} {assetName(row.asset_id)}</td><td>{formatBrl(row.fill_price)}</td><td>{formatBrl(row.fee)}</td><td>{date(row.quote_timestamp)} · <a href={label(row.quote_source)} target="_blank" rel="noreferrer">origem</a></td></tr>)}</tbody></table></div>}
       </section>
+      <TaxEstimate fills={(state?.paper_fills ?? []).map((row) => ({ symbol: assetName(row.asset_id), side: row.side as TaxFill["side"],
+        quantity: Number(row.quantity), price: String(row.fill_price), fees: String(row.fee), executedAt: String(row.filled_at) }))} />
       <section className="panel"><h2>5. Livro e posições virtuais</h2>
         {positions.length ? <div className="table-scroll"><table><thead><tr><th>Agente / ativo</th><th>Quantidade</th><th>Custo médio</th><th>P&L realizado virtual</th></tr></thead><tbody>{positions.map((row) => <tr key={`${label(row.agent_id)}:${label(row.asset_id)}`}><td>{agentName(row.agent_id)} / {assetName(row.asset_id)}</td><td>{label(row.quantity)}</td><td>{formatBrl(row.average_cost)}</td><td>{formatBrl(row.realized_pnl)}</td></tr>)}</tbody></table></div> : <p className="muted">Nenhuma posição virtual. O valor de mercado atual não é inferido de uma cotação antiga.</p>}
         <p className="muted">{state?.paper_ledger_entries.length ?? 0} lançamentos no livro virtual balanceado; {state?.paper_events.length ?? 0} eventos de auditoria. Exibição limitada aos últimos 200 registros por tipo.</p>
@@ -143,4 +146,19 @@ export function PaperPanel({ connected }: { connected: boolean }) {
       <section className="panel"><h2>Controle da simulação</h2><p>Pausar cancela todas as ordens virtuais abertas e libera suas reservas. As posições e a auditoria permanecem.</p><button className="secondary" disabled={busy} onClick={() => void action({ action: "pause", paused: !account.paused })}>{account.paused ? "Retomar simulação" : "Pausar simulação"}</button></section>
     </>}
   </>;
+}
+
+/** What the paper result would cost in income tax if it were real. Estimate only. */
+function TaxEstimate({ fills }: { fills: TaxFill[] }) {
+  let months: ReturnType<typeof estimateMonthlyTax> = [];
+  let error = "";
+  try { months = estimateMonthlyTax(fills); } catch { error = "Não foi possível estimar: há uma venda sem compra correspondente nos registros exibidos."; }
+  return <section className="panel"><h2>Imposto de renda (estimativa se fosse real)</h2>
+    <p>Swing trade: {Number(TAX_RULES.swingRate) * 100}% sobre o lucro, isento quando as vendas do mês somam até {formatBrl(TAX_RULES.swingExemptSales)}. Day trade (compra e venda no mesmo dia): {Number(TAX_RULES.dayTradeRate) * 100}%, sem isenção. Prejuízo é compensado nos meses seguintes. DARF código {TAX_RULES.darfCode}; abaixo de R$ 10 acumula para o mês seguinte.</p>
+    {error ? <p className="error-text">{error}</p> : months.length ? <div className="table-scroll"><table><thead><tr><th>Mês</th><th>Vendas swing</th><th>Resultado swing</th><th>Resultado day trade</th><th>Prejuízo a compensar</th><th>DARF estimado</th><th>Vencimento</th></tr></thead><tbody>
+      {months.map((m) => <tr key={m.month}><td>{m.month}</td><td>{formatBrl(m.swingSales)}</td><td>{formatBrl(m.swingResult)}{m.swingExempt ? " (isento)" : ""}</td><td>{formatBrl(m.dayTradeResult)}</td>
+        <td>{formatBrl((Number(m.swingLossCarry) + Number(m.dayTradeLossCarry)).toFixed(2))}</td><td>{formatBrl(m.darf)}{Number(m.carriedTax) > 0 ? ` (+${formatBrl(m.carriedTax)} acumulado)` : ""}</td><td>{m.darfDueDate ?? "—"}</td></tr>)}
+    </tbody></table></div> : <p className="muted">Sem vendas virtuais ainda.</p>}
+    <p className="muted">Estimativa para conversar com um contador, baseada nos preenchimentos simulados e nas taxas hipotéticas da simulação. Não substitui a nota de corretagem nem a declaração.</p>
+  </section>;
 }
