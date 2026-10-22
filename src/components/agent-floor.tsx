@@ -171,6 +171,7 @@ export function AgentMarket({ ticker }: { ticker: string | null }) {
 }
 
 type ContextView = { action: "ALLOW" | "REDUCE" | "BLOCK_BUY" | "EXIT"; riskScore: number;
+  company?: { name: string; cvmCode: string | null };
   reasons: { code: string; text: string; source: string | null }[]; unavailable: string[]; assessedAt: string };
 const CONTEXT_LABELS: Record<ContextView["action"], [string, string]> = {
   ALLOW: ["Clima normal", ""], REDUCE: ["Cautela: compras pela metade", "warning"],
@@ -202,6 +203,9 @@ export function AgentContextPanel({ decision }: { decision: Row | undefined }) {
       <p><span className={`status-label ${CONTEXT_LABELS[context.action][1]}`}>{CONTEXT_LABELS[context.action][0]}</span> Risco de contexto: {context.riskScore}/100 · avaliado {ago(context.assessedAt)}</p>
       {context.reasons.length ? <ul className="context-reasons">{context.reasons.map((r) => <li key={r.code + r.text}>{r.text}{r.source && <> · <a href={r.source} target="_blank" rel="noopener noreferrer">fonte</a></>}</li>)}</ul>
         : <p className="muted">Nenhum fato relevante recente, manchete negativa forte, estresse de mercado ou choque do dólar.</p>}
+      {context.company && <p className="muted">{context.company.cvmCode
+        ? `Empresa reconhecida na CVM: ${context.company.name} (código ${Number(context.company.cvmCode)}).`
+        : `Empresa "${context.company.name}" não identificada na CVM: fatos relevantes não são lidos. Cadastre o ativo com o nome oficial completo (ex.: "Banco Bradesco").`}</p>}
       {context.unavailable.length > 0 && <p className="muted">Fontes indisponíveis nesta análise: {context.unavailable.map((u) => SOURCE_LABELS[u] ?? u).join(", ")}. Sem dado, nada é presumido.</p>}
       <p className="muted">O contexto só freia: bloqueia compras, reduz o tamanho ou pede saída. Ele nunca inicia uma compra.</p>
     </>}

@@ -513,9 +513,16 @@ const IPE_SOURCE = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/";
 
 /**
  * "Fato Relevante" filings from the CVM IPE open dataset (weekly refresh), limited to
- * the last 45 days. Public for deterministic tests; runtime uses fetchCvmMaterialFacts.
+ * the last 45 days. Public for deterministic tests; runtime uses fetchCvmIpe.
  */
+export interface CvmCompany { cvmCode: string; name: string }
+
 export function parseCvmMaterialFacts(data: Uint8Array, year: number, retrievedAt: string): CvmMaterialFact[] {
+  return parseCvmIpe(data, year, retrievedAt).facts;
+}
+
+/** Material facts plus the directory of every company that filed in the year. */
+export function parseCvmIpe(data: Uint8Array, year: number, retrievedAt: string): { facts: CvmMaterialFact[]; companies: CvmCompany[] } {
   const nowMs = timestamp(retrievedAt);
   const today = new Date(nowMs).toISOString().slice(0, 10);
   const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
@@ -523,8 +530,10 @@ export function parseCvmMaterialFacts(data: Uint8Array, year: number, retrievedA
   if (!index) throw new CvmProviderError("INVALID_ARCHIVE");
   const since = new Date(nowMs - 45 * 86400000).toISOString().slice(0, 10);
   const facts: CvmMaterialFact[] = [];
+  const companies = new Map<string, string>();
   for (const row of parseCvmCsv(extractCsv(bytes, index), /^[A-Za-z][A-Za-z0-9_]*$/)) {
     requireColumns(row, ["Codigo_CVM", "Nome_Companhia", "Categoria", "Assunto", "Data_Entrega", "Link_Download"]);
+    if (companies.size < 5000) companies.set(cvmCode(row.Codigo_CVM), row.Nome_Companhia.slice(0, 200));
     if (row.Categoria !== "Fato Relevante") continue;
     const delivered = validateCvmDate(row.Data_Entrega);
     if (delivered > today) throw new CvmProviderError("FUTURE_DATA");
@@ -534,10 +543,11 @@ export function parseCvmMaterialFacts(data: Uint8Array, year: number, retrievedA
       deliveredOn: delivered, subject: row.Assunto.slice(0, 500), url: row.Link_Download });
     if (facts.length > 5000) throw new CvmProviderError("INVALID_DATA");
   }
-  return facts.sort((a, b) => b.deliveredOn.localeCompare(a.deliveredOn));
+  return { facts: facts.sort((a, b) => b.deliveredOn.localeCompare(a.deliveredOn)),
+    companies: [...companies].map(([code, name]) => ({ cvmCode: code, name })) };
 }
 
-export async function fetchCvmMaterialFacts(year = new Date().getUTCFullYear()): Promise<CvmMaterialFact[]> {
+export async function fetchCvmIpe(year = new Date().getUTCFullYear()) {
   const bytes = await downloadCvmArchive(`${IPE_SOURCE}ipe_cia_aberta_${year}.zip`);
-  return parseCvmMaterialFacts(bytes, year, new Date().toISOString());
+  return parseCvmIpe(bytes, year, new Date().toISOString());
 }

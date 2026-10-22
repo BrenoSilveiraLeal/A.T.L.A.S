@@ -60,7 +60,8 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
   const tick = new D(input.tickSize), price = new D(input.quote.price);
   if (!price.isFinite() || price.lte(0) || !tick.isFinite() || tick.lte(0) || !Number.isSafeInteger(input.lotSize) || input.lotSize < 1)
     throw new AutopilotError("INVALID_PRICE");
-  const closes = bars.map((bar) => bar.close);
+  // Split/dividend-adjusted closes keep the averages continuous across corporate actions.
+  const closes = bars.map((bar) => bar.adjustedClose ?? bar.close);
   const fast = closes.length >= 50 ? sma(closes, 20).at(-1)! : null;
   const slow = closes.length >= 50 ? sma(closes, 50).at(-1)! : null;
   const indicators = { sma20: fast, sma50: slow, price: price.toFixed(2) };
@@ -99,3 +100,31 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
   return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice, indicators,
     reason: `${input.ticker}: compra virtual automática (tendência de alta${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}); ${trend}. Regra ${AUTOPILOT_VERSION}, simulação.` };
 }
+
+/**
+ * Flags a probable split, reverse split or bonus issue: a raw price jump above 30% that
+ * the adjusted series does not show, or a live quote far from the last close. Virtual
+ * positions keep pre-event cost, so marking them would fake a gain or loss (and could
+ * eliminate an agent). Callers pause marking and trading and alert the owner.
+ */
+export function corporateActionSuspected(history: MarketHistory, quotePrice: string, knownEventDates: readonly string[] = []): string | null {
+  // A jump within 6 days after an official record date is explained by that event.
+  const explained = (day: string) => knownEventDates.some((d) => day > d && Date.parse(day) - Date.parse(d) <= 6 * 86400000);
+  const bars = history.bars.slice(-11);
+  for (let i = 1; i < bars.length; i++) {
+    if (explained(bars[i].timestamp.slice(0, 10))) continue;
+    const raw = Number(bars[i].close) / Number(bars[i - 1].close) - 1;
+    const previousAdjusted = bars[i - 1].adjustedClose, adjusted = bars[i].adjustedClose;
+    const adjustedMove = previousAdjusted && adjusted ? Number(adjusted) / Number(previousAdjusted) - 1 : raw;
+    if (Math.abs(raw) > 0.3 && Math.abs(adjustedMove) < 0.1)
+      return `${history.ticker}: preço bruto variou ${(raw * 100).toFixed(0)}% em ${bars[i].timestamp.slice(0, 10)} sem variação equivalente no preço ajustado (provável desdobramento/grupamento/bonificação).`;
+  }
+  const last = bars.at(-1);
+  if (last && !explained(new Date().toISOString().slice(0, 10))) {
+    const gap = Number(quotePrice) / Number(last.close) - 1;
+    if (Math.abs(gap) > 0.3)
+      return `${history.ticker}: cotação ${quotePrice} difere ${(gap * 100).toFixed(0)}% do último fechamento ${last.close} (possível evento corporativo ou dado inconsistente).`;
+  }
+  return null;
+}
+

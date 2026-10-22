@@ -64,12 +64,13 @@ export async function runScheduler() {
     macro.status === "rejected" ? "MACRO_UNAVAILABLE" : "",
   ].filter(Boolean);
   // Context is loaded once per tick, before the parallel analyses: GDELT needs paced requests.
-  let sources: ContextSources = { facts: null, agency: null, market: null, dollar: null, company: new Map() };
+  let sources: ContextSources = { facts: null, companies: null, names: new Map(), agency: null, market: null, dollar: null, company: new Map() };
   try {
     const claimedAgents = await db.from("agents").select("asset_id").eq("owner_id", owner).in("id", jobs.map((j) => j.agent_id));
-    const claimedAssets = claimedAgents.error ? null : await db.from("assets").select("ticker").eq("owner_id", owner)
+    const claimedAssets = claimedAgents.error ? null : await db.from("assets").select("ticker,company_name").eq("owner_id", owner)
       .in("id", claimedAgents.data.map((a) => a.asset_id));
-    if (claimedAssets && !claimedAssets.error) sources = await loadContextSources(claimedAssets.data.map((a) => a.ticker));
+    if (claimedAssets && !claimedAssets.error)
+      sources = await loadContextSources(claimedAssets.data.map((a) => ({ ticker: a.ticker, company: a.company_name })));
   } catch {
     errors.push("CONTEXT_UNAVAILABLE");
   }
@@ -186,11 +187,14 @@ export async function runScheduler() {
     if (r.status === "FAILED" && "code" in r) alerts.push(`Falha na análise de ${r.label}: ${r.code}`);
     if (!("paper" in r) || !r.paper) continue;
     const paper = r.paper;
+    if ("corporateActions" in paper && (paper.corporateActions ?? 0) > 0)
+      alerts.push(`${r.label}: ${paper.corporateActions} evento(s) oficial(is) da B3 aplicado(s) na carteira virtual (dividendos ou ajuste de ações).`);
     if ("filled" in paper && (paper.filled ?? 0) > 0) alerts.push(`${r.label}: ${paper.filled} ordem(ns) virtual(is) executada(s).`);
     if (paper.status === "ORDER_OPENED")
       alerts.push(`${r.label}: ${paper.side === "BUY" ? "compra" : "venda"} virtual de ${paper.quantity} a até R$ ${paper.limitPrice}.`);
     if (paper.status === "ELIMINATED") alerts.push(`${r.label} foi ELIMINADO: atingiu o limite de perda da simulação.`);
     if (paper.status === "FAILED") alerts.push(`Piloto automático falhou para ${r.label}.`);
+    if (paper.status === "CORPORATE_ACTION_SUSPECTED") alerts.push(`${r.label} PAUSADO: ${paper.reason} Confira e ajuste a posição virtual antes de retomar.`);
   }
   if (alerts.length) await sendAlert(alerts);
   return { jobs: results };

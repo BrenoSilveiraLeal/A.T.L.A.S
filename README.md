@@ -75,7 +75,7 @@ Somente para uma instalação nova:
 
 ## 5. Aplicar as migrations e registrar o proprietário
 
-As nove migrations abaixo já foram aplicadas no projeto atual e o proprietário registrado. A sétima entrega a persistência do Executor e a oitava o Paper Trading; seu estado remoto foi conferido no histórico de migrations. Não reaplique scripts às cegas. Para um banco novo, aplique na ordem:
+As dez migrations abaixo já foram aplicadas no projeto atual e o proprietário registrado. A sétima entrega a persistência do Executor e a oitava o Paper Trading; seu estado remoto foi conferido no histórico de migrations. Não reaplique scripts às cegas. Para um banco novo, aplique na ordem:
 
 1. `supabase/migrations/20260913235609_atlas_foundation.sql`
 2. `supabase/migrations/20260914045633_atlas_analysis_pipeline.sql`
@@ -86,6 +86,7 @@ As nove migrations abaixo já foram aplicadas no projeto atual e o proprietário
 7. `supabase/migrations/20260916045026_atlas_executor_gateway.sql`
 8. `supabase/migrations/20260925040950_atlas_paper_trading.sql`
 9. `supabase/migrations/20261022120000_atlas_paper_autopilot.sql` — piloto automático do Paper e "vida" dos agentes. Aplicada no projeto remoto em 22/10/2026 pelo SQL Editor (fora do histórico do CLI).
+10. `supabase/migrations/20261022150000_atlas_paper_corporate_actions.sql` — eventos oficiais da B3 (dividendos, JCP, desdobramento, grupamento, bonificação) na carteira virtual. Aplicada no projeto remoto em 22/10/2026 por função temporária no Supabase (fora do histórico do CLI).
 
 Depois execute, substituindo o UUID pelo seu usuário real:
 

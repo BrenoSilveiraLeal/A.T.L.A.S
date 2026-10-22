@@ -29,6 +29,35 @@ export function companyProfile(ticker: string): CompanyProfile {
   return COMPANIES[ticker] ?? { name: ticker, cvmCode: null, query: ticker, aliases: [ticker.toLowerCase()] };
 }
 
+const LEGAL_SUFFIX = /\b(s a|sa|cia|companhia|holding|participacoes|part|em recuperacao judicial)\b/g;
+const simplify = (name: string) => normalize(name).replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ")
+  .replace(LEGAL_SUFFIX, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Profile for any registered asset: the curated table first; otherwise the owner's company
+ * name is matched against the CVM filer directory. Only an unambiguous match gets a CVM
+ * code; short or ambiguous names stay unidentified instead of guessing.
+ */
+export function resolveCompany(ticker: string, companyName: string | null, directory: readonly { cvmCode: string; name: string }[] | null): CompanyProfile {
+  if (COMPANIES[ticker]) return COMPANIES[ticker];
+  const wanted = companyName ? simplify(companyName) : "";
+  const usable = wanted.length >= 5;
+  const aliases = [ticker.toLowerCase(), ...(usable ? [wanted] : [])];
+  const query = usable ? `("${wanted}" OR ${ticker.toLowerCase()})` : ticker.toLowerCase();
+  let cvmCode: string | null = null;
+  if (directory && wanted.length >= 3) {
+    // Short names (WEG, Vale) only match exactly. Longer ones must appear as whole words in
+    // exactly one filer: "Bradesco" matches both Banco Bradesco and Bradesco Leasing, so it
+    // stays unidentified rather than reading another company's filings.
+    const codes = new Set(directory.filter((c) => {
+      const filer = simplify(c.name);
+      return filer === wanted || (usable && ` ${filer} `.includes(` ${wanted} `));
+    }).map((c) => c.cvmCode));
+    if (codes.size === 1) cvmCode = [...codes][0];
+  }
+  return { name: companyName?.trim() || ticker, cvmCode, query, aliases };
+}
+
 export interface MaterialFact { cvmCode: string; deliveredOn: string; subject: string; url: string }
 export interface ContextHeadline { title: string; url: string; seenAt: string; source?: string }
 const quoted = (h: ContextHeadline) => `"${h.title}"${h.source ? ` (${h.source})` : ""}`;
@@ -38,6 +67,7 @@ export type ContextAction = "ALLOW" | "REDUCE" | "BLOCK_BUY" | "EXIT";
 export interface ContextReason { code: string; text: string; source: string | null }
 export interface ContextAssessment {
   version: typeof CONTEXT_VERSION;
+  company: { name: string; cvmCode: string | null };
   action: ContextAction;
   riskScore: number;
   reasons: ContextReason[];
@@ -67,13 +97,14 @@ const ORDER: ContextAction[] = ["ALLOW", "REDUCE", "BLOCK_BUY", "EXIT"];
 
 export function assessContext(input: {
   ticker: string;
+  company?: CompanyProfile;
   now: string;
   facts: MaterialFact[] | null;
   companyHeadlines: ContextHeadline[] | null;
   marketHeadlines: ContextHeadline[] | null;
   dollar: DollarPoint[] | null;
 }): ContextAssessment {
-  const company = companyProfile(input.ticker);
+  const company = input.company ?? companyProfile(input.ticker);
   const reasons: ContextReason[] = [];
   const unavailable: string[] = [];
   let action: ContextAction = "ALLOW";
@@ -130,5 +161,6 @@ export function assessContext(input: {
       raise("REDUCE", 15, { code: "DOLLAR_SHOCK", text: `Dólar ${change > 0 ? "subiu" : "caiu"} ${Math.abs(change).toFixed(1)}% em ${last.observationDate} (PTAX ${last.value}).`, source: "https://www.bcb.gov.br/estabilidadefinanceira/historicocotacoes" });
   }
 
-  return { version: CONTEXT_VERSION, action, riskScore: Math.min(100, risk), reasons, unavailable, assessedAt: input.now };
+  return { version: CONTEXT_VERSION, company: { name: company.name, cvmCode: company.cvmCode }, action,
+    riskScore: Math.min(100, risk), reasons, unavailable, assessedAt: input.now };
 }

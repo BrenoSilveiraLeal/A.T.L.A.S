@@ -1155,7 +1155,7 @@ function Market({
           </label>
           <label>
             Empresa
-            <input name="company" maxLength={120} required />
+            <input name="company" maxLength={120} placeholder="Nome oficial, ex.: Banco Bradesco" required />
           </label>
           <label>
             Setor

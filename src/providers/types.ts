@@ -1,4 +1,4 @@
-export type ProviderName = "brapi" | "bcb" | "ibge" | "gdelt" | "agenciabrasil";
+export type ProviderName = "brapi" | "bcb" | "ibge" | "gdelt" | "agenciabrasil" | "b3";
 
 export type ProviderErrorCode =
   | "INVALID_INPUT"

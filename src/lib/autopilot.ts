@@ -3,9 +3,10 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MarketHistory, MarketQuote } from "@/providers/types";
-import { AUTOPILOT_VERSION, autopilotDecision } from "@/core/autopilot";
+import { AUTOPILOT_VERSION, autopilotDecision, corporateActionSuspected } from "@/core/autopilot";
 import { paperReferencePrice } from "@/core/paper";
 import { b3Session } from "@/core/b3-calendar";
+import { applyPaperCorporateActions } from "./corporate-actions";
 import type { ContextAction } from "@/core/context";
 
 const STOP_LOSS_PCT = 8;
@@ -39,20 +40,26 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   if (!found) return { status: "NO_PAPER_ACCOUNT" as const };
   let account = accountSchema.parse(found);
   const price = paperReferencePrice(quote.price);
+  // Official dividends and stock events first, so marking never sees a fake gain or loss.
+  let events = { applied: 0, knownDates: [] as string[], unavailable: true };
+  try { events = await applyPaperCorporateActions(db, owner, assetId, input.ticker, price); } catch { /* guard below still protects */ }
   let filled = 0;
   if (account.autopilot && !account.paused) {
     const settled = rows(await db.rpc("paper_settle_quote", { p_owner_id: owner, p_asset_id: assetId, p_price: price,
       p_source: quote.source, p_quote_timestamp: quote.dataTimestamp }));
     filled = z.object({ filled: z.number() }).loose().parse(settled).filled;
   }
+  // A suspected split/grouping would fake a gain or loss on the virtual position: pause instead.
+  const corporateAction = corporateActionSuspected(input.history, quote.price, events.knownDates);
+  if (corporateAction) return { filled, corporateActions: events.applied, status: "CORPORATE_ACTION_SUSPECTED" as const, reason: corporateAction };
   const vitals = z.object({ lifePct: z.coerce.number(), eliminated: z.boolean() }).loose().parse(rows(
     await db.rpc("paper_mark_agent", { p_owner_id: owner, p_agent_id: agentId, p_price: price,
       p_source: quote.source, p_quote_timestamp: quote.dataTimestamp })));
-  if (vitals.eliminated) return { filled, status: "ELIMINATED" as const, lifePct: vitals.lifePct };
-  if (!account.autopilot || account.paused) return { filled, status: "MARKED" as const, lifePct: vitals.lifePct };
+  if (vitals.eliminated) return { filled, corporateActions: events.applied, status: "ELIMINATED" as const, lifePct: vitals.lifePct };
+  if (!account.autopilot || account.paused) return { filled, corporateActions: events.applied, status: "MARKED" as const, lifePct: vitals.lifePct };
   // New orders only inside the B3 safe window; outside it the agent is still marked and settled.
   const session = b3Session(new Date());
-  if (session.status !== "OPEN") return { filled, status: "MARKET_CLOSED" as const, reason: session.reason, lifePct: vitals.lifePct };
+  if (session.status !== "OPEN") return { filled, corporateActions: events.applied, status: "MARKET_CLOSED" as const, reason: session.reason, lifePct: vitals.lifePct };
 
   // Re-read after settlement: fills change cash, reservations and positions.
   account = accountSchema.parse(rows(await db.from("paper_accounts").select("*").eq("owner_id", owner).single()));
@@ -81,7 +88,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,
     context: input.context,
   });
-  if (decision.action === "HOLD") return { filled, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };
+  if (decision.action === "HOLD") return { filled, corporateActions: events.applied, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };
   const proposal = z.object({ id: z.uuid() }).loose().parse(rows(await db.rpc("paper_create_proposal", {
     p_owner_id: owner, p_agent_id: agentId, p_side: decision.action, p_quantity: decision.quantity,
     p_limit_price: decision.limitPrice, p_reference_price: decision.referencePrice,
@@ -92,6 +99,6 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   })));
   const review = z.object({ status: z.string() }).loose().parse(rows(
     await db.rpc("paper_review_proposal", { p_owner_id: owner, p_proposal_id: proposal.id, p_approve: true })));
-  return { filled, status: review.status === "OPEN" ? "ORDER_OPENED" as const : "RISK_REJECTED" as const,
+  return { filled, corporateActions: events.applied, status: review.status === "OPEN" ? "ORDER_OPENED" as const : "RISK_REJECTED" as const,
     side: decision.action, quantity: decision.quantity, limitPrice: decision.limitPrice, lifePct: vitals.lifePct };
 }

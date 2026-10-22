@@ -20,6 +20,7 @@ const ORIGINS: Record<ProviderName, string> = {
   ibge: "https://servicodados.ibge.gov.br",
   gdelt: "https://api.gdeltproject.org",
   agenciabrasil: "https://agenciabrasil.ebc.com.br",
+  b3: "https://sistemaswebb3-listados.b3.com.br",
 };
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);

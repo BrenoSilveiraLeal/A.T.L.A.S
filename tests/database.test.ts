@@ -288,6 +288,74 @@ describe("paper trading isolated virtual book", () => {
   });
 });
 
+describe("paper corporate actions from official B3 events", () => {
+  const recent = () => new Date(Date.now() - 60000).toISOString();
+  // Holds 10 virtual shares bought 10 days ago (fills are immutable; the trigger is paused only inside this rolled-back test).
+  async function holding() {
+    await db.query("select public.paper_open_account($1,1000,200,500,50)", [owner]);
+    const a = await agent("Event fixture");
+    await db.query("select public.update_agent_enabled($1,$2,true)", [owner, a.id]);
+    const p = (await db.query<{ id: string }>(
+      `select id from public.paper_create_proposal($1,$2,'BUY',10,'10.00','10.00','https://example.test/q',$3,'https://example.test/h',$3,'fixture/1','Compra virtual de teste para eventos.','{}'::jsonb,$4)`,
+      [owner, a.id, recent(), "50000000-0000-4000-8000-000000000001"])).rows[0];
+    const review = await db.query<{ result: { orderId: string } }>("select public.paper_review_proposal($1,$2,true) as result", [owner, p.id]);
+    await admin();
+    await db.query("update public.paper_orders set placed_at=now()-interval '2 minutes' where id=$1", [review.rows[0].result.orderId]);
+    await service();
+    await db.query("select public.paper_settle_quote($1,$2,9.90,'https://example.test/q',$3)", [owner, assetId, recent()]);
+    await admin();
+    await db.exec("alter table public.paper_fills disable trigger paper_fills_immutable");
+    await db.query("update public.paper_fills set filled_at=now()-interval '10 days' where agent_id=$1", [a.id]);
+    await db.exec("alter table public.paper_fills enable trigger paper_fills_immutable");
+    await service();
+    return a;
+  }
+  const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+  async function apply(kind: string, label: string, value: string, lastDatePrior: string, payment: string | null, price = "40") {
+    return (await db.query<{ result: { applied: boolean; reason?: string } }>(
+      "select public.paper_apply_corporate_action($1,$2,$3,$4,'BRTESTACNOR0',$5,$6,$7,$8,'https://sistemaswebb3-listados.b3.com.br/x') as result",
+      [owner, assetId, kind, label, value, lastDatePrior, payment, price])).rows[0].result;
+  }
+  const position = async () => (await db.query<{ quantity: number; average_cost: string; realized_pnl: string }>(
+    "select quantity,average_cost,realized_pnl from public.paper_positions where owner_id=$1", [owner])).rows[0];
+  const cash = async () => Number((await db.query<{ cash: string }>("select cash from public.paper_accounts where owner_id=$1", [owner])).rows[0].cash);
+
+  it("doubles shares on a 1→2 split, halves the cost and applies only once", async () => {
+    await holding();
+    expect(await apply("SPLIT", "DESDOBRAMENTO", "100", day(-3), null)).toMatchObject({ applied: true });
+    expect(await position()).toMatchObject({ quantity: 20 });
+    expect(Number((await position()).average_cost)).toBeCloseTo(4.95, 2);
+    expect(await apply("SPLIT", "DESDOBRAMENTO", "100", day(-3), null)).toMatchObject({ applied: false, reason: "ALREADY_APPLIED" });
+    expect((await position()).quantity).toBe(20);
+  });
+
+  it("groups shares and credits the fraction; credits dividends and net JCP", async () => {
+    await holding();
+    const before = await cash();
+    await apply("GROUPING", "GRUPAMENTO", "0.25", day(-3), null, "40");
+    expect((await position()).quantity).toBe(2);
+    expect(await cash()).toBeCloseTo(before + 20, 2); // 0.5 share × R$ 40
+    await apply("CASH", "DIVIDENDO", "0.5", day(-4), day(-1));
+    await apply("CASH", "JRS CAP PROPRIO", "1", day(-4), day(-1));
+    expect(await cash()).toBeCloseTo(before + 20 + 5 + 8.5, 2);
+    expect(Number((await position()).realized_pnl)).toBeCloseTo(33.5, 2);
+    const balance = await db.query<{ total: string }>("select sum(amount) as total from public.paper_ledger_entries where owner_id=$1", [owner]);
+    expect(Number(balance.rows[0].total)).toBe(0);
+  });
+
+  it("ignores holdings bought after the record date and refuses events that are not due", async () => {
+    await holding();
+    expect(await apply("CASH", "DIVIDENDO", "0.5", day(-20), day(-15))).toMatchObject({ applied: true });
+    expect(Number((await position()).realized_pnl)).toBe(0);
+    await rejected("select public.paper_apply_corporate_action($1,$2,'CASH','DIVIDENDO','BRTESTACNOR0',1,current_date-3,current_date+5,null,'https://x.test')",
+      [owner, assetId], "ATLAS_PAPER_INVALID_CORPORATE_ACTION");
+    await rejected("select public.paper_apply_corporate_action($1,$2,'SPLIT','DESDOBRAMENTO','BRTESTACNOR0',100,current_date,null,null,'https://x.test')",
+      [owner, assetId], "ATLAS_PAPER_INVALID_CORPORATE_ACTION");
+    await db.exec("set local role anon");
+    await rejected("select * from public.paper_corporate_actions", [], "permission denied");
+  });
+});
+
 describe("paper autopilot and agent survival", () => {
   const quoteAt = () => new Date(Date.now() - 60000).toISOString();
   async function boughtAgent(name: string) {

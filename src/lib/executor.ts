@@ -7,6 +7,25 @@ import { HttpExecutionGateway } from "@/providers/execution-gateway";
 import { adminClient } from "./supabase";
 import { required } from "./env";
 import { SupabaseExecutorStore } from "./executor-store";
+import { sendAlert } from "./alerts";
+
+/** Issues that need the owner; permanent pre-live gates (cash proof, fees) are not alerted. */
+const ALERTS: Record<string, string> = {
+  GATEWAY_HALTED: "Ponte com a Genial TRAVADA por inconsistência. Confira ordens e posições no MetaTrader antes de remover a trava.",
+  GATEWAY_UNHEALTHY: "Ponte com a Genial com problema de saúde.",
+  UNRESOLVED_ORDER: "Há ordem com resultado indeterminado. Nada será reenviado até a conciliação.",
+  RECOVERY_FAILED: "Falha ao recuperar o estado de uma ordem enviada.",
+  ORDER_STATUS_UNKNOWN: "Estado de uma ordem aberta ficou indeterminado.",
+  EXECUTION_COMMIT_CONFLICT: "Conflito ao registrar uma execução: conciliação necessária.",
+  EXECUTION_RECONCILIATION_REQUIRED: "Execução da corretora pendente de conciliação.",
+  ACCOUNT_RECONCILIATION_REQUIRED: "Posições/caixa da Genial não batem com o ATLAS. Novas ordens bloqueadas.",
+};
+
+/** At most one alert per kind every 3 hours, shared by all executor instances. */
+async function alertOnce(kind: string, text: string) {
+  const allowed = await adminClient().rpc("consume_rate_limit", { p_key: `alert:executor:${kind}`, p_limit: 1, p_window_seconds: 10800 });
+  if (!allowed.error && allowed.data) await sendAlert([text]);
+}
 
 /** One bounded tick. Reconciliation runs even when new trading is disabled. */
 export async function runExecutor() {
@@ -16,10 +35,16 @@ export async function runExecutor() {
   const rate = await db.rpc("consume_rate_limit", { p_key: `atlas-executor:${owner}`, p_limit: 1, p_window_seconds: 15 });
   if (rate.error) throw new Error("EXECUTOR_RATE_CHECK_FAILED");
   if (!rate.data) return { status: "RECENT_TICK", dispatched: 0 };
-  const gateway = await HttpExecutionGateway.connect({
-    url: required("ATLAS_GATEWAY_URL"), token: required("ATLAS_GATEWAY_TOKEN"),
-    expectedAccountId: required("ATLAS_GATEWAY_ACCOUNT_ID"), expectedProviderId: required("ATLAS_GATEWAY_PROVIDER_ID"), timeoutMs: 5000,
-  });
+  let gateway: HttpExecutionGateway;
+  try {
+    gateway = await HttpExecutionGateway.connect({
+      url: required("ATLAS_GATEWAY_URL"), token: required("ATLAS_GATEWAY_TOKEN"),
+      expectedAccountId: required("ATLAS_GATEWAY_ACCOUNT_ID"), expectedProviderId: required("ATLAS_GATEWAY_PROVIDER_ID"), timeoutMs: 5000,
+    });
+  } catch (error) {
+    await alertOnce("GATEWAY_UNREACHABLE", "Ponte com a Genial fora do ar: confira se o MetaTrader está aberto e logado e se a ponte está rodando.");
+    throw error;
+  }
   const store = new SupabaseExecutorStore(db, owner);
   const account = await gateway.getAccount();
   const registered = await db.from("broker_accounts").select("id").eq("owner_id", owner)
@@ -115,6 +140,7 @@ export async function runExecutor() {
     }
   }
   const uniqueIssues = [...new Set(issues)];
+  for (const issue of uniqueIssues) if (ALERTS[issue]) await alertOnce(issue, ALERTS[issue]);
   const at = new Date();
   const update = await db.from("system_health").upsert({ owner_id: owner, component: "EXECUTION",
     status: uniqueIssues.length ? "YELLOW" : "GREEN", message: uniqueIssues.length ? uniqueIssues.join(", ") : "Gateway e reconciliação verificados; fila consultada.",

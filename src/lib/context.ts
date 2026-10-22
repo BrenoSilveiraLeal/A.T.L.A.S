@@ -1,19 +1,19 @@
 import "server-only";
 import { adminClient } from "./supabase";
 import { required } from "./env";
-import { fetchCvmMaterialFacts, type CvmMaterialFact } from "@/providers/cvm";
+import { fetchCvmIpe, type CvmCompany, type CvmMaterialFact } from "@/providers/cvm";
 import { fetchHeadlines, type Headline } from "@/providers/gdelt";
 import { fetchAgenciaBrasilHeadlines } from "@/providers/agencia-brasil";
 import { fetchDollar } from "@/providers/bcb";
 import type { MacroObservation } from "@/providers/types";
-import { assessContext, companyProfile, MARKET_QUERY, type ContextAssessment } from "@/core/context";
+import { assessContext, MARKET_QUERY, resolveCompany, type ContextAssessment } from "@/core/context";
 
 /**
  * Stale-tolerant cache for context sources. Unlike data.ts `cached`, a failed or
  * budget-limited refresh falls back to the last snapshot while it is younger than
  * maxStaleMs; older or absent data is reported as unavailable, never invented.
  */
-async function softCached<T>(provider: string, key: string, ttlMs: number, maxStaleMs: number, dailyLimit: number,
+export async function softCached<T>(provider: string, key: string, ttlMs: number, maxStaleMs: number, dailyLimit: number,
   source: string, fetcher: () => Promise<T>, canFetch: () => Promise<boolean> = async () => true,
   retrySeconds = 600): Promise<T | null> {
   const db = adminClient(), owner = required("ATLAS_OWNER_ID"), now = Date.now();
@@ -59,6 +59,10 @@ function gdeltPacer(maxFetches: number) {
 
 export interface ContextSources {
   facts: CvmMaterialFact[] | null;
+  /** CVM filer directory (code and name) used to recognise newly registered companies. */
+  companies: CvmCompany[] | null;
+  /** Owner-registered company names by ticker. */
+  names: Map<string, string>;
   /** Agência Brasil (primary, licensed for non-commercial reuse with credit). */
   agency: Headline[] | null;
   market: Headline[] | null;
@@ -70,24 +74,27 @@ export interface ContextSources {
  * Loads context once per scheduler tick for the claimed tickers. At most one GDELT
  * refresh per tick (≤20 s with the pacing wait), so a Vercel invocation stays inside 60 s.
  */
-export async function loadContextSources(tickers: readonly string[]): Promise<ContextSources> {
+export async function loadContextSources(assets: readonly { ticker: string; company: string | null }[]): Promise<ContextSources> {
   const year = new Date().getUTCFullYear();
   const pace = gdeltPacer(1);
-  const [facts, dollar, agency] = await Promise.all([
-    softCached("cvm-ipe", `IPE:${year}`, 6 * 3600000, 8 * 86400000, 6,
-      `https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_${year}.zip`, () => fetchCvmMaterialFacts(year)),
+  const [ipe, dollar, agency] = await Promise.all([
+    softCached("cvm-ipe", `IPE2:${year}`, 6 * 3600000, 8 * 86400000, 6,
+      `https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_${year}.zip`, () => fetchCvmIpe(year)),
     softCached("bcb", "SGS:1", 3 * 3600000, 4 * 86400000, 50, "https://dadosabertos.bcb.gov.br/", fetchDollar),
     softCached("agenciabrasil", "HEADLINES", 3600000, 12 * 3600000, 200, "https://agenciabrasil.ebc.com.br/", () => fetchAgenciaBrasilHeadlines()),
   ]);
   // Sequential on purpose: GDELT throttles parallel requests.
   const market = await softCached("gdelt", "MARKET", 2 * 3600000, 12 * 3600000, 300, "https://api.gdeltproject.org/",
     () => fetchHeadlines(MARKET_QUERY, "24h", 75), pace, 1800);
+  const names = new Map(assets.filter((a) => a.company).map((a) => [a.ticker, a.company!]));
+  const companies = ipe?.companies ?? null;
   const company = new Map<string, Headline[] | null>();
-  for (const ticker of new Set(tickers)) {
+  for (const ticker of new Set(assets.map((a) => a.ticker))) {
+    const profile = resolveCompany(ticker, names.get(ticker) ?? null, companies);
     company.set(ticker, await softCached("gdelt", `COMPANY:${ticker}`, 2 * 3600000, 12 * 3600000, 300,
-      "https://api.gdeltproject.org/", () => fetchHeadlines(companyProfile(ticker).query, "24h", 50), pace, 1800));
+      "https://api.gdeltproject.org/", () => fetchHeadlines(profile.query, "24h", 50), pace, 1800));
   }
-  return { facts, agency, market, dollar, company };
+  return { facts: ipe?.facts ?? null, companies, names, agency, market, dollar, company };
 }
 
 const SOURCE_NAMES: Record<string, string> = { "agenciabrasil.ebc.com.br": "Agência Brasil" };
@@ -105,6 +112,7 @@ function merge(now: string, ...lists: (Headline[] | null)[]) {
 export function contextFor(ticker: string, sources: ContextSources, now = new Date().toISOString()): ContextAssessment {
   return assessContext({
     ticker, now, facts: sources.facts,
+    company: resolveCompany(ticker, sources.names.get(ticker) ?? null, sources.companies),
     companyHeadlines: merge(now, sources.agency, sources.company.get(ticker) ?? null),
     marketHeadlines: merge(now, sources.agency, sources.market),
     dollar: sources.dollar?.map((d) => ({ observationDate: d.observationDate, value: d.value })) ?? null,
