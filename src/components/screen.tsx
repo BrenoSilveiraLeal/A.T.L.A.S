@@ -10,9 +10,9 @@ import { FundamentalsPanel } from "./fundamentals-panel";
 import { PortfolioPanel } from "./portfolio-panel";
 import { AgentConfigForm } from "./agent-config-form";
 import { PaperPanel } from "./paper-panel";
-import { AgentContextPanel, AgentFloor, AgentMarket } from "./agent-floor";
+import { AgentContextPanel, AgentFloor, AgentLevels, AgentMarket } from "./agent-floor";
 import { GenialPanel } from "./genial-panel";
-import { AgentControls, CapitalPanel } from "./controls-panel";
+import { AgentControls, CapitalPanel, RealMoneyChecklist } from "./controls-panel";
 import { statusLabel } from "./labels";
 import { parsePortfolioHistory } from "@/lib/portfolio";
 import {
@@ -639,6 +639,7 @@ export function Screen({
           {chosen && (
             <AgentContextPanel decision={records.rows.find((r) => r.agent_id === agentId)} />
           )}
+          {chosen && <AgentLevels ticker={(assets.rows.find((a) => a.id === chosen.asset_id)?.ticker as string | undefined) ?? null} />}
           {chosen && (
             <AgentMarket
               ticker={
@@ -815,6 +816,7 @@ export function Screen({
       )}
       {(section === "portfolio" || section === "overview") && <GenialPanel connected={connected} />}
       {(section === "portfolio" || section === "treasury") && <CapitalPanel connected={connected} />}
+      {(section === "overview" || section === "settings" || section === "health") && <RealMoneyChecklist connected={connected} />}
       {section === "portfolio" && (
         <PortfolioPanel
           data={history.data}

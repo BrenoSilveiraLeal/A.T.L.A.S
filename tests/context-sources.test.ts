@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseCvmMaterialFacts } from "@/providers/cvm";
 import { fetchHeadlines, gdeltUrl, parseGdeltHeadlines } from "@/providers/gdelt";
 import { fetchAgenciaBrasilHeadlines, parseAgenciaBrasilRss } from "@/providers/agencia-brasil";
+import { parseFredCsv } from "@/providers/fred";
 import { zip } from "./zip-fixture";
 
 const header = "CNPJ_Companhia;Nome_Companhia;Codigo_CVM;Data_Referencia;Categoria;Tipo;Especie;Assunto;Data_Entrega;Tipo_Apresentacao;Protocolo_Entrega;Versao;Link_Download";
@@ -78,3 +79,12 @@ describe("Agência Brasil RSS", () => {
   });
 });
 
+describe("FRED Brent", () => {
+  const lines = (...rows: string[]) => rows.join(String.fromCharCode(10));
+  it("parses the official CSV, skipping holiday markers", () => {
+    const csv = lines("observation_date,DCOILBRENTEU", "2026-10-19,118.82", "2026-10-20,.", "2026-10-21,115.22", "");
+    expect(parseFredCsv(csv, "2026-10-22")).toEqual([{ date: "2026-10-19", value: "118.82" }, { date: "2026-10-21", value: "115.22" }]);
+    expect(() => parseFredCsv("<html>", "2026-10-22")).toThrow("INVALID_RESPONSE");
+    expect(() => parseFredCsv(lines("observation_date,DCOILBRENTEU", "2026-10-30,100"), "2026-10-22")).toThrow("FUTURE_DATA");
+  });
+});

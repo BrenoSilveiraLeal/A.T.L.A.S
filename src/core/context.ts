@@ -13,11 +13,14 @@ export interface CompanyProfile {
   query: string;
   /** Lower-case, accent-free phrases that identify the company in a headline. */
   aliases: string[];
+  /** Commodity that moves this company (shown to the owner; sharp falls brake buys). */
+  commodity?: "BRENT";
 }
 
 // CVM codes verified in the 2026 IPE dataset (padded to 6 digits like the CVM provider).
 export const COMPANIES: Record<string, CompanyProfile> = {
-  PETR4: { name: "Petrobras", cvmCode: "009512", query: "petrobras", aliases: ["petrobras", "petr4"] },
+  PETR4: { name: "Petrobras", cvmCode: "009512", query: "petrobras", aliases: ["petrobras", "petr4"], commodity: "BRENT" },
+  PRIO3: { name: "PRIO", cvmCode: "022187", query: "(prio3 OR petrorio)", aliases: ["prio3", "petrorio"], commodity: "BRENT" },
   VALE3: { name: "Vale", cvmCode: "004170", query: '("mineradora vale" OR vale3 OR "vale s.a.")', aliases: ["mineradora vale", "vale3", "vale s.a", "vale sa"] },
   ITUB4: { name: "Itaú Unibanco", cvmCode: "019348", query: '(itau OR "itau unibanco" OR itub4)', aliases: ["itau", "itub4"] },
   MGLU3: { name: "Magazine Luiza", cvmCode: "022470", query: '("magazine luiza" OR magalu OR mglu3)', aliases: ["magazine luiza", "magalu", "mglu3"] },
@@ -68,6 +71,8 @@ export interface ContextReason { code: string; text: string; source: string | nu
 export interface ContextAssessment {
   version: typeof CONTEXT_VERSION;
   company: { name: string; cvmCode: string | null };
+  /** Informational commodity reading for the agent's panel. */
+  commodity: { name: string; date: string; value: string; change1d: number | null; change5d: number | null; source: string } | null;
   action: ContextAction;
   riskScore: number;
   reasons: ContextReason[];
@@ -103,6 +108,8 @@ export function assessContext(input: {
   companyHeadlines: ContextHeadline[] | null;
   marketHeadlines: ContextHeadline[] | null;
   dollar: DollarPoint[] | null;
+  /** Daily Brent (US$/bbl), oldest first; only used for oil companies. */
+  brent?: { date: string; value: string }[] | null;
 }): ContextAssessment {
   const company = input.company ?? companyProfile(input.ticker);
   const reasons: ContextReason[] = [];
@@ -161,6 +168,25 @@ export function assessContext(input: {
       raise("REDUCE", 15, { code: "DOLLAR_SHOCK", text: `Dólar ${change > 0 ? "subiu" : "caiu"} ${Math.abs(change).toFixed(1)}% em ${last.observationDate} (PTAX ${last.value}).`, source: "https://www.bcb.gov.br/estabilidadefinanceira/historicocotacoes" });
   }
 
-  return { version: CONTEXT_VERSION, company: { name: company.name, cvmCode: company.cvmCode }, action,
+  // 5. Oil (FRED Brent) for oil companies: sharp falls brake buys. Rises never start one.
+  let commodity: ContextAssessment["commodity"] = null;
+  if (company.commodity === "BRENT") {
+    const series = input.brent ? [...input.brent].sort((a, b) => a.date.localeCompare(b.date)) : [];
+    if (series.length < 2) unavailable.push("BRENT");
+    else {
+      const last = series[series.length - 1];
+      const change = (from: { value: string }) => (Number(last.value) / Number(from.value) - 1) * 100;
+      const change1d = change(series[series.length - 2]);
+      const change5d = series.length >= 6 ? change(series[series.length - 6]) : null;
+      const source = "https://fred.stlouisfed.org/series/DCOILBRENTEU";
+      commodity = { name: "Petróleo Brent (US$/barril)", date: last.date, value: last.value, change1d, change5d, source };
+      if (change5d !== null && change5d <= -10)
+        raise("BLOCK_BUY", 25, { code: "OIL_SLUMP", text: `Petróleo Brent caiu ${Math.abs(change5d).toFixed(1)}% em 5 pregões (US$ ${last.value} em ${last.date}).`, source });
+      else if (change1d <= -5)
+        raise("REDUCE", 15, { code: "OIL_DROP", text: `Petróleo Brent caiu ${Math.abs(change1d).toFixed(1)}% em ${last.date} (US$ ${last.value}).`, source });
+    }
+  }
+
+  return { version: CONTEXT_VERSION, company: { name: company.name, cvmCode: company.cvmCode }, commodity, action,
     riskScore: Math.min(100, risk), reasons, unavailable, assessedAt: input.now };
 }

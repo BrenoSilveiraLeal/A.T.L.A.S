@@ -5,6 +5,7 @@ import { fetchCvmIpe, type CvmCompany, type CvmMaterialFact } from "@/providers/
 import { fetchHeadlines, type Headline } from "@/providers/gdelt";
 import { fetchAgenciaBrasilHeadlines } from "@/providers/agencia-brasil";
 import { fetchDollar } from "@/providers/bcb";
+import { BRENT_SOURCE, fetchBrent, type CommodityPoint } from "@/providers/fred";
 import type { MacroObservation } from "@/providers/types";
 import { assessContext, MARKET_QUERY, resolveCompany, type ContextAssessment } from "@/core/context";
 
@@ -63,6 +64,7 @@ export interface ContextSources {
   companies: CvmCompany[] | null;
   /** Owner-registered company names by ticker. */
   names: Map<string, string>;
+  brent: CommodityPoint[] | null;
   /** Agência Brasil (primary, licensed for non-commercial reuse with credit). */
   agency: Headline[] | null;
   market: Headline[] | null;
@@ -77,11 +79,12 @@ export interface ContextSources {
 export async function loadContextSources(assets: readonly { ticker: string; company: string | null }[]): Promise<ContextSources> {
   const year = new Date().getUTCFullYear();
   const pace = gdeltPacer(1);
-  const [ipe, dollar, agency] = await Promise.all([
+  const [ipe, dollar, agency, brent] = await Promise.all([
     softCached("cvm-ipe", `IPE2:${year}`, 6 * 3600000, 8 * 86400000, 6,
       `https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_${year}.zip`, () => fetchCvmIpe(year)),
     softCached("bcb", "SGS:1", 3 * 3600000, 4 * 86400000, 50, "https://dadosabertos.bcb.gov.br/", fetchDollar),
     softCached("agenciabrasil", "HEADLINES", 3600000, 12 * 3600000, 200, "https://agenciabrasil.ebc.com.br/", () => fetchAgenciaBrasilHeadlines()),
+    softCached("fred", "BRENT", 6 * 3600000, 4 * 86400000, 50, BRENT_SOURCE, () => fetchBrent()),
   ]);
   // Sequential on purpose: GDELT throttles parallel requests.
   const market = await softCached("gdelt", "MARKET", 2 * 3600000, 12 * 3600000, 300, "https://api.gdeltproject.org/",
@@ -94,7 +97,7 @@ export async function loadContextSources(assets: readonly { ticker: string; comp
     company.set(ticker, await softCached("gdelt", `COMPANY:${ticker}`, 2 * 3600000, 12 * 3600000, 300,
       "https://api.gdeltproject.org/", () => fetchHeadlines(profile.query, "24h", 50), pace, 1800));
   }
-  return { facts: ipe?.facts ?? null, companies, names, agency, market, dollar, company };
+  return { facts: ipe?.facts ?? null, companies, names, agency, market, dollar, brent, company };
 }
 
 const SOURCE_NAMES: Record<string, string> = { "agenciabrasil.ebc.com.br": "Agência Brasil" };
@@ -116,6 +119,7 @@ export function contextFor(ticker: string, sources: ContextSources, now = new Da
     companyHeadlines: merge(now, sources.agency, sources.company.get(ticker) ?? null),
     marketHeadlines: merge(now, sources.agency, sources.market),
     dollar: sources.dollar?.map((d) => ({ observationDate: d.observationDate, value: d.value })) ?? null,
+    brent: sources.brent,
   });
 }
 

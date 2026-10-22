@@ -166,3 +166,35 @@ export function AgentControls({ agent, connected }: { agent: Row; connected: boo
     </section>
   );
 }
+
+type LiveForReadiness = { available: boolean; account?: { mode: string }; health?: { healthy: boolean; reason: string | null }; balance?: { balance: string } | null };
+
+/** Live checklist of what still blocks real-money trading, computed from real state. */
+export function RealMoneyChecklist({ connected }: { connected: boolean }) {
+  const [live] = useJson<LiveForReadiness>("broker-live", connected);
+  const [controls] = useJson<{ ceiling: string }>("controls", connected);
+  if (!connected) return null;
+  const items: [string, boolean | null, string][] = [
+    ["Ponte com a Genial conectada", live ? Boolean(live.available && live.health?.healthy && !live.health.reason) : null, "MetaTrader aberto e ponte rodando neste computador."],
+    ["Conta real em reais", live?.available ? live.account?.mode === "REAL" : null, "Conferido pela ponte."],
+    ["Saldo na conta do MetaTrader", live?.available && live.balance ? Number(live.balance.balance) > 0 : null, "Hoje o MetaTrader mostra R$ 0,00: deposite pelo app da Genial e, se preciso, aloque limite para a plataforma (pergunta 5)."],
+    ["Teto de dinheiro definido", controls ? Number(controls.ceiling) > 0 : null, "Defina na Carteira quanto as IAs podem usar."],
+    ["Plataforma SwingTrade confirmada", false, "Confirme no app da Genial (Plataformas e Produtos) e me avise."],
+    ["Respostas da Genial (lote, preenchimento, limite, custos, liquidação)", false, "Cole as respostas no chat com o Claude."],
+    ["Regra das IAs aprovada no backtest", false, "Nenhuma regra testada superou o CDI e o comprar e segurar ainda (docs/BACKTEST_STRATEGIES.md)."],
+    ["Primeira ordem real de validação autorizada por você", false, "Pequena, com ação, quantidade e preço escolhidos por você."],
+  ];
+  return (
+    <section className="panel">
+      <div className="section-heading"><h2>O que falta para usar dinheiro real</h2><span className="status-label warning">Ordens reais bloqueadas</span></div>
+      <div className="readiness-list">
+        {items.map(([name, ok, detail]) => (
+          <div className="readiness-item" key={name}>
+            <span className={ok ? "gate-icon ready" : "gate-icon"}>{ok ? "✓" : ok === null ? "…" : "○"}</span>
+            <div><strong>{name}</strong><small>{detail}</small></div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}

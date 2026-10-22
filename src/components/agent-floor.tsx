@@ -176,13 +176,15 @@ export function AgentMarket({ ticker }: { ticker: string | null }) {
 
 type ContextView = { action: "ALLOW" | "REDUCE" | "BLOCK_BUY" | "EXIT"; riskScore: number;
   company?: { name: string; cvmCode: string | null };
+  commodity?: { name: string; date: string; value: string; change1d: number | null; change5d: number | null; source: string } | null;
   reasons: { code: string; text: string; source: string | null }[]; unavailable: string[]; assessedAt: string };
 const CONTEXT_LABELS: Record<ContextView["action"], [string, string]> = {
   ALLOW: ["Clima normal", ""], REDUCE: ["Cautela: compras pela metade", "warning"],
   BLOCK_BUY: ["Compras bloqueadas", "warning"], EXIT: ["Sair da posição", "danger"],
 };
 const SOURCE_LABELS: Record<string, string> = { CVM_FACTS: "fatos relevantes (CVM)", COMPANY_NEWS: "notícias da empresa",
-  MARKET_NEWS: "notícias do mercado", DOLLAR: "dólar (Banco Central)" };
+  MARKET_NEWS: "notícias do mercado", DOLLAR: "dólar (Banco Central)", BRENT: "petróleo Brent (FRED)" };
+const signed = (x: number | null) => (x === null ? "—" : `${x > 0 ? "+" : ""}${x.toFixed(1)}%`);
 
 function contextOf(decision: Row | undefined): ContextView | null {
   const value = (decision?.inputs as { context?: ContextView } | undefined)?.context;
@@ -207,6 +209,8 @@ export function AgentContextPanel({ decision }: { decision: Row | undefined }) {
       <p><span className={`status-label ${CONTEXT_LABELS[context.action][1]}`}>{CONTEXT_LABELS[context.action][0]}</span> Risco de contexto: {context.riskScore}/100 · avaliado {ago(context.assessedAt)}</p>
       {context.reasons.length ? <ul className="context-reasons">{context.reasons.map((r) => <li key={r.code + r.text}>{r.text}{r.source && <> · <a href={r.source} target="_blank" rel="noopener noreferrer">fonte</a></>}</li>)}</ul>
         : <p className="muted">Nenhum fato relevante recente, manchete negativa forte, estresse de mercado ou choque do dólar.</p>}
+      {context.commodity && <p>{context.commodity.name}: <strong>US$ {context.commodity.value}</strong> em {context.commodity.date} ·
+        no dia {signed(context.commodity.change1d)} · em 5 pregões {signed(context.commodity.change5d)} · <a href={context.commodity.source} target="_blank" rel="noopener noreferrer">fonte</a></p>}
       {context.company && <p className="muted">{context.company.cvmCode
         ? `Empresa reconhecida na CVM: ${context.company.name} (código ${Number(context.company.cvmCode)}).`
         : `Empresa "${context.company.name}" não identificada na CVM: fatos relevantes não são lidos. Cadastre o ativo com o nome oficial completo (ex.: "Banco Bradesco").`}</p>}
@@ -216,3 +220,38 @@ export function AgentContextPanel({ decision }: { decision: Row | undefined }) {
   </section>;
 }
 
+
+type Levels = { available: false; reason: string; bars: number } | { available: true; bars: number; from: string; to: string; lastClose: string; eventsVerified: boolean;
+  plan: { floor: string; ceiling: string; low52w: string | null; high52w: string | null; trendAverage: string | null; trendUp: boolean } | null };
+
+/** Price references from the long official history (52-week range, recent floor/ceiling, trend). */
+export function AgentLevels({ ticker }: { ticker: string | null }) {
+  const [state, setState] = useState<{ ticker: string; levels: Levels | null; error: string } | null>(null);
+  useEffect(() => {
+    if (!ticker) return;
+    const controller = new AbortController();
+    fetch(`/api/atlas/levels?ticker=${encodeURIComponent(ticker)}`, { signal: controller.signal })
+      .then(async (r) => { const body = await r.json(); if (!r.ok) throw new Error(body.error ?? "Indisponível."); if (!controller.signal.aborted) setState({ ticker, levels: body, error: "" }); })
+      .catch((e) => !controller.signal.aborted && setState({ ticker, levels: null, error: e instanceof Error ? e.message : "Indisponível." }));
+    return () => controller.abort();
+  }, [ticker]);
+  if (!ticker) return null;
+  if (!state || state.ticker !== ticker) return <div className="loading-state" role="status">Calculando níveis de {ticker}…</div>;
+  if (state.error || !state.levels) return <div className="notice error-text">{state.error}</div>;
+  const levels = state.levels;
+  if (!levels.available || !levels.plan) return <section className="panel"><h2>Níveis de preço</h2><p className="muted">{levels.available ? "Histórico insuficiente." : levels.reason}</p></section>;
+  const plan = levels.plan, brl = (v: string | null) => (v ? formatBrl(v) : "—");
+  return (
+    <section className="panel">
+      <div className="section-heading"><h2>Níveis de preço de {ticker}</h2><span className="muted">{levels.bars} pregões oficiais · {levels.from} a {levels.to}</span></div>
+      <div className="metrics-row compact-metrics levels-row">
+        <div className="metric"><span>Último fechamento</span><strong>{brl(levels.lastClose)}</strong><small>{levels.to}</small></div>
+        <div className="metric"><span>Mínima de 52 semanas</span><strong>{brl(plan.low52w)}</strong><small>Menor preço do último ano</small></div>
+        <div className="metric"><span>Máxima de 52 semanas</span><strong>{brl(plan.high52w)}</strong><small>Maior preço do último ano</small></div>
+        <div className="metric"><span>Média de 100 dias</span><strong>{brl(plan.trendAverage)}</strong><small className={plan.trendUp ? "up" : "down"}>{plan.trendUp ? "Tendência de alta" : "Tendência de baixa"}</small></div>
+      </div>
+      <p>Faixa recente (20 pregões): piso <strong>{brl(plan.floor)}</strong> · teto <strong>{brl(plan.ceiling)}</strong>.</p>
+      <p className="muted">Preços ajustados por desdobramentos e grupamentos oficiais{levels.eventsVerified ? "" : " (eventos da B3 indisponíveis agora)"}. Referência para você acompanhar; a regra que decide as compras está descrita no relatório de backtest.</p>
+    </section>
+  );
+}

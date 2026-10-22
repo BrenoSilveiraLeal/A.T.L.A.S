@@ -9,6 +9,7 @@ import { loadPortfolioHistory } from "@/lib/portfolio";
 import { loadPaper, mutatePaper } from "@/lib/paper";
 import { readBrokerLive } from "@/lib/broker-live";
 import { loadControls, mutateControls } from "@/lib/controls";
+import { agentLevels } from "@/lib/levels";
 import {
   configureAgent,
   publishObservationStrategy,
@@ -60,6 +61,8 @@ export async function GET(request: Request, context: RouteContext) {
     if (resource === "paper") return json(await loadPaper(adminClient(), user.id));
     if (resource === "broker-live") return json(await readBrokerLive(user.id));
     if (resource === "controls") return json(await loadControls(adminClient(), user.id));
+    if (resource === "levels")
+      return json(await agentLevels(adminClient(), tickerSchema.parse(url.searchParams.get("ticker"))));
     if (resource === "accounting") {
       const { data, error } = await adminClient().rpc(
         "get_accounting_snapshot",

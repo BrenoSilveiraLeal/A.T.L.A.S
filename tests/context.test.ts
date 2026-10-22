@@ -3,7 +3,8 @@ import { assessContext, companyProfile, resolveCompany } from "@/core/context";
 
 const now = "2026-10-22T15:00:00.000Z";
 const base = { ticker: "PETR4", now, facts: [], companyHeadlines: [], marketHeadlines: [],
-  dollar: [{ observationDate: "2026-10-20", value: "5.00" }, { observationDate: "2026-10-21", value: "5.02" }] };
+  dollar: [{ observationDate: "2026-10-20", value: "5.00" }, { observationDate: "2026-10-21", value: "5.02" }],
+  brent: [{ date: "2026-10-20", value: "100.00" }, { date: "2026-10-21", value: "100.50" }] };
 const h = (title: string) => ({ title, url: `https://example.test/${encodeURIComponent(title)}`, seenAt: now });
 
 describe("rule-based market context", () => {
@@ -67,6 +68,15 @@ describe("rule-based market context", () => {
     const unknown = assessContext({ ...base, ticker: "LREN3", company: resolveCompany("LREN3", "Lojas Renner", directory),
       facts: [{ cvmCode: "008133", deliveredOn: "2026-10-22", subject: "Aquisição", url: "https://www.rad.cvm.gov.br/z" }] });
     expect(unknown).toMatchObject({ action: "BLOCK_BUY", company: { name: "Lojas Renner", cvmCode: "008133" } });
+  });
+  it("brakes oil companies on sharp Brent falls and shows the reading", () => {
+    const brent = (values: number[]) => values.map((v, i) => ({ date: `2026-10-${String(10 + i).padStart(2, "0")}`, value: v.toFixed(2) }));
+    const calm = assessContext({ ...base, brent: brent([100, 101, 100, 102, 101, 100.5]) });
+    expect(calm).toMatchObject({ action: "ALLOW", commodity: { value: "100.50", date: "2026-10-15" } });
+    expect(assessContext({ ...base, brent: brent([100, 101, 100, 102, 101, 95]) }).reasons[0].code).toBe("OIL_DROP");
+    expect(assessContext({ ...base, brent: brent([126, 126, 126, 119, 118, 112]) })).toMatchObject({ action: "BLOCK_BUY" });
+    expect(assessContext({ ...base, brent: null }).unavailable).toContain("BRENT");
+    expect(assessContext({ ...base, ticker: "ITUB4", brent: null })).toMatchObject({ commodity: null, unavailable: [] });
   });
 });
 

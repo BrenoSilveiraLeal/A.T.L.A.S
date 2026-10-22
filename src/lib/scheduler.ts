@@ -9,6 +9,7 @@ import { loadAgentObservationConfiguration } from "./agent-config";
 import { runPaperAutopilot } from "./autopilot";
 import { sendAlert } from "./alerts";
 import { contextFor, contextSummary, loadContextSources, type ContextSources } from "./context";
+import { storeBars } from "./market-bars";
 
 const jobSchema = z.object({
   job_id: z.uuid(),
@@ -64,7 +65,7 @@ export async function runScheduler() {
     macro.status === "rejected" ? "MACRO_UNAVAILABLE" : "",
   ].filter(Boolean);
   // Context is loaded once per tick, before the parallel analyses: GDELT needs paced requests.
-  let sources: ContextSources = { facts: null, companies: null, names: new Map(), agency: null, market: null, dollar: null, company: new Map() };
+  let sources: ContextSources = { facts: null, companies: null, names: new Map(), agency: null, market: null, dollar: null, brent: null, company: new Map() };
   try {
     const claimedAgents = await db.from("agents").select("asset_id").eq("owner_id", owner).in("id", jobs.map((j) => j.agent_id));
     const claimedAssets = claimedAgents.error ? null : await db.from("assets").select("ticker,company_name").eq("owner_id", owner)
@@ -103,6 +104,8 @@ export async function runScheduler() {
           readQuote(asset.data.ticker),
           readHistory(asset.data.ticker),
         ]);
+        // Grow the long history; a storage failure never blocks the analysis.
+        await storeBars(db, history).catch(() => 0);
         const newsData = news.status === "fulfilled" ? news.value : [],
           macroData = macro.status === "fulfilled" ? macro.value : [];
         const result = analyzeAsset({
