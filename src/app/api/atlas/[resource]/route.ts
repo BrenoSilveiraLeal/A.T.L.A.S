@@ -8,6 +8,7 @@ import { normalizeHealth } from "@/lib/health";
 import { loadPortfolioHistory } from "@/lib/portfolio";
 import { loadPaper, mutatePaper } from "@/lib/paper";
 import { readBrokerLive } from "@/lib/broker-live";
+import { loadControls, mutateControls } from "@/lib/controls";
 import {
   configureAgent,
   publishObservationStrategy,
@@ -58,6 +59,7 @@ export async function GET(request: Request, context: RouteContext) {
       return json({ liveEnabled: false, gates: readiness() });
     if (resource === "paper") return json(await loadPaper(adminClient(), user.id));
     if (resource === "broker-live") return json(await readBrokerLive(user.id));
+    if (resource === "controls") return json(await loadControls(adminClient(), user.id));
     if (resource === "accounting") {
       const { data, error } = await adminClient().rpc(
         "get_accounting_snapshot",
@@ -254,6 +256,7 @@ export async function POST(request: Request, context: RouteContext) {
       if (error) throw error;
       return json(data, 201);
     }
+    if (resource === "controls") return json(await mutateControls(admin, user.id, body));
     if (resource === "agent-state") {
       const input = z
         .object({ id: z.uuid(), enabled: z.boolean() })

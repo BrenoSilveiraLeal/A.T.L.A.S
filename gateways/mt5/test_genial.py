@@ -1,5 +1,6 @@
 """Genial profile, halt latch and read-only probe. Offline fixtures only; no MetaTrader5 import."""
 import json
+from datetime import datetime, timezone
 import os
 import tempfile
 import unittest
@@ -171,6 +172,19 @@ class GenialProfileTests(unittest.TestCase):
             return True
         self.api.symbol_select = select
         self.assertEqual("25.5", self.rpc("quote", {"symbol": "TEST3"})["last"])
+
+    def test_balance_is_reported_as_unsettled_terminal_figures(self):
+        self.api.account.equity = 1000.5
+        result = self.rpc("balance")
+        self.assertEqual(("999999", "1000.5", "999999", False), (result["balance"], result["equity"], result["marginFree"], result["settled"]))
+        self.api.account.balance = -1
+        self.fails("UNREPRESENTABLE_AMOUNT", lambda: self.rpc("balance"))
+
+    def test_server_local_times_are_converted_to_utc(self):
+        self.gateway.config = replace(self.config, server_utc_offset_minutes=-180)
+        self.api.tick.time_msc = int(datetime(2026, 10, 22, 14, 50, tzinfo=timezone.utc).timestamp() * 1000)  # 14:50 Brasília as server time
+        self.assertEqual("2026-10-22T17:50:00.000Z", self.rpc("quote", {"symbol": "TEST3"})["quotedAt"])
+        self.fails("INVALID_CONFIGURATION", replace(self.config, server_utc_offset_minutes=900).validate)
 
     def test_quote_without_tick_is_explicit(self):
         self.api.tick.time_msc = 0

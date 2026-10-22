@@ -13,7 +13,7 @@ import os
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -136,6 +136,9 @@ class Config:
     provider_id: str = "MT5"
     profile: str = "GENERIC"
     halt_file: Path | None = None
+    # MT5 stamps ticks, orders and deals in the trade server's local time encoded as if it
+    # were UTC. Genial's server runs on Brasília time (-180). Converted to real UTC here.
+    server_utc_offset_minutes: int = 0
 
     @property
     def genial(self) -> bool:
@@ -153,6 +156,8 @@ class Config:
             raise GatewayError("INVALID_CONFIGURATION")
         if self.genial and self.mode != "REAL":
             raise GatewayError("GENIAL_HAS_NO_OFFICIAL_DEMO")
+        if not isinstance(self.server_utc_offset_minutes, int) or not -720 <= self.server_utc_offset_minutes <= 840:
+            raise GatewayError("INVALID_CONFIGURATION")
         if self.genial and self.halt_file is None:
             raise GatewayError("HALT_FILE_REQUIRED")
         for symbol, spec in self.instruments.items():
@@ -180,6 +185,7 @@ class Config:
                 port=int(os.environ.get("ATLAS_MT5_PORT", "8785")),
                 provider_id=os.environ.get("ATLAS_MT5_PROVIDER_ID", PROFILE_PROVIDER.get(profile, "MT5")),
                 profile=profile, halt_file=Path(halt) if halt else None,
+                server_utc_offset_minutes=int(os.environ.get("ATLAS_MT5_SERVER_UTC_OFFSET_MINUTES", "0")),
             )
         except (KeyError, ValueError, OSError, TypeError):
             raise GatewayError("MISSING_OR_INVALID_CONFIGURATION") from None
@@ -334,6 +340,12 @@ class Gateway:
             raise GatewayError("INVALID_PRICE_TICK")
         return float(value)
 
+    def _utc_ms(self, server_ms: int) -> int:
+        return server_ms - self.config.server_utc_offset_minutes * 60_000
+
+    def _server_time(self, utc: datetime) -> datetime:
+        return utc + timedelta(minutes=self.config.server_utc_offset_minutes)
+
     def halted(self) -> str | None:
         path = self.config.halt_file
         if path is None or not path.exists():
@@ -387,6 +399,12 @@ class Gateway:
             if method == "positions":
                 return self.positions()
             return [self._order(item) for item in self._call("orders_get")]
+        if method == "balance":
+            object_with(params, set())
+            # Terminal figures for display only: not proof of settled, withdrawable cash.
+            info = self._identity()
+            return {"balance": amount(get(info, "balance")), "equity": amount(get(info, "equity")),
+                    "marginFree": amount(get(info, "margin_free")), "settled": False, "observedAt": now()}
         if method == "quote":
             object_with(params, {"symbol"})
             return self.quote(identifier(params["symbol"]))
@@ -417,7 +435,7 @@ class Gateway:
             tick = self._call("symbol_info_tick", symbol)
         if not get(tick, "time_msc"):
             raise GatewayError("NO_LIVE_TICK_YET", 503)  # Freshly selected symbol; retry later.
-        stamp = integer(get(tick, "time_msc"), positive=True)
+        stamp = self._utc_ms(integer(get(tick, "time_msc"), positive=True))
         side = lambda value: amount(value, positive=True) if decimal(value) > 0 else None
         return {"symbol": symbol, "bid": side(get(tick, "bid")), "ask": side(get(tick, "ask")),
                 "last": side(get(tick, "last")),
@@ -499,7 +517,7 @@ class Gateway:
         if entry["state"] == "REJECTED":
             return None
         start = datetime.fromisoformat(entry["created_at"].replace("Z", "+00:00"))
-        rows = list(self._call("orders_get")) + list(self._call("history_orders_get", start, datetime.now(UTC)))
+        rows = list(self._call("orders_get")) + list(self._call("history_orders_get", self._server_time(start), self._server_time(datetime.now(UTC))))
         matches = {get(row, "ticket"): row for row in rows if get(row, "magic") == MAGIC and get(row, "comment") == entry["marker"]}
         if len(matches) != 1:
             raise GatewayError("AMBIGUOUS_DISPATCH_DO_NOT_RETRY")
@@ -534,7 +552,7 @@ class Gateway:
             if end > until or stamp > end:
                 raise GatewayError("INVALID_EXECUTION_CURSOR", 400)
             until, after = end, (stamp, deal_ticket)
-        rows = self._call("history_deals_get", datetime(1970, 1, 1, tzinfo=UTC), datetime.fromtimestamp(until / 1000, UTC))
+        rows = self._call("history_deals_get", datetime(1970, 1, 1, tzinfo=UTC), self._server_time(datetime.fromtimestamp(until / 1000, UTC)))
         if len(rows) > 100_000:
             raise GatewayError("HISTORY_TOO_LARGE_FOR_COMPLETE_SNAPSHOT")
         entries = []
@@ -544,7 +562,7 @@ class Gateway:
                 raise GatewayError("EXECUTION_CORRECTION_REQUIRES_RECONCILIATION")
             if kind not in (self.api.DEAL_TYPE_BUY, self.api.DEAL_TYPE_SELL):
                 continue  # Cash/commission/dividend entries require a separate cash ledger.
-            key = (integer(get(row, "time_msc")), int(get(row, "ticket")))
+            key = (self._utc_ms(integer(get(row, "time_msc"))), int(get(row, "ticket")))
             if not after < key or key[0] > until:
                 continue
             entries.append((key, row))

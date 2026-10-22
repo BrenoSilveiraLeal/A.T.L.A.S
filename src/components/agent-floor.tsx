@@ -5,6 +5,7 @@ import { ArrowRight, Skull, Zap } from "lucide-react";
 import { formatBrl } from "@/core/format";
 import { statusLabel } from "./labels";
 import { CandleChart } from "./candle-chart";
+import { FleetAutopilot } from "./controls-panel";
 import type { HistoricalBar } from "@/providers/types";
 
 type Row = Record<string, unknown>;
@@ -57,7 +58,8 @@ function Character({ avatar, status, trend }: { avatar: string; status: string; 
 }
 
 export function AgentFloor({ connected, revision }: { connected: boolean; revision: number }) {
-  const floor = useFloor(connected, revision);
+  const [local, setLocal] = useState(0);
+  const floor = useFloor(connected, revision + local);
   if (!connected) return null;
   if (floor.loading) return <div className="loading-state" role="status">Abrindo o escritório…</div>;
   if (floor.error) return <div className="notice error-text" role="alert">{floor.error}</div>;
@@ -84,6 +86,7 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
         <div><span>Piloto automático</span><strong className={account?.autopilot ? "up" : ""}>{account?.autopilot ? "Ligado" : "Desligado"}</strong>
           <small>{account ? `Morte ao perder ${text(account.agent_max_loss_pct)}% do orçamento` : "Simulação não criada"}</small></div>
       </div>
+      <FleetAutopilot agents={agents} onChange={() => setLocal((n) => n + 1)} />
       <section className="panel ranking-panel">
         <div className="section-heading"><h2>Ranking da equipe</h2><span className="muted">Simulação</span></div>
         <div className="table-scroll"><table>
@@ -136,6 +139,7 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
                 <div><dt>Orçamento</dt><dd>{formatBrl(agent.budget)}</dd></div>
                 <div><dt>Resultado virtual</dt><dd className={pnl == null ? "" : pnl > 0 ? "up" : pnl < 0 ? "down" : ""}>{pnl == null ? "—" : formatBrl(pnl.toFixed(2))}</dd></div>
               </dl>
+              {agent.autopilot === false && !dead && <p className="station-context"><span className="status-label warning">Piloto desligado</span> Só você decide por esta IA.</p>}
               <ContextChip decision={decision} />
               <p className="station-decision">
                 {decision ? <><Zap size={12} /> <strong title={text(decision.decision)}>{statusLabel(text(decision.decision))}</strong> · {ago(decision.created_at)}</> : "Ainda sem análise registrada"}

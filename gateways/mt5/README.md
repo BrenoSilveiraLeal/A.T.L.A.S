@@ -38,6 +38,7 @@ python -m venv .venv-mt5
 | `ATLAS_MT5_PROVIDER_ID` | `MT5` por padrão; idêntico a `ATLAS_GATEWAY_PROVIDER_ID` |
 | `ATLAS_MT5_BROKER_PROFILE` | `GENERIC` por padrão; `GENIAL_SWING` ou `GENIAL_DAY_TRADE` ativam regras da Genial ([integração Genial](../../docs/research/GENIAL_MT5_INTEGRATION.md)) |
 | `ATLAS_MT5_HALT_FILE` | Trava local; obrigatória nos perfis Genial. Liga sozinha em inconsistência e só o proprietário a remove |
+| `ATLAS_MT5_SERVER_UTC_OFFSET_MINUTES` | Fuso do servidor MT5 em minutos (Genial: `-180`, horário de Brasília). O MT5 registra ticks, ordens e negócios no horário local do servidor como se fosse UTC; a ponte converte para UTC real |
 
 Antes de iniciar a ponte, valide a conexão **somente leitura** com `probe.py` (nunca envia nem verifica ordens):
 

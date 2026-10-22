@@ -23,6 +23,8 @@ export async function readBrokerLive(ownerId: string) {
   const assets = await adminClient().from("assets").select("ticker").eq("owner_id", ownerId).eq("active", true);
   const tickers = assets.error ? [] : assets.data.map((a) => a.ticker as string);
   const [account, health, positions, orders] = await Promise.all([gateway.getAccount(), gateway.healthCheck(), gateway.getPositions(), gateway.getOrders()]);
+  // Older bridges lack "balance"; the rest of the view still works.
+  const balance = await gateway.getBalance().catch(() => null);
   const quotes = [];
   for (const symbol of tickers) {
     try { quotes.push({ ...(await gateway.getQuote(symbol)), error: null }); }
@@ -33,6 +35,6 @@ export async function readBrokerLive(ownerId: string) {
     account: { ...account, accountId: `****${account.accountId.slice(-3)}` },
     provider: gateway.capabilities.providerId,
     executionEnabled: false,
-    health, positions, orders, quotes, observedAt: new Date().toISOString(),
+    health, balance, positions, orders, quotes, observedAt: new Date().toISOString(),
   };
 }

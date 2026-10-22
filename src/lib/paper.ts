@@ -14,6 +14,8 @@ const inputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("settle"), assetId: z.uuid() }),
   z.object({ action: z.literal("cancel"), orderId: z.uuid() }),
   z.object({ action: z.literal("pause"), paused: z.boolean() }),
+  // One-click owner order: priced from the latest quote and approved through the same risk review.
+  z.object({ action: z.literal("manual"), agentId: z.uuid(), side: z.enum(["BUY", "SELL"]), quantity: z.number().int().min(1).max(1000000).optional(), idempotencyKey: z.uuid() }),
   z.object({ action: z.literal("autopilot"), enabled: z.boolean(), agentMaxLossPct: z.string().regex(/^\d{1,3}(?:\.\d{1,2})?$/) }),
 ]);
 
@@ -91,6 +93,7 @@ export async function mutatePaper(db: SupabaseClient, ownerId: string, raw: unkn
       p_idempotency_key: input.idempotencyKey,
     }));
   }
+  if (input.action === "manual") return manualOrder(db, ownerId, input);
   if (input.action === "review") return checked(await db.rpc("paper_review_proposal", {
     p_owner_id: ownerId, p_proposal_id: input.proposalId, p_approve: input.approve,
   }));
@@ -115,3 +118,36 @@ export async function mutatePaper(db: SupabaseClient, ownerId: string, raw: unkn
     p_quote_timestamp: quote.dataTimestamp,
   }));
 }
+
+/**
+ * Owner's manual virtual order for one agent: limit = latest quote ± 0.25% (to the tick);
+ * a SELL without quantity closes the agent's whole position. The owner's click is the
+ * approval, but the paper risk review still decides.
+ */
+async function manualOrder(db: SupabaseClient, ownerId: string,
+  input: { agentId: string; side: "BUY" | "SELL"; quantity?: number; idempotencyKey: string }) {
+  const agent = z.object({ asset_id: z.uuid(), enabled: z.boolean() }).parse(
+    checked(await db.from("agents").select("asset_id,enabled").eq("owner_id", ownerId).eq("id", input.agentId).single()));
+  const asset = z.object({ ticker: z.string().regex(/^[A-Z0-9]{3,12}$/), tick_size: z.coerce.number() }).parse(
+    checked(await db.from("assets").select("ticker,tick_size").eq("owner_id", ownerId).eq("id", agent.asset_id).single()));
+  let quantity = input.quantity;
+  if (input.side === "SELL" && !quantity) {
+    const held = await db.from("paper_positions").select("quantity").eq("owner_id", ownerId).eq("agent_id", input.agentId).eq("asset_id", agent.asset_id).maybeSingle();
+    quantity = held.data?.quantity ?? 0;
+    if (!quantity) throw new ApiError(409, "NO_POSITION", "Este agente não tem ações virtuais para vender.");
+  }
+  if (!quantity) throw new ApiError(400, "QUANTITY_REQUIRED", "Informe a quantidade de ações.");
+  const [quote, history] = await Promise.all([readQuote(asset.ticker), readHistory(asset.ticker)]);
+  const reference = Number(paperReferencePrice(quote.price));
+  const ticks = (reference * (input.side === "BUY" ? 1.0025 : 0.9975)) / asset.tick_size;
+  const limit = ((input.side === "BUY" ? Math.ceil(ticks) : Math.floor(ticks)) * asset.tick_size).toFixed(2);
+  const proposal = z.object({ id: z.uuid() }).loose().parse(checked(await db.rpc("paper_create_proposal", {
+    p_owner_id: ownerId, p_agent_id: input.agentId, p_side: input.side, p_quantity: quantity, p_limit_price: limit,
+    p_reference_price: reference.toFixed(2), p_quote_source: quote.source, p_quote_timestamp: quote.dataTimestamp,
+    p_history_source: history.source, p_history_retrieved_at: history.retrievedAt, p_strategy_version: "owner-manual/1.0.0",
+    p_reasoning: `${asset.ticker}: ordem manual do proprietário (${input.side === "BUY" ? "compra" : "venda"} de ${quantity} a até R$ ${limit}). Simulação.`,
+    p_indicators: {}, p_idempotency_key: input.idempotencyKey,
+  })));
+  return checked(await db.rpc("paper_review_proposal", { p_owner_id: ownerId, p_proposal_id: proposal.id, p_approve: true }));
+}
+

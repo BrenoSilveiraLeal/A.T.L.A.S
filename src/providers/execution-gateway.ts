@@ -127,6 +127,10 @@ export class HttpExecutionGateway implements BrokerProvider {
     if (result.brokerOrderId !== brokerOrderId) throw new GatewayError("GATEWAY_ORDER_MISMATCH");
     return result;
   }
+  /** Terminal balance/equity/free margin for display; never treated as settled cash. */
+  getBalance() {
+    return this.call("balance", {}, z.object({ balance: amount, equity: amount, marginFree: amount, settled: z.literal(false), observedAt: at }).strict());
+  }
   /** Live top of book from the broker terminal; null sides mean no offer. */
   async getQuote(symbol: string) {
     const value = await this.call("quote", { symbol: id.parse(symbol) }, z.object({

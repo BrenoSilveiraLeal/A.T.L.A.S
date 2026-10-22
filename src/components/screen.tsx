@@ -12,6 +12,7 @@ import { AgentConfigForm } from "./agent-config-form";
 import { PaperPanel } from "./paper-panel";
 import { AgentContextPanel, AgentFloor, AgentMarket } from "./agent-floor";
 import { GenialPanel } from "./genial-panel";
+import { AgentControls, CapitalPanel } from "./controls-panel";
 import { statusLabel } from "./labels";
 import { parsePortfolioHistory } from "@/lib/portfolio";
 import {
@@ -634,6 +635,7 @@ export function Screen({
               <p>Selecione um agente cadastrado na equipe.</p>
             </Empty>
           )}
+          {chosen && <AgentControls key={String(chosen.id)} agent={chosen} connected={connected} />}
           {chosen && (
             <AgentContextPanel decision={records.rows.find((r) => r.agent_id === agentId)} />
           )}
@@ -812,6 +814,7 @@ export function Screen({
         </>
       )}
       {(section === "portfolio" || section === "overview") && <GenialPanel connected={connected} />}
+      {(section === "portfolio" || section === "treasury") && <CapitalPanel connected={connected} />}
       {section === "portfolio" && (
         <PortfolioPanel
           data={history.data}

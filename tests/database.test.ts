@@ -288,6 +288,40 @@ describe("paper trading isolated virtual book", () => {
   });
 });
 
+describe("owner controls: agent autopilot, capital ceiling and withdrawals", () => {
+  it("switches one agent's autopilot with an audit trail", async () => {
+    const a = await agent("Switch fixture");
+    const off = await db.query<{ autopilot: boolean }>("select autopilot from public.set_agent_autopilot($1,$2,false)", [owner, a.id]);
+    expect(off.rows[0].autopilot).toBe(false);
+    const audit = await db.query("select 1 from public.audit_logs where owner_id=$1 and action='AGENT_AUTOPILOT_CHANGED'", [owner]);
+    expect(audit.rows).toHaveLength(1);
+    await rejected("select public.set_agent_autopilot($1,$2,true)", [owner, "00000000-0000-4000-8000-000000000999"], "ATLAS_AGENT_NOT_FOUND");
+  });
+
+  it("keeps a validated ceiling and walks withdrawals through allowed states only", async () => {
+    await db.query("select public.set_capital_ceiling($1,500)", [owner]);
+    await db.query("select public.set_capital_ceiling($1,750.50)", [owner]);
+    const plan = await db.query<{ ceiling: string }>("select ceiling from public.capital_plans where owner_id=$1", [owner]);
+    expect(Number(plan.rows[0].ceiling)).toBe(750.5);
+    await rejected("select public.set_capital_ceiling($1,-1)", [owner], "ATLAS_INVALID_CAPITAL");
+    const request = (await db.query<{ id: string; status: string }>("select id,status from public.request_withdrawal($1,200,'para o banco')", [owner])).rows[0];
+    expect(request.status).toBe("PREPARING");
+    await rejected("select public.update_withdrawal($1,$2,'DONE')", [owner, request.id], "ATLAS_INVALID_WITHDRAWAL_TRANSITION");
+    await db.query("select public.update_withdrawal($1,$2,'READY')", [owner, request.id]);
+    const done = await db.query<{ status: string; closed_at: string | null }>("select status,closed_at from public.update_withdrawal($1,$2,'DONE')", [owner, request.id]);
+    expect(done.rows[0].status).toBe("DONE");
+    expect(done.rows[0].closed_at).not.toBeNull();
+    await rejected("select public.update_withdrawal($1,$2,'CANCELLED')", [owner, request.id], "ATLAS_INVALID_WITHDRAWAL_TRANSITION");
+    await rejected("select public.request_withdrawal($1,0,null)", [owner], "ATLAS_INVALID_WITHDRAWAL");
+  });
+
+  it("denies direct access to other roles", async () => {
+    await db.exec("set local role anon");
+    await rejected("select public.set_capital_ceiling($1,1)", [owner], "permission denied");
+    await rejected("select * from public.withdrawal_requests", [], "permission denied");
+  });
+});
+
 describe("paper corporate actions from official B3 events", () => {
   const recent = () => new Date(Date.now() - 60000).toISOString();
   // Holds 10 virtual shares bought 10 days ago (fills are immutable; the trigger is paused only inside this rolled-back test).

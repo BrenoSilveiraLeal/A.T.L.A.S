@@ -57,6 +57,9 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
       p_source: quote.source, p_quote_timestamp: quote.dataTimestamp })));
   if (vitals.eliminated) return { filled, corporateActions: events.applied, status: "ELIMINATED" as const, lifePct: vitals.lifePct };
   if (!account.autopilot || account.paused) return { filled, corporateActions: events.applied, status: "MARKED" as const, lifePct: vitals.lifePct };
+  // The owner can switch the autopilot off for one agent; it is still marked and settled.
+  const agentSwitch = maybe(await db.from("agents").select("autopilot").eq("owner_id", owner).eq("id", agentId).maybeSingle()) as { autopilot?: boolean } | null;
+  if (agentSwitch && agentSwitch.autopilot === false) return { filled, corporateActions: events.applied, status: "AGENT_AUTOPILOT_OFF" as const, lifePct: vitals.lifePct };
   // New orders only inside the B3 safe window; outside it the agent is still marked and settled.
   const session = b3Session(new Date());
   if (session.status !== "OPEN") return { filled, corporateActions: events.applied, status: "MARKET_CLOSED" as const, reason: session.reason, lifePct: vitals.lifePct };
