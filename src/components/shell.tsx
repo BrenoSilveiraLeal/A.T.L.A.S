@@ -19,11 +19,13 @@ import {
   ArrowUpRight,
   X,
   LogOut,
+  Tv,
 } from "lucide-react";
 
 const navigation = [
   { path: "/app", label: "Visão geral", icon: LayoutDashboard },
   { path: "/app/office", label: "Trading floor", icon: Building2 },
+  { path: "/tv", label: "Modo TV (transmitir)", icon: Tv },
   { path: "/app/agents", label: "Agentes", icon: Users },
   { path: "/app/portfolio", label: "Carteira", icon: Wallet },
   { path: "/app/market", label: "Mercado", icon: ChartCandlestick },

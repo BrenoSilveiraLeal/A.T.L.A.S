@@ -16,6 +16,13 @@ describe("IA gestora", () => {
     expect(result.measured).toBe(true);
   });
 
+  it("never cuts a losing agent below 25% of its life", () => {
+    const result = suggestAllocation([agent("A", "PETR4", 5000, 5), agent("B", "VALE3", -1400, 5)], 3, 20);
+    // 1400 loss needs at least 1400 / 0.2 / 0.75 = 9333.33 -> 9400.
+    expect(result.rows[1].suggested).toBe(9400);
+    expect(result.rows[0].suggested + result.rows[1].suggested).toBeLessThanOrEqual(result.pool);
+  });
+
   it("keeps equal weights until agents have enough closed sales", () => {
     const result = suggestAllocation([agent("A", "PETR4", 5000, 1), agent("B", "VALE3", -5000, 2)]);
     expect(result.rows.map((r) => r.suggested)).toEqual([10000, 10000]);

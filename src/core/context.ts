@@ -85,11 +85,11 @@ const words = (list: string[]) => new RegExp(`\\b(${list.map(normalize).join("|"
 
 const SEVERE_FACT = words(["recuperacao judicial", "falencia", "fraude", "investigacao", "inadimplemento",
   "vencimento antecipado", "acidente", "rompimento", "operacao da policia federal"]);
-const NEGATIVE = words(["queda", "cai", "caem", "despenca", "desaba", "recua", "tomba", "prejuizo", "perda", "multa",
+const NEGATIVE = words(["queda", "cai", "caem", "caiu", "cairam", "recuou", "despencou", "desabou", "tombou", "despenca", "desaba", "recua", "tomba", "prejuizo", "perda", "multa",
   "processo", "investigacao", "greve", "acidente", "vazamento", "rebaixa", "rebaixamento", "demissao", "crise", "fraude",
   "escandalo", "interferencia", "falls", "drops", "plunges", "slumps", "loss", "fine", "lawsuit", "probe", "strike",
   "downgrade", "crisis", "scandal"]);
-const POSITIVE = words(["alta", "sobe", "sobem", "dispara", "salta", "recorde", "lucro", "dividendo", "dividendos",
+const POSITIVE = words(["alta", "sobe", "sobem", "subiu", "subiram", "avanca", "avancou", "disparou", "saltou", "dispara", "salta", "recorde", "lucro", "dividendo", "dividendos",
   "recompra", "eleva", "upgrade", "aprova", "rises", "gains", "jumps", "soars", "record", "profit", "dividend", "buyback"]);
 const SEVERE_NEWS = words(["fraude", "falencia", "recuperacao judicial", "policia federal", "explosao", "vazamento de oleo",
   "rompimento", "desastre", "tragedia", "fraud", "bankruptcy", "explosion", "oil spill", "dam collapse"]);

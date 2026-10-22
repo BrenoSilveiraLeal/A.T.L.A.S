@@ -4,6 +4,8 @@ import { required } from "./env";
 import { fetchCvmIpe, type CvmCompany, type CvmMaterialFact } from "@/providers/cvm";
 import { fetchHeadlines, type Headline } from "@/providers/gdelt";
 import { fetchAgenciaBrasilHeadlines } from "@/providers/agencia-brasil";
+import { fetchBcbNews } from "@/providers/bcb-news";
+import { enabledMarketFeeds, fetchRss } from "@/providers/rss";
 import { fetchDollar } from "@/providers/bcb";
 import { BRENT_SOURCE, fetchBrent, type CommodityPoint } from "@/providers/fred";
 import type { MacroObservation } from "@/providers/types";
@@ -77,6 +79,8 @@ export interface ContextSources {
   brent: CommodityPoint[] | null;
   /** Agência Brasil (primary, licensed for non-commercial reuse with credit). */
   agency: Headline[] | null;
+  /** Banco Central news and market RSS (InfoMoney; Money Times only if enabled). */
+  extra: Headline[] | null;
   market: Headline[] | null;
   dollar: MacroObservation[] | null;
   company: Map<string, Headline[] | null>;
@@ -96,6 +100,7 @@ export async function loadContextSources(assets: readonly { ticker: string; comp
     softCached("agenciabrasil", "HEADLINES", 3600000, 12 * 3600000, 200, "https://agenciabrasil.ebc.com.br/", () => fetchAgenciaBrasilHeadlines()),
     softCached("fred", "BRENT", 6 * 3600000, 4 * 86400000, 50, BRENT_SOURCE, () => fetchBrent()),
   ]);
+  const extra = await loadExtraHeadlines();
   // Sequential on purpose: GDELT throttles parallel requests.
   const market = await softCached("gdelt", "MARKET", 2 * 3600000, 12 * 3600000, 300, "https://api.gdeltproject.org/",
     () => fetchHeadlines(MARKET_QUERY, "24h", 75), pace, 1800);
@@ -107,10 +112,21 @@ export async function loadContextSources(assets: readonly { ticker: string; comp
     company.set(ticker, await softCached("gdelt", `COMPANY:${ticker}`, 2 * 3600000, 12 * 3600000, 300,
       "https://api.gdeltproject.org/", () => fetchHeadlines(profile.query, "24h", 50), pace, 1800));
   }
-  return { facts: ipe?.facts ?? null, companies, names, agency, market, dollar, brent, company };
+  return { facts: ipe?.facts ?? null, companies, names, agency, extra, market, dollar, brent, company };
 }
 
-const SOURCE_NAMES: Record<string, string> = { "agenciabrasil.ebc.com.br": "Agência Brasil" };
+export const SOURCE_NAMES: Record<string, string> = { "agenciabrasil.ebc.com.br": "Agência Brasil", "bcb.gov.br": "Banco Central",
+  "infomoney.com.br": "InfoMoney", "moneytimes.com.br": "Money Times" };
+
+/** Banco Central and market RSS headlines (hourly cache); null only if every source failed. */
+export async function loadExtraHeadlines() {
+  const lists = await Promise.all([
+    softCached("bcb", "NEWS", 3600000, 3 * 86400000, 50, "https://www.bcb.gov.br/", () => fetchBcbNews()),
+    ...enabledMarketFeeds().map((feed) => softCached(feed.provider, "FEED", 1800000, 12 * 3600000, 100, feed.origin, () => fetchRss(feed))),
+  ]);
+  const available = lists.filter((l): l is Headline[] => l !== null);
+  return available.length ? available.flat() : null;
+}
 
 /** Merges available headline sources, last 24 h only; null only when every source failed. */
 function merge(now: string, ...lists: (Headline[] | null)[]) {
@@ -126,8 +142,8 @@ export function contextFor(ticker: string, sources: ContextSources, now = new Da
   return assessContext({
     ticker, now, facts: sources.facts,
     company: resolveCompany(ticker, sources.names.get(ticker) ?? null, sources.companies),
-    companyHeadlines: merge(now, sources.agency, sources.company.get(ticker) ?? null),
-    marketHeadlines: merge(now, sources.agency, sources.market),
+    companyHeadlines: merge(now, sources.agency, sources.extra, sources.company.get(ticker) ?? null),
+    marketHeadlines: merge(now, sources.agency, sources.extra, sources.market),
     dollar: sources.dollar?.map((d) => ({ observationDate: d.observationDate, value: d.value })) ?? null,
     brent: sources.brent,
   });

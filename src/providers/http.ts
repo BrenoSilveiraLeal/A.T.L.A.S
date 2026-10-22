@@ -22,6 +22,8 @@ const ORIGINS: Record<ProviderName, string> = {
   agenciabrasil: "https://agenciabrasil.ebc.com.br",
   b3: "https://sistemaswebb3-listados.b3.com.br",
   fred: "https://fred.stlouisfed.org",
+  infomoney: "https://www.infomoney.com.br",
+  moneytimes: "https://www.moneytimes.com.br",
 };
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);

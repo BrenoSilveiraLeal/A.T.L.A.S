@@ -315,9 +315,27 @@ describe("owner controls: agent autopilot, capital ceiling and withdrawals", () 
     await rejected("select public.request_withdrawal($1,0,null)", [owner], "ATLAS_INVALID_WITHDRAWAL");
   });
 
+  it("applies the manager's budgets without creating money or killing an agent", async () => {
+    const [a, b] = [await agent("Gestora A"), await agent("Gestora B")];
+    const set = (items: { agentId: string; budget: string }[]) => JSON.stringify(items);
+    const changed = await db.query<{ n: number }>("select public.set_agent_budgets($1,$2::jsonb) as n",
+      [owner, set([{ agentId: a.id, budget: "150.00" }, { agentId: b.id, budget: "100.20" }])]);
+    expect(changed.rows[0].n).toBe(2);
+    await rejected("select public.set_agent_budgets($1,$2::jsonb)", [owner, set([{ agentId: a.id, budget: "200.00" }])], "ATLAS_BUDGETS_EXCEED_TEAM_TOTAL");
+    await rejected("select public.set_agent_budgets($1,$2::jsonb)", [owner, set([{ agentId: a.id, budget: "-1" }])], "ATLAS_INVALID_BUDGETS");
+    await admin();
+    await db.query(`insert into public.paper_agent_vitals(owner_id,agent_id,budget,realized_pnl,unrealized_pnl,mark_price,mark_source,mark_timestamp,life_pct)
+      values($1,$2,100.20,-15,0,10,'https://brapi.dev',now(),25)`, [owner, b.id]);
+    await service();
+    await rejected("select public.set_agent_budgets($1,$2::jsonb)", [owner, set([{ agentId: b.id, budget: "50.00" }])], "ATLAS_BUDGET_WOULD_KILL_AGENT");
+    const audit = await db.query("select 1 from public.audit_logs where owner_id=$1 and action='AGENT_BUDGET_CHANGED'", [owner]);
+    expect(audit.rows).toHaveLength(2);
+  });
+
   it("denies direct access to other roles", async () => {
     await db.exec("set local role anon");
     await rejected("select public.set_capital_ceiling($1,1)", [owner], "permission denied");
+    await rejected("select public.set_agent_budgets($1,'[]'::jsonb)", [owner], "permission denied");
     await rejected("select * from public.withdrawal_requests", [], "permission denied");
   });
 });

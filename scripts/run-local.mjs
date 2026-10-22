@@ -43,6 +43,29 @@ export async function tickLocalScheduler(secret, signal, transport = fetch) {
   } catch { return { status: signal.aborted ? "STOPPED" : "UNAVAILABLE" }; }
 }
 
+// One headline per call; the local model may take minutes on a CPU. Never logs titles.
+export async function tickNewsAi(secret, signal, transport = fetch) {
+  try {
+    const response = await transport("http://127.0.0.1:3000/api/news-ai", {
+      method: "POST", headers: { authorization: `Bearer ${secret}` },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(240000)]), redirect: "error",
+    });
+    if (!response.ok) return { status: "HTTP_ERROR", httpStatus: response.status };
+    const result = await response.json();
+    return ["DISABLED", "IDLE", "READ"].includes(result?.status) ? { status: result.status } : { status: "INVALID_RESPONSE" };
+  } catch { return { status: signal.aborted ? "STOPPED" : "UNAVAILABLE" }; }
+}
+
+async function newsAiLoop(secret, signal) {
+  while (!signal.aborted) {
+    const result = await tickNewsAi(secret, signal);
+    if (signal.aborted || result.status === "DISABLED") return;
+    if (result.status === "READ") console.log(JSON.stringify({ component: "news-ai", status: "READ" }));
+    const wait = result.status === "READ" ? 5000 : result.status === "IDLE" ? 60000 : 120000;
+    await delay(wait, undefined, { signal }).catch(() => {});
+  }
+}
+
 async function requireAvailablePort() {
   await new Promise((resolvePort, reject) => {
     const probe = createServer();
@@ -98,6 +121,7 @@ export async function runLocal() {
       });
     });
     console.log("ATLAS disponível em http://127.0.0.1:3000. Análises locais a cada 60 segundos; Ctrl+C encerra o programa.");
+    if (env.ATLAS_NEWS_AI) { console.log(`Leitura de notícias por IA ligada (${env.ATLAS_NEWS_AI}).`); void newsAiLoop(env.CRON_SECRET, controller.signal); }
     while (!controller.signal.aborted) {
       const started = Date.now();
       const result = await tickLocalScheduler(env.CRON_SECRET, controller.signal);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { tickLocalScheduler, validateLocalConfiguration } from "../scripts/run-local.mjs";
+import { tickLocalScheduler, tickNewsAi, validateLocalConfiguration } from "../scripts/run-local.mjs";
 
 const configured = { ATLAS_APP_URL: "http://127.0.0.1:3000", LIVE_TRADING_ENABLED: "false", SESSION_COOKIE_SECURE: "false", CRON_SECRET: "x".repeat(40), SUPABASE_URL: "configured", SUPABASE_PUBLISHABLE_KEY: "configured", SUPABASE_SERVICE_ROLE_KEY: "configured", ATLAS_OWNER_ID: "configured" };
 describe("local scheduler boundaries", () => {
@@ -25,5 +25,11 @@ describe("local scheduler boundaries", () => {
     const controller = new AbortController(); controller.abort();
     expect(await tickLocalScheduler("secret", controller.signal, vi.fn().mockRejectedValue(new Error("aborted")))).toEqual({ status: "STOPPED" });
     expect(await tickLocalScheduler("secret", new AbortController().signal, vi.fn().mockResolvedValue(new Response(JSON.stringify({ skipped: "RECENT_TICK", jobs: [] }))))).toEqual({ status: "RECENT_TICK", completed: 0, failed: 0 });
+  });
+  it("asks the local AI worker for one headline and returns only its status", async () => {
+    const transport = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "READ", tags: 2, title: "never logged" })));
+    expect(await tickNewsAi("secret", new AbortController().signal, transport)).toEqual({ status: "READ" });
+    expect(transport.mock.calls[0][0]).toBe("http://127.0.0.1:3000/api/news-ai");
+    expect(await tickNewsAi("secret", new AbortController().signal, vi.fn().mockResolvedValue(new Response("{}")))).toEqual({ status: "INVALID_RESPONSE" });
   });
 });

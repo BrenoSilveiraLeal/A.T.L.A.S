@@ -19,6 +19,7 @@ describe("office news TV", () => {
   it("reads rate decisions inversely and flags world stress", () => {
     expect(tagHeadline("Copom eleva a Selic para 15%", profiles)).toEqual([{ ticker: "*", direction: "DOWN", why: "juros" }]);
     expect(tagHeadline("Banco Central corta juros", profiles)).toEqual([{ ticker: "*", direction: "UP", why: "juros" }]);
+    expect(tagHeadline("Por que Ibovespa caiu 1,15% hoje?", profiles)).toEqual([{ ticker: "*", direction: "DOWN", why: "economia" }]);
     expect(tagHeadline("Dólar cai para R$ 5,01", profiles)).toEqual([{ ticker: "*", direction: "UP", why: "dólar" }]);
     expect(tagHeadline("Terremoto atinge o Japão", profiles)).toEqual([{ ticker: "*", direction: "DOWN", why: "estresse no mundo" }]);
   });

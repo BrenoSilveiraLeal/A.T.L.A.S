@@ -14,6 +14,7 @@ export const controlSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("capital"), ceiling: amount }),
   z.object({ action: z.literal("withdraw"), amount, note: z.string().trim().max(500).optional() }),
   z.object({ action: z.literal("withdrawal-status"), id: z.uuid(), status: z.enum(["READY", "DONE", "CANCELLED", "PREPARING"]) }),
+  z.object({ action: z.literal("budgets"), budgets: z.array(z.object({ agentId: z.uuid(), budget: amount })).min(1).max(100) }),
 ]);
 
 function checked<T>(result: { data: T | null; error: { message: string } | null }) {
@@ -24,6 +25,10 @@ function checked<T>(result: { data: T | null; error: { message: string } | null 
       ATLAS_INVALID_WITHDRAWAL: "Informe um valor de saque válido.",
       ATLAS_INVALID_WITHDRAWAL_TRANSITION: "Esse pedido de saque não pode mudar para esse estado.",
       ATLAS_AGENT_NOT_FOUND: "Agente não encontrado.",
+      ATLAS_INVALID_BUDGETS: "Orçamentos inválidos.",
+      ATLAS_AGENT_ELIMINATED: "Um agente eliminado não recebe orçamento.",
+      ATLAS_BUDGET_WOULD_KILL_AGENT: "Esse corte deixaria um agente com menos de 25% de vida. Atualize a página e tente de novo.",
+      ATLAS_BUDGETS_EXCEED_TEAM_TOTAL: "A soma passaria do orçamento total da equipe.",
     };
     if (code) throw new ApiError(409, code, messages[code] ?? "Alteração recusada.");
     throw new Error("CONTROLS_DATABASE_UNAVAILABLE");
@@ -41,6 +46,8 @@ export async function mutateControls(db: SupabaseClient, ownerId: string, raw: u
       checked(await db.rpc("set_agent_autopilot", { p_owner_id: ownerId, p_agent_id: agent.id, p_enabled: input.enabled }));
     return { updated: agents.length, enabled: input.enabled };
   }
+  if (input.action === "budgets")
+    return { updated: checked(await db.rpc("set_agent_budgets", { p_owner_id: ownerId, p_budgets: input.budgets })) };
   if (input.action === "capital") return checked(await db.rpc("set_capital_ceiling", { p_owner_id: ownerId, p_ceiling: input.ceiling }));
   if (input.action === "withdraw")
     return checked(await db.rpc("request_withdrawal", { p_owner_id: ownerId, p_amount: input.amount, p_note: input.note ?? null }));

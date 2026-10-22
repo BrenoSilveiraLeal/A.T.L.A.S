@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Skull, Zap } from "lucide-react";
 import { formatBrl } from "@/core/format";
 import { statusLabel } from "./labels";
-import { CandleChart } from "./candle-chart";
+import { CandleChart, type ChartMarker } from "./candle-chart";
 import { FleetAutopilot } from "./controls-panel";
-import { DIRECTION, Gestora, NewsTv, Telao, useNews, type NewsItem } from "./news-tv";
+import { DIRECTION, Gestora, NewsTv, readingOf, Telao, useNews, type NewsItem } from "./news-tv";
 import type { HistoricalBar } from "@/providers/types";
 
 type Row = Record<string, unknown>;
@@ -63,7 +63,8 @@ function Character({ avatar, status, trend, mode }: { avatar: string; status: st
   );
 }
 
-export function AgentFloor({ connected, revision }: { connected: boolean; revision: number }) {
+/** `tv`: full-screen broadcast view (no controls), used by /tv for streaming. */
+export function AgentFloor({ connected, revision, tv = false }: { connected: boolean; revision: number; tv?: boolean }) {
   const [local, setLocal] = useState(0);
   const floor = useFloor(connected, revision + local);
   const news = useNews(connected);
@@ -95,8 +96,8 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
       </div>
       <Telao account={account} totalPnl={totalPnl} />
       <NewsTv items={news.items} error={news.error} team={alive.map((a) => ({ name: text(a.name), ticker: text(assets.find((x) => x.id === a.asset_id)?.ticker) }))} />
-      <FleetAutopilot agents={agents} onChange={() => setLocal((n) => n + 1)} />
-      <section className="panel ranking-panel">
+      {!tv && <FleetAutopilot agents={agents} onChange={() => setLocal((n) => n + 1)} />}
+      {!tv && <section className="panel ranking-panel">
         <div className="section-heading"><h2>Ranking da equipe</h2><span className="muted">Simulação</span></div>
         <div className="table-scroll"><table>
           <thead><tr><th>#</th><th>Agente</th><th>Resultado virtual</th><th>Vendas fechadas</th><th>Acerto</th><th>Vida</th></tr></thead>
@@ -122,11 +123,12 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
             ))}</tbody>
         </table></div>
         <p className="muted">Acerto = vendas virtuais com lucro ÷ vendas fechadas. Poucas operações não provam nada: use o ranking depois de semanas.</p>
-      </section>
-      <Gestora agents={agents.map((agent) => ({ id: text(agent.id), name: text(agent.name), ticker: text(assets.find((a) => a.id === agent.asset_id)?.ticker),
+      </section>}
+      {!tv && <Gestora agents={agents.map((agent) => ({ id: text(agent.id), name: text(agent.name), ticker: text(assets.find((a) => a.id === agent.asset_id)?.ticker),
         budget: Number(agent.budget), pnl: pnlOf(vitalOf(agent.id)), dead: ["DEAD", "FIRED"].includes(text(agent.status)),
-        sells: (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL").length }))} />
-      <div className="floor-grid">
+        sells: (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL").length }))}
+        maxLossPct={Number(account?.agent_max_loss_pct ?? 20)} onApplied={() => setLocal((n) => n + 1)} />}
+      <div className={`floor-grid ${tv ? "tv-floor" : ""}`}>
         {agents.map((agent) => {
           const status = text(agent.status), vital = vitalOf(agent.id), pnl = pnlOf(vital);
           const life = vital ? Number(vital.life_pct) : null;
@@ -166,7 +168,7 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
           );
         })}
       </div>
-      <p className="muted floor-note">Vida e resultado são da <strong>simulação</strong>, medidos a cada análise com cotação atrasada da brapi. Um agente eliminado não pode ser reativado; suas posições virtuais ficam registradas.</p>
+      {!tv && <p className="muted floor-note">Vida e resultado são da <strong>simulação</strong>, medidos a cada análise com cotação atrasada da brapi. Um agente eliminado não pode ser reativado; suas posições virtuais ficam registradas.</p>}
     </>
   );
 }
@@ -175,7 +177,7 @@ export function AgentFloor({ connected, revision }: { connected: boolean; revisi
 function recentHeadline(items: NewsItem[] | null, ticker: string) {
   for (const item of items ?? []) {
     if (Date.now() - Date.parse(item.published_at) > 3 * 3600000) continue;
-    const tag = item.tags.find((t) => t.ticker === ticker);
+    const tag = readingOf(item).tags.find((t) => t.ticker === ticker);
     if (tag) return { item, tag };
   }
   return null;
@@ -184,6 +186,12 @@ function recentHeadline(items: NewsItem[] | null, ticker: string) {
 /** Daily candles of the agent's asset (delayed brapi history, cached server-side). */
 export function AgentMarket({ ticker }: { ticker: string | null }) {
   const [state, setState] = useState<{ ticker: string; bars: HistoricalBar[]; error: string } | null>(null);
+  const news = useNews(ticker !== null, ticker ?? undefined);
+  // Only news about this stock is marked; market-wide headlines would cover every candle.
+  const markers: ChartMarker[] = (news.items ?? []).flatMap((item) => {
+    const tag = readingOf(item).tags.find((t) => t.ticker === ticker);
+    return tag ? [{ date: new Date(item.published_at).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }), direction: tag.direction, title: item.title }] : [];
+  });
   useEffect(() => {
     if (!ticker) return;
     const controller = new AbortController();
@@ -199,7 +207,7 @@ export function AgentMarket({ ticker }: { ticker: string | null }) {
   if (!ticker) return null;
   if (!state || state.ticker !== ticker) return <div className="loading-state" role="status">Consultando histórico de {ticker}…</div>;
   if (state.error) return <div className="notice error-text" role="alert">{state.error}</div>;
-  return <section className="panel">{state.bars.length ? <CandleChart ticker={ticker} bars={state.bars} /> : <p className="muted">Sem candles para {ticker}.</p>}</section>;
+  return <section className="panel">{state.bars.length ? <CandleChart ticker={ticker} bars={state.bars} markers={markers} /> : <p className="muted">Sem candles para {ticker}.</p>}</section>;
 }
 
 type ContextView = { action: "ALLOW" | "REDUCE" | "BLOCK_BUY" | "EXIT"; riskScore: number;

@@ -2,12 +2,17 @@
 import { useState } from "react";
 import type { HistoricalBar } from "@/providers/types";
 
+/** A news day on the chart: ▲ above the candle (pode subir) or ▼ below (pode cair). */
+export interface ChartMarker { date: string; direction: "UP" | "DOWN" | "WATCH"; title: string }
+
 export function CandleChart({
   ticker,
   bars,
+  markers = [],
 }: {
   ticker: string;
   bars: HistoricalBar[];
+  markers?: ChartMarker[];
 }) {
   const [range, setRange] = useState(60);
   const data = bars.slice(-range);
@@ -105,6 +110,21 @@ export function CandleChart({
             </g>
           );
         })}
+        {data.map((bar, i) => {
+          const day = markers.filter((m) => m.date === bar.timestamp.slice(0, 10));
+          if (!day.length) return null;
+          const x = left + i * step + step / 2;
+          const up = day.filter((m) => m.direction === "UP").length, down = day.filter((m) => m.direction === "DOWN").length;
+          const direction = up > down ? "UP" : down > up ? "DOWN" : "WATCH";
+          const yy = direction === "DOWN" ? Math.min(floor + 10, y(bar.low) + 10) : Math.max(top + 2, y(bar.high) - 10);
+          const shape = direction === "DOWN" ? `M${x - 5} ${yy - 4} L${x + 5} ${yy - 4} L${x} ${yy + 4} Z` : direction === "UP"
+            ? `M${x - 5} ${yy + 4} L${x + 5} ${yy + 4} L${x} ${yy - 4} Z` : `M${x} ${yy - 5} L${x + 5} ${yy} L${x} ${yy + 5} L${x - 5} ${yy} Z`;
+          return (
+            <path key={`news-${bar.timestamp}`} d={shape} className={`chart-news ${direction.toLowerCase()}`}>
+              <title>{`${bar.timestamp.slice(0, 10)} · ${day.length} notícia(s): ${day.map((m) => m.title).join(" | ").slice(0, 600)}`}</title>
+            </path>
+          );
+        })}
         <text x={left} y={height - 8} fill="var(--muted)" fontSize="10">
           {data[0].timestamp.slice(0, 10)}
         </text>
@@ -120,7 +140,7 @@ export function CandleChart({
       </svg>
       <figcaption>
         EOD · OHLCV bruto da brapi. Candles do dia corrente são excluídos. Não é
-        um feed de execução.
+        um feed de execução.{markers.length > 0 && " ▲ notícia que pode fazer subir · ▼ pode fazer cair · ◆ atenção (passe o mouse para ler)."}
       </figcaption>
       <details>
         <summary>Ver dados em tabela</summary>

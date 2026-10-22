@@ -1,11 +1,17 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Tv } from "lucide-react";
 import { formatBrl } from "@/core/format";
 import { suggestAllocation, type AllocationAgent } from "@/core/allocation";
 import type { NewsDirection, NewsTag } from "@/core/news";
 
-export interface NewsItem { url: string; title: string; source: string; published_at: string; tags: NewsTag[] }
+export interface NewsItem { url: string; title: string; source: string; published_at: string; tags: NewsTag[]; ai?: NewsTag[] | null; ai_model?: string | null }
+
+/** The AI reading wins once it exists (even "no impact"); keywords until then. */
+export function readingOf(item: NewsItem): { tags: NewsTag[]; by: string } {
+  return item.ai ? { tags: item.ai, by: `IA ${item.ai_model ?? ""}`.trim() } : { tags: item.tags, by: "palavras-chave" };
+}
 type Row = Record<string, unknown>;
 
 export const DIRECTION: Record<NewsDirection, [string, string]> = {
@@ -43,13 +49,13 @@ function reactions(tags: NewsTag[], team: { name: string; ticker: string }[]) {
 }
 
 export function NewsTv({ items, error, team }: { items: NewsItem[] | null; error: string; team: { name: string; ticker: string }[] }) {
-  const tagged = (items ?? []).filter((i) => reactions(i.tags, team).length).slice(0, 8);
+  const tagged = (items ?? []).filter((i) => reactions(readingOf(i).tags, team).length).slice(0, 8);
   const band = (items ?? []).slice(0, 14);
   return (
     <section className="panel news-tv" aria-label="TV de notícias do escritório">
       <div className="section-heading">
         <h2><Tv size={16} /> TV do escritório</h2>
-        <span className="muted"><span className="live-dot" aria-hidden="true" /> Agência Brasil · Banco Central · GDELT · CVM</span>
+        <span className="muted"><span className="live-dot" aria-hidden="true" /> Agência Brasil · Banco Central · InfoMoney · GDELT · CVM</span>
       </div>
       {error && <p className="notice error-text" role="alert">{error}</p>}
       {items === null && !error ? <p className="muted" role="status">Ligando a TV…</p> : band.length === 0 ? <p className="muted">Nenhuma manchete nas últimas 48 horas ainda. A TV atualiza a cada 5 minutos.</p> : <>
@@ -59,14 +65,14 @@ export function NewsTv({ items, error, team }: { items: NewsItem[] | null; error
         </div></div>
         {tagged.length ? <ul className="news-list">{tagged.map((item) => (
           <li key={item.url}>
-            <div className="news-meta"><span>{hour(item.published_at)}</span><span>{item.source}</span></div>
+            <div className="news-meta"><span>{hour(item.published_at)}</span><span>{item.source}</span><span>lido por {readingOf(item).by}</span></div>
             <a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
-            <div className="news-reactions">{reactions(item.tags, team).map((r) =>
+            <div className="news-reactions">{reactions(readingOf(item).tags, team).map((r) =>
               <span key={r.key} className={`status-label ${DIRECTION[r.direction][1]}`}>{r.label}: {DIRECTION[r.direction][0]}</span>)}</div>
           </li>))}</ul>
           : <p className="muted">Nenhuma manchete recente mexe com as ações da equipe.</p>}
       </>}
-      <p className="muted">Leitura por palavras-chave, grátis. Mostra o que pode fazer a ação subir ou cair; as compras seguem a regra testada e a notícia só freia.</p>
+      <p className="muted">Leitura grátis: palavras-chave na hora e, com o Ollama ligado, uma IA no seu PC relendo as manchetes mais importantes. Mostra o que pode fazer a ação subir ou cair; as compras seguem a regra testada e a notícia só freia.</p>
     </section>
   );
 }
@@ -103,19 +109,37 @@ export function Telao({ account, totalPnl }: { account: Row | undefined; totalPn
 }
 
 /** "IA gestora": suggested budgets by simulated result; never applied automatically. */
-export function Gestora({ agents }: { agents: AllocationAgent[] }) {
+export function Gestora({ agents, maxLossPct, onApplied }: { agents: AllocationAgent[]; maxLossPct: number; onApplied: () => void }) {
+  const [state, setState] = useState<{ busy: boolean; message: string }>({ busy: false, message: "" });
   if (agents.length < 2) return null;
-  const plan = suggestAllocation(agents);
+  const plan = suggestAllocation(agents, 3, maxLossPct);
+  const changes = plan.rows.filter((r) => r.suggested !== r.current);
+  async function apply() {
+    if (!window.confirm(`Aplicar os orçamentos sugeridos em ${changes.length} agente(s) da simulação?`)) return;
+    setState({ busy: true, message: "" });
+    try {
+      const response = await fetch("/api/atlas/controls", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "budgets", budgets: changes.map((r) => ({ agentId: r.id, budget: r.suggested.toFixed(2) })) }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Não foi possível aplicar.");
+      setState({ busy: false, message: "Orçamentos aplicados. Valem a partir da próxima análise de cada agente." });
+      onApplied();
+    } catch (e) { setState({ busy: false, message: e instanceof Error ? e.message : "Não foi possível aplicar." }); }
+  }
   return (
     <section className="panel gestora" aria-label="IA gestora">
-      <div className="section-heading"><h2>IA gestora</h2><span className="muted">Sugestão · você decide</span></div>
-      <p className="muted">Ela redistribui o orçamento total da equipe ({formatBrl(plan.pool.toFixed(2))}): mais para quem dá resultado, menos para quem perde. {plan.measured ? "" : "Ninguém tem 3 vendas fechadas ainda, então todos ficam iguais."}</p>
+      <div className="section-heading"><h2>IA gestora</h2><span className="muted">Simulação · você decide</span></div>
+      <p className="muted">Ela redistribui o orçamento total da equipe (corte nunca deixa uma IA com menos de 25% de vida) ({formatBrl(plan.pool.toFixed(2))}): mais para quem dá resultado, menos para quem perde. {plan.measured ? "" : "Ninguém tem 3 vendas fechadas ainda, então todos ficam iguais."}</p>
       <div className="table-scroll"><table>
         <thead><tr><th>Agente</th><th>Orçamento hoje</th><th>Sugestão</th><th>Motivo</th></tr></thead>
         <tbody>{plan.rows.map((r) => <tr key={r.id}><td>{r.name} · {r.ticker}</td><td>{formatBrl(r.current.toFixed(2))}</td>
           <td className={r.suggested > r.current ? "up" : r.suggested < r.current ? "down" : ""}>{formatBrl(r.suggested.toFixed(2))}</td><td>{r.reason}</td></tr>)}</tbody>
       </table></div>
-      {plan.vacancies.length > 0 && <p>Vaga aberta: {plan.vacancies.join(", ")} está sem IA viva. A gestora sugere contratar uma nova em Agentes.</p>}
+      {plan.vacancies.length > 0 && <p>Vaga aberta: {plan.vacancies.join(", ")} está sem IA viva. A gestora sugere <Link className="text-link" href="/app/agents">contratar uma nova em Agentes</Link>.</p>}
+      <button type="button" className="button" disabled={!changes.length || state.busy} onClick={apply}>
+        {state.busy ? "Aplicando…" : changes.length ? `Aplicar sugestão (${changes.length})` : "Nada a mudar"}
+      </button>
+      {state.message && <p className="muted" role="status">{state.message}</p>}
     </section>
   );
 }
@@ -131,9 +155,11 @@ export function AgentNews({ ticker, name, connected }: { ticker: string | null; 
       {news.error && <p className="notice error-text" role="alert">{news.error}</p>}
       {news.items === null && !news.error ? <p className="muted" role="status">Procurando notícias…</p> : items.length === 0 ? <p className="muted">Nenhuma notícia sobre {ticker} ou o mercado registrada ainda.</p> :
         <ul className="news-list">{items.map((item) => {
-          const tag = item.tags.find((t) => t.ticker === ticker) ?? item.tags.find((t) => t.ticker === "*")!;
+          const reading = readingOf(item);
+          const tag = reading.tags.find((t) => t.ticker === ticker) ?? reading.tags.find((t) => t.ticker === "*");
+          if (!tag) return null;
           return <li key={item.url}>
-            <div className="news-meta"><span>{hour(item.published_at)}</span><span>{item.source}</span><span>{tag.ticker === "*" ? "mercado" : ticker} · {tag.why}</span></div>
+            <div className="news-meta"><span>{hour(item.published_at)}</span><span>{item.source}</span><span>{tag.ticker === "*" ? "mercado" : ticker} · {tag.why}</span><span>lido por {reading.by}</span></div>
             <a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
             <div className="news-reactions"><span className={`status-label ${DIRECTION[tag.direction][1]}`}>{DIRECTION[tag.direction][0]}</span></div>
           </li>;
