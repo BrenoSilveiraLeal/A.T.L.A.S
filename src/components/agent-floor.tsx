@@ -79,7 +79,11 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const totalPnl = vitals.reduce((sum, v) => sum + (pnlOf(v) ?? 0), 0);
   const session = b3Session(new Date(now));
   const maxLossPct = Number(account?.agent_max_loss_pct ?? 20);
-  const office: OfficeAgent[] = agents.map((agent) => {
+  // Retired agents (analysis or autopilot switched off, no shares left) leave the office;
+  // eliminated ones stay at the exit.
+  const working = agents.filter((agent) => (agent.enabled !== false && agent.autopilot !== false) || ["DEAD", "FIRED"].includes(text(agent.status))
+    || (paper.paper_positions ?? []).some((p) => p.agent_id === agent.id && Number(p.quantity) > 0));
+  const office: OfficeAgent[] = working.map((agent) => {
     const asset = assets.find((a) => a.id === agent.asset_id);
     const ticker = text(asset?.ticker);
     const paperPosition = (paper.paper_positions ?? []).find((p) => p.agent_id === agent.id);

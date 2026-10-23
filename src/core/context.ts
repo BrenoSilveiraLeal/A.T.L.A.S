@@ -25,6 +25,11 @@ export const COMPANIES: Record<string, CompanyProfile> = {
   ITUB4: { name: "Itaú Unibanco", cvmCode: "019348", query: '(itau OR "itau unibanco" OR itub4)', aliases: ["itau", "itub4"] },
   MGLU3: { name: "Magazine Luiza", cvmCode: "022470", query: '("magazine luiza" OR magalu OR mglu3)', aliases: ["magazine luiza", "magalu", "mglu3"] },
   BBAS3: { name: "Banco do Brasil", cvmCode: "001023", query: '("banco do brasil" OR bbas3)', aliases: ["banco do brasil", "bbas3"] },
+  // Added 23/10/2026 with the new agents; CVM codes are resolved from the filer directory.
+  UGPA3: { name: "Ultrapar", cvmCode: null, query: '(ultrapar OR ipiranga OR ugpa3)', aliases: ["ultrapar", "ipiranga", "ugpa3"], commodity: "BRENT" },
+  SBSP3: { name: "Sabesp", cvmCode: null, query: '(sabesp OR sbsp3)', aliases: ["sabesp", "sbsp3"] },
+  CXSE3: { name: "Caixa Seguridade", cvmCode: null, query: '("caixa seguridade" OR cxse3)', aliases: ["caixa seguridade", "cxse3"] },
+  VIVT3: { name: "Vivo", cvmCode: null, query: '("telefonica brasil" OR vivt3 OR "operadora vivo")', aliases: ["telefonica brasil", "vivt3", "operadora vivo"] },
 };
 export const MARKET_QUERY = '(ibovespa OR "bolsa brasileira" OR "mercado brasileiro")';
 
@@ -42,7 +47,8 @@ const simplify = (name: string) => normalize(name).replace(/[^a-z0-9 ]+/g, " ").
  * code; short or ambiguous names stay unidentified instead of guessing.
  */
 export function resolveCompany(ticker: string, companyName: string | null, directory: readonly { cvmCode: string; name: string }[] | null): CompanyProfile {
-  if (COMPANIES[ticker]) return COMPANIES[ticker];
+  const curated = COMPANIES[ticker];
+  if (curated?.cvmCode) return curated;
   const wanted = companyName ? simplify(companyName) : "";
   const usable = wanted.length >= 5;
   const aliases = [ticker.toLowerCase(), ...(usable ? [wanted] : [])];
@@ -58,7 +64,9 @@ export function resolveCompany(ticker: string, companyName: string | null, direc
     }).map((c) => c.cvmCode));
     if (codes.size === 1) cvmCode = [...codes][0];
   }
-  return { name: companyName?.trim() || ticker, cvmCode, query, aliases };
+  // A curated entry without a verified CVM code keeps its news aliases and borrows the code
+  // found for the owner's official company name.
+  return curated ? { ...curated, cvmCode } : { name: companyName?.trim() || ticker, cvmCode, query, aliases };
 }
 
 export interface MaterialFact { cvmCode: string; deliveredOn: string; subject: string; url: string }

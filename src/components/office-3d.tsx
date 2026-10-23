@@ -58,7 +58,7 @@ function slotFor(zone: OfficeZone, index: number, desk: number): Slot {
 }
 
 const mat = {
-  white: () => new THREE.MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.42, metalness: 0.08, envMapIntensity: 0.6 }),
+  white: () => new THREE.MeshStandardMaterial({ color: 0xb9bec6, roughness: 0.38, metalness: 0.1, envMapIntensity: 0.55 }),
   dark: () => new THREE.MeshStandardMaterial({ color: 0x0b0f14, roughness: 0.2, metalness: 0.6 }),
   // Emissive parts are pushed above 1.0 so only they cross the bloom threshold.
   glow: (c: THREE.ColorRepresentation) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(2.4), toneMapped: false }),
@@ -69,32 +69,46 @@ function makeRobot(accent: THREE.Color): Omit<Robot, "label" | "labelEl" | "path
   const body = new THREE.Group();
   group.add(body);
   const white = mat.white(), dark = mat.dark(), glow = mat.glow(accent);
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.42, 6, 16), white);
-  torso.position.y = 0.98; body.add(torso);
-  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.05, 0.02), glow);
-  chest.position.set(0, 1.08, 0.3); body.add(chest);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 24, 18), white);
-  head.position.y = 1.62; head.scale.set(1.08, 0.94, 1); body.add(head);
-  const visor = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 18, -Math.PI / 2.4, Math.PI / 1.2, Math.PI / 3.2, Math.PI / 2.6), dark);
-  visor.position.set(0, 1.62, 0.07); visor.scale.set(1.08, 0.95, 1); body.add(visor);
+  const joint = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.45, metalness: 0.5 });
+  const add = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = body) => {
+    const mesh = new THREE.Mesh(geometry, material); mesh.position.set(x, y, z); parent.add(mesh); return mesh;
+  };
+  // Torso: rounded white shell, dark chest panel with a glowing strip in the agent's colour.
+  add(new THREE.CapsuleGeometry(0.29, 0.34, 8, 20), white, 0, 1.0, 0).scale.set(1.05, 1, 0.82);
+  add(new THREE.BoxGeometry(0.3, 0.2, 0.04), dark, 0, 1.06, 0.24);
+  add(new THREE.BoxGeometry(0.22, 0.035, 0.02), glow, 0, 1.06, 0.27);
+  add(new THREE.CylinderGeometry(0.2, 0.24, 0.12, 20), joint, 0, 0.68, 0);
+  add(new THREE.CylinderGeometry(0.09, 0.11, 0.12, 16), joint, 0, 1.36, 0);
+  // Head: glossy white shell, black visor, two oval cyan eyes, headphone cups.
+  add(new THREE.SphereGeometry(0.33, 32, 24), white, 0, 1.64, 0).scale.set(1.1, 0.95, 1);
+  add(new THREE.SphereGeometry(0.3, 32, 24, -Math.PI / 2.3, Math.PI / 1.15, Math.PI / 3.6, Math.PI / 2.4), dark, 0, 1.64, 0.06).scale.set(1.1, 0.95, 1);
   for (const side of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 10), mat.glow(0x6fe9ff));
-    eye.position.set(side * 0.11, 1.64, 0.36); body.add(eye);
-    const ear = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.08, 16), glow);
-    ear.rotation.z = Math.PI / 2; ear.position.set(side * 0.37, 1.62, 0); body.add(ear);
+    add(new THREE.SphereGeometry(0.05, 16, 12), mat.glow(0x6fe9ff), side * 0.11, 1.66, 0.345).scale.set(1, 1.35, 0.5);
+    const cup = add(new THREE.CylinderGeometry(0.1, 0.1, 0.09, 24), white, side * 0.37, 1.64, 0);
+    cup.rotation.z = Math.PI / 2;
+    const ring = add(new THREE.TorusGeometry(0.075, 0.016, 8, 24), glow, side * 0.42, 1.64, 0);
+    ring.rotation.y = Math.PI / 2;
   }
+  const band = add(new THREE.TorusGeometry(0.36, 0.025, 8, 32, Math.PI), joint, 0, 1.66, 0);
+  band.rotation.y = Math.PI / 2;
+  // Arms (pivot at the shoulder) and legs (pivot at the hip); the pose code rotates the groups.
   const arms: THREE.Group[] = [], legs: THREE.Group[] = [];
   for (const side of [-1, 1]) {
-    const arm = new THREE.Group(); arm.position.set(side * 0.38, 1.22, 0);
-    const limb = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.38, 4, 10), white);
-    limb.position.y = -0.24; arm.add(limb); body.add(arm); arms.push(arm);
-    const leg = new THREE.Group(); leg.position.set(side * 0.14, 0.62, 0);
-    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.36, 4, 10), dark);
-    thigh.position.y = -0.3; leg.add(thigh); group.add(leg); legs.push(leg);
+    const arm = new THREE.Group(); arm.position.set(side * 0.37, 1.22, 0); body.add(arm); arms.push(arm);
+    add(new THREE.SphereGeometry(0.1, 16, 12), white, 0, 0, 0, arm);
+    add(new THREE.CapsuleGeometry(0.065, 0.2, 4, 12), white, 0, -0.17, 0, arm);
+    add(new THREE.SphereGeometry(0.06, 12, 10), joint, 0, -0.32, 0, arm);
+    add(new THREE.CapsuleGeometry(0.06, 0.18, 4, 12), white, 0, -0.46, 0, arm);
+    add(new THREE.SphereGeometry(0.065, 12, 10), dark, 0, -0.6, 0.01, arm);
+    const leg = new THREE.Group(); leg.position.set(side * 0.13, 0.62, 0); group.add(leg); legs.push(leg);
+    add(new THREE.CapsuleGeometry(0.085, 0.16, 4, 12), white, 0, -0.14, 0, leg);
+    add(new THREE.SphereGeometry(0.07, 12, 10), joint, 0, -0.29, 0, leg);
+    add(new THREE.CapsuleGeometry(0.075, 0.14, 4, 12), white, 0, -0.42, 0, leg);
+    add(new THREE.BoxGeometry(0.15, 0.07, 0.24), dark, 0, -0.57, 0.04, leg);
   }
   const cue = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 1.5, 8), new THREE.MeshStandardMaterial({ color: 0xc89b62, roughness: 0.5 }));
   cue.rotation.x = Math.PI / 2.3; cue.position.set(0.3, 1.0, 0.55); cue.visible = false; body.add(cue);
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.012; group.add(shadow);
   return { group, legs, arms, body, cue };
 }
@@ -184,7 +198,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 200);
-    const home = new THREE.Vector3(0.5, 30, 28.5);
+    const home = new THREE.Vector3(0.5, 25, 23.5);
     camera.position.copy(home);
     const controls = new OrbitControls(camera, labels.domElement);
     controls.target.set(0, 0, 0);
@@ -200,6 +214,8 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       const p = new THREE.PointLight(c, 9, 18, 1.4); p.position.set(x, 6, z); scene.add(p);
     }
 
+    // Warm pools of light over the two rows of agent desks.
+    for (const [x, z] of DESKS) { const lamp = new THREE.PointLight(0xffd8a0, 1.6, 6, 1.8); lamp.position.set(x, 4.2, z - 0.2); scene.add(lamp); }
     // Floor, walkways and rooms.
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(48, 30), new THREE.MeshStandardMaterial({ color: 0x2a2b2f, roughness: 0.3, metalness: 0.5 }));
     floor.rotation.x = -Math.PI / 2; scene.add(floor);
@@ -329,14 +345,14 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     const staff: { robot: ReturnType<typeof makeRobot>; pose: Slot["pose"] }[] = [];
     const addStaff = (x: number, z: number, face: number, pose: Slot["pose"], role: string) => {
       const robot = makeRobot(new THREE.Color(0xffb24a));
-      robot.group.position.set(x, 0, z); robot.group.rotation.y = face; scene.add(robot.group);
-      const tag = plaque(role, "", "plaque staff-plate"); tag.position.set(0, 2.3, 0); robot.group.add(tag);
+      robot.group.position.set(x, 0, z); robot.group.rotation.y = face; robot.group.scale.setScalar(2.1); scene.add(robot.group);
+      const tag = plaque(role, "", "plaque staff-plate"); tag.position.set(0, 2.15, 0); robot.group.add(tag);
       staff.push({ robot, pose });
     };
     addStaff(-18.4, 2.6, Math.PI, "type", "Recepção");
     addStaff(17, 0.3, Math.PI, "type", "Pesquisa");
     addStaff(17, 9.5, Math.PI, "type", "Risco");
-    const wanderer = makeRobot(new THREE.Color(0xffb24a)); scene.add(wanderer.group);
+    const wanderer = makeRobot(new THREE.Color(0xffb24a)); wanderer.group.scale.setScalar(2.1); scene.add(wanderer.group);
     const loop: V2[] = [[-12.3, 10], [10.3, 10], [10.3, -3.4], [-12.3, -3.4]];
     let wanderT = 0;
 
@@ -372,8 +388,8 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
           const labelEl = document.createElement("div");
           labelEl.className = "agent3d-label";
           labelEl.addEventListener("pointerdown", (e) => { e.stopPropagation(); select.current(agent.id); });
-          const label = new CSS2DObject(labelEl); label.position.set(0, 2.3, 0); made.group.add(label);
-          made.group.scale.setScalar(1.6);
+          const label = new CSS2DObject(labelEl); label.position.set(0, 2.15, 0); made.group.add(label);
+          made.group.scale.setScalar(2.1);
           made.group.userData.agentId = agent.id;
           made.group.traverse((o) => { o.userData.agentId = agent.id; });
           scene.add(made.group); pickables.push(made.group);
@@ -383,7 +399,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
         const index = counters[agent.zone] ?? 0; counters[agent.zone] = index + 1;
         setTarget(r, slotFor(agent.zone, index, desk), `${agent.zone}:${index}:${desk}`, first);
         // Neighbours in the same room alternate label heights so names never overlap.
-        r.label.position.y = 2.3 + (agent.zone === "DESK" ? 0 : (index % 2) * 0.62);
+        r.label.position.y = 2.15 + (agent.zone === "DESK" ? 0 : (index % 2) * 0.62);
         const t = tone(agent.pnl);
         r.labelEl.className = `agent3d-label ${t} ${sel === agent.id ? "selected" : ""} zone-${agent.zone.toLowerCase()}`;
         r.labelEl.replaceChildren();
@@ -428,7 +444,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.45, 1.05);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.45, 1.25);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
 
