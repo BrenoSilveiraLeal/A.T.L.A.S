@@ -332,10 +332,28 @@ describe("owner controls: agent autopilot, capital ceiling and withdrawals", () 
     expect(audit.rows).toHaveLength(2);
   });
 
+  it("adds the monthly contribution as new capital, once per month, split by the manager", async () => {
+    await db.query("select public.paper_open_account($1,1000,200,500,50)", [owner]);
+    const [a, b] = [await agent("Aporte A"), await agent("Aporte B")];
+    const plan = await db.query<{ monthly_amount: string; day: number }>("select monthly_amount,day from public.set_contribution_plan($1,200,5)", [owner]);
+    expect([Number(plan.rows[0].monthly_amount), plan.rows[0].day]).toEqual([200, 5]);
+    await rejected("select public.set_contribution_plan($1,200,31)", [owner], "ATLAS_INVALID_CONTRIBUTION_PLAN");
+    const split = JSON.stringify([{ agentId: a.id, amount: "120.00" }, { agentId: b.id, amount: "50.00" }]);
+    const first = await db.query<{ reserve: string }>("select reserve from public.apply_contribution($1,'2026-10',200,$2::jsonb)", [owner, split]);
+    expect(Number(first.rows[0].reserve)).toBe(30);
+    await db.query("select public.apply_contribution($1,'2026-10',200,$2::jsonb)", [owner, split]);
+    const account = await db.query<{ cash: string; initial_cash: string }>("select cash,initial_cash from public.paper_accounts where owner_id=$1", [owner]);
+    expect([Number(account.rows[0].cash), Number(account.rows[0].initial_cash)]).toEqual([1200, 1200]);
+    const budgets = await db.query<{ budget: string }>("select budget from public.agents where id = any($1::uuid[]) order by budget", [[a.id, b.id]]);
+    expect(budgets.rows.map((r) => Number(r.budget))).toEqual([175.1, 245.1]);
+    await rejected("select public.apply_contribution($1,'2026-11',100,$2::jsonb)", [owner, split], "ATLAS_CONTRIBUTION_OVERALLOCATED");
+  });
+
   it("denies direct access to other roles", async () => {
     await db.exec("set local role anon");
     await rejected("select public.set_capital_ceiling($1,1)", [owner], "permission denied");
     await rejected("select public.set_agent_budgets($1,'[]'::jsonb)", [owner], "permission denied");
+    await rejected("select public.apply_contribution($1,'2026-10',1,'[]'::jsonb)", [owner], "permission denied");
     await rejected("select * from public.withdrawal_requests", [], "permission denied");
   });
 });

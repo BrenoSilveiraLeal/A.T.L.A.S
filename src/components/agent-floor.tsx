@@ -1,13 +1,20 @@
 "use client";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { formatBrl } from "@/core/format";
 import { CandleChart, type ChartMarker } from "./candle-chart";
 import { FleetAutopilot } from "./controls-panel";
 import { Gestora, NewsTv, readingOf, useCdi, useNews, type NewsItem } from "./news-tv";
-import { AgentCard, OfficeLegend, OfficeMap, Scoreboard, useNow, type OfficeAgent } from "./office-map";
+import { AgentCard, OfficeLegend, Scoreboard, useNow, type OfficeAgent } from "./office-map";
+
+// three.js is loaded only in the browser, on the office screens.
+const Office3D = dynamic(() => import("./office-3d").then((m) => m.Office3D), {
+  ssr: false, loading: () => <div className="office3d office3d-loading" role="status">Montando o escritório 3D…</div>,
+});
 import { placeAgent } from "@/core/office";
+import { ContributionPanel } from "./contribution-panel";
 import { b3Session } from "@/core/b3-calendar";
 import type { HistoricalBar } from "@/providers/types";
 
@@ -99,8 +106,11 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
           marketNote={session.status === "OPEN" ? "As IAs podem comprar e vender (10h05 às 16h50)." : `${session.reason} As IAs só operam das 10h05 às 16h50 em dias úteis.`}
           alive={alive.length} total={agents.length} />
         <OfficeLegend />
-        <div className={`office-stage ${view === "tv" ? "no-card" : ""}`}>
-          <OfficeMap agents={office} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected} />
+        <div className="office-stage three">
+          <Office3D agents={office} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected}
+            tvLines={[["Equipe (simulação)", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
+              ["CDI no período", cdiPct === null || !account ? "—" : `+${formatBrl(((Number(account.initial_cash) * cdiPct) / 100).toFixed(2))}`, "#ffc65c"],
+              ["Bolsa", session.status === "OPEN" ? "Aberta" : "Fechada", session.status === "OPEN" ? "#3dffa8" : "#a9c0d6"]]} />
           {view !== "tv" && <AgentCard agent={chosen} agents={office} now={now} onSelect={setSelected} />}
         </div>
         {band.length > 0 && <div className="news-band office-band" aria-label="Últimas manchetes"><div className="news-band-track">
@@ -108,6 +118,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
             <strong>{item.source}</strong> {item.title}</span>)}
         </div></div>}
       </div>
+      {view !== "tv" && <ContributionPanel connected={connected} onApplied={() => setLocal((n) => n + 1)} />}
       {view === "full" && <NewsTv band={false} items={news.items} error={news.error} team={alive.map((a) => ({ name: text(a.name), ticker: text(assets.find((x) => x.id === a.asset_id)?.ticker) }))} />}
       {view === "full" && <details className="panel office-advanced">
         <summary>Controles, ranking e IA gestora</summary>

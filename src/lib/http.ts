@@ -8,7 +8,11 @@ import { required } from "./env";
 export function checkOrigin(request: Request) {
   const origin = request.headers.get("origin");
   const expected = new URL(required("ATLAS_APP_URL")).origin;
-  if (origin !== expected)
+  // Local development only (bypass on, never on Vercel, app on loopback): the local and dev
+  // servers bind to 127.0.0.1, so any loopback port is this same computer.
+  const loopback = /^http:\/\/(127\.0\.0\.1|localhost):\d{2,5}$/;
+  const localDev = process.env.ATLAS_DEV_AUTH_BYPASS === "true" && !process.env.VERCEL && loopback.test(expected);
+  if (origin !== expected && !(localDev && origin !== null && loopback.test(origin)))
     throw new ApiError(
       403,
       "ORIGIN_REJECTED",

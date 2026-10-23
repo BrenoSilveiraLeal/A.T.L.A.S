@@ -77,6 +77,18 @@ describe("server trust boundaries", () => {
       ),
     ).not.toThrow();
   });
+  it("accepts another loopback port only in local development", () => {
+    const local = (origin: string) => () => checkOrigin(new Request("http://127.0.0.1:3001/api/atlas/controls", { headers: { origin } }));
+    vi.stubEnv("ATLAS_APP_URL", "http://127.0.0.1:3000");
+    expect(local("http://127.0.0.1:3002")).toThrow(ApiError);
+    vi.stubEnv("ATLAS_DEV_AUTH_BYPASS", "true");
+    expect(local("http://127.0.0.1:3002")).not.toThrow();
+    expect(local("http://localhost:3001")).not.toThrow();
+    expect(local("http://192.168.0.5:3000")).toThrow(ApiError);
+    vi.stubEnv("VERCEL", "1");
+    expect(local("http://127.0.0.1:3002")).toThrow(ApiError);
+    vi.unstubAllEnvs();
+  });
   it("requires the exact cron bearer secret and cannot use an empty secret", () => {
     expect(() =>
       checkCron(new Request("https://atlas.example.test/api/cron")),

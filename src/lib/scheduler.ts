@@ -9,6 +9,7 @@ import { loadAgentObservationConfiguration } from "./agent-config";
 import { runPaperAutopilot } from "./autopilot";
 import { sendAlert } from "./alerts";
 import { loadNews } from "./news";
+import { maybeContribute } from "./contribution";
 import { contextFor, contextSummary, loadContextSources, type ContextSources } from "./context";
 import { storeBars } from "./market-bars";
 
@@ -203,6 +204,8 @@ export async function runScheduler() {
   if (alerts.length) await sendAlert(alerts);
   // Keeps the office TV filled even with the panel closed (refresh at most every 5 min).
   await loadNews(db, owner).catch(() => undefined);
+  // Monthly contribution (simulation): once per month on or after the owner's chosen day.
+  await maybeContribute(db, owner).catch(() => undefined);
   return { jobs: results };
 
   async function health(status: string, message: string) {
