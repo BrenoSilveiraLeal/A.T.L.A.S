@@ -129,19 +129,26 @@ export function longTrendResearchStrategy(options = { period: 200, bufferPct: 2,
  * "Segurar com stop móvel": hold; sell after a `trailPct` drop from the highest close
  * since entry; buy back when the close makes a new `reentryLookback`-day high.
  */
-export function trailingHoldResearchStrategy(options = { trailPct: 20, reentryLookback: 20, lot: 100 }): ResearchStrategy {
+/**
+ * Buy on the first bar or a new reentryLookback-day high; sell after a trailPct fall from the
+ * top. With noLossPct set (owner rule "never sell at a loss"), the exit only happens when the
+ * close is at least noLossPct above the entry price; otherwise the position is held.
+ */
+export function trailingHoldResearchStrategy(options: { trailPct: number; reentryLookback: number; lot: number; noLossPct?: number } = { trailPct: 20, reentryLookback: 20, lot: 100 }): ResearchStrategy {
   let peak: Decimal | null = null;
+  let entry: Decimal | null = null;
   let splitsSeen = 0;
   return (context) => {
     const bars = adjustedBars(context.bars, context.corporateActions);
     const splits = context.corporateActions.filter((a) => a.type === "SPLIT");
     // Adjusted prices already absorb splits; keep the stored peak in the same terms.
-    for (const s of splits.slice(splitsSeen)) if (peak && s.type === "SPLIT") peak = peak.div(s.ratio);
+    for (const s of splits.slice(splitsSeen)) if (s.type === "SPLIT") { if (peak) peak = peak.div(s.ratio); if (entry) entry = entry.div(s.ratio); }
     splitsSeen = splits.length;
     const close = new Decimal(bars[bars.length - 1].close);
     if (new Decimal(context.quantity).gt(0)) {
       peak = peak && peak.gt(close) ? peak : close;
-      if (close.lte(peak.times(1 - options.trailPct / 100))) { peak = null; return { action: "SELL" }; }
+      const floorOk = options.noLossPct === undefined || !entry || close.gte(entry.times(1 + options.noLossPct / 100));
+      if (close.lte(peak.times(1 - options.trailPct / 100)) && floorOk) { peak = null; entry = null; return { action: "SELL" }; }
       return { action: "HOLD" };
     }
     peak = null;
@@ -152,6 +159,7 @@ export function trailingHoldResearchStrategy(options = { trailPct: 20, reentryLo
     const quantityToBuy = lotsFor(context.cash, close, options.lot);
     if (!quantityToBuy) return { action: "HOLD" };
     peak = close;
+    entry = close;
     return { action: "BUY", quantity: quantityToBuy };
   };
 }
