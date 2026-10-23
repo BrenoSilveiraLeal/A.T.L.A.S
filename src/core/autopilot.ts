@@ -38,6 +38,8 @@ export interface AutopilotInput {
    */
   fixedFee?: number;
   minOrderValue?: number;
+  /** Owner rule: never sell below this price (what was paid plus fees and a small margin). */
+  minSellPrice?: string;
   slippageBps: number;
   stopLossPct: number;
   /** Rule-based context; it can only brake: block buys, halve size or force an exit. */
@@ -85,10 +87,14 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
   const indicators = { sma20: fast, sma50: slow, price: price.toFixed(2) };
   const hold = (reason: string): AutopilotDecision => ({ action: "HOLD", reason: `${input.ticker}: ${reason}`, indicators });
   if (input.hasOpenOrder) return hold("ordem virtual aberta aguardando preenchimento.");
-  const sellAll = (why: string): AutopilotDecision => ({ action: "SELL", quantity: input.position.quantity,
-    limitPrice: D.max(toTick(price.times(1 - (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "down"), tick).toFixed(2),
-    referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
-    reason: `${input.ticker}: venda virtual automática (${why}). Regra ${input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION}, simulação.` });
+  const sellAll = (why: string): AutopilotDecision => {
+    const limit = D.max(toTick(price.times(1 - (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "down"), tick);
+    if (input.minSellPrice && limit.lt(input.minSellPrice))
+      return hold(`queria vender (${why}), mas R$ ${limit.toFixed(2)} fica abaixo do que pagou com as taxas (mínimo R$ ${input.minSellPrice}). Segura até subir.`);
+    return { action: "SELL", quantity: input.position.quantity, limitPrice: limit.toFixed(2),
+      referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
+      reason: `${input.ticker}: venda virtual automática (${why}). Regra ${input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION}, simulação.` };
+  };
   if (input.context?.action === "EXIT" && input.position.quantity > 0) return sellAll(`contexto: ${input.context.summary}`);
   const buy = (why: string): AutopilotDecision => {
     if (input.context?.action === "BLOCK_BUY" || input.context?.action === "EXIT")

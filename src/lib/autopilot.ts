@@ -11,6 +11,7 @@ import { applyPaperCorporateActions } from "./corporate-actions";
 import { loadBars } from "./market-bars";
 import { adjustStoredBars } from "@/core/strategies";
 import { saoPauloClock } from "@/core/b3-calendar";
+import { minimumSellPrice } from "@/core/live";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
 
@@ -99,6 +100,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     lotSize: rows(asset).lot_size, tickSize: String(rows(asset).tick_size),
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,
     fixedFee: Number(account.fee_lot ?? 0) + Number(account.fee_fraction ?? 0), minOrderValue: MIN_ORDER_VALUE,
+    minSellPrice: held.quantity > 0 ? minimumSellPrice(basis.toNumber(), held.quantity) : undefined,
     context: input.context,
     trailing,
   });

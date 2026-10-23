@@ -75,6 +75,17 @@ describe("paper autopilot rule", () => {
     expect(keep.action).toBe("HOLD");
   });
 
+  it("never sells below what was paid when the owner's floor is set", () => {
+    const trailing = { peak: "19.00", priorHigh: "17.00", everHeld: true, trailPct: 15 };
+    const position = { quantity: 10, averageCost: "17" };
+    const held = autopilotDecision(input({ position, trailing, minSellPrice: "17.20" }, rising, "16.00"));
+    expect(held.action).toBe("HOLD");
+    expect(held.reason).toContain("abaixo do que pagou");
+    const context = autopilotDecision(input({ position, minSellPrice: "17.20", context: { action: "EXIT", summary: "notícia grave" } }, rising, "16.00"));
+    expect(context.action).toBe("HOLD");
+    expect(autopilotDecision(input({ position, trailing, minSellPrice: "15.00" }, rising, "16.00")).action).toBe("SELL");
+  });
+
   it("refuses stale or mismatched data instead of guessing", () => {
     const stale = input();
     stale.quote = { ...stale.quote, dataTimestamp: "2026-10-10T17:00:00.000Z" };

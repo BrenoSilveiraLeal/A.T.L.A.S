@@ -81,7 +81,8 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const office: OfficeAgent[] = agents.map((agent) => {
     const asset = assets.find((a) => a.id === agent.asset_id);
     const ticker = text(asset?.ticker);
-    const holding = Number((paper.paper_positions ?? []).find((p) => p.agent_id === agent.id)?.quantity ?? 0);
+    const paperPosition = (paper.paper_positions ?? []).find((p) => p.agent_id === agent.id);
+    const holding = Number(paperPosition?.quantity ?? 0);
     const order = (paper.paper_orders ?? []).find((o) => o.agent_id === agent.id && o.status === "OPEN");
     const headline = recentHeadline(news.items, ticker);
     const fresh = headline !== null && now - Date.parse(headline.item.published_at) < 3600000;
@@ -92,6 +93,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const vital = vitalOf(agent.id);
     return { id: text(agent.id), name: text(agent.name), ticker, company: text(asset?.company_name ?? ticker), ...place,
       pnl: pnlOf(vital), life: vital ? Number(vital.life_pct) : null, budget, holding,
+      paidTotal: holding > 0 ? holding * Number(paperPosition?.average_cost ?? 0) : 0,
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
       headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null };
   });

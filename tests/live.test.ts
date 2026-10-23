@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { custodyShortfalls, liveFee, liveIntent, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
+import { custodyShortfalls, liveFee, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
 
 describe("real-money sizing at Genial", () => {
   it("prices fees like the contract table", () => {
@@ -57,5 +57,13 @@ describe("real-money decisions", () => {
     expect(sendOutcome("AMBIGUOUS_DISPATCH_DO_NOT_RETRY")).toBe("UNKNOWN");
     expect(sendOutcome("SUBMITTED_ORDER_TERMS_MISMATCH")).toBe("UNKNOWN");
     expect(sendOutcome("TIMEOUT")).toBe("UNKNOWN");
+  });
+});
+
+describe("never sell at a loss", () => {
+  it("covers the price paid, both fees and a 0,5% margin", () => {
+    // 5 shares that cost R$ 150,54 with fees: (150,54 + 0,99) / (5 × 0,9997) × 1,005 = 30,47.
+    expect(minimumSellPrice(150.54, 5)).toBe("30.47");
+    expect(minimumSellPrice(3009.9, 100)).toBe("30.29");
   });
 });

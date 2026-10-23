@@ -3,12 +3,15 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, CircleDot, Coffee, DoorOpen, Monitor, Users } from "lucide-react";
 import { formatBrl } from "@/core/format";
+import { minimumSellPrice } from "@/core/live";
 import type { OfficeZone } from "@/core/office";
 import type { NewsDirection } from "@/core/news";
 
 export interface OfficeAgent {
   id: string; name: string; ticker: string; company: string; zone: OfficeZone; activity: string;
   pnl: number | null; life: number | null; budget: number; holding: number; maxLoss: number;
+  /** What the open simulated position cost, fees included (0 without position). */
+  paidTotal: number;
   headline: { title: string; url: string; direction: NewsDirection } | null; nextAnalysisAt: string | null;
 }
 
@@ -207,6 +210,7 @@ export function AgentCard({ agent, agents, now, onSelect }: { agent: OfficeAgent
         <div><dt>Ações na carteira</dt><dd>{agent.holding}</dd></div>
         <div><dt>Próxima análise</dt><dd>{agent.zone === "OUT" ? "—" : inMinutes(agent.nextAnalysisAt, now)}</dd></div>
       </dl>
+      {agent.zone !== "OUT" && <AgentPlan agent={agent} />}
       {agent.headline && <p className="agent-news">
         <span className={`status-label ${agent.headline.direction === "UP" ? "success" : agent.headline.direction === "DOWN" ? "danger" : "warning"}`}>
           {agent.headline.direction === "UP" ? "Notícia boa" : agent.headline.direction === "DOWN" ? "Notícia ruim" : "Notícia para ficar de olho"}</span>{" "}
@@ -217,5 +221,42 @@ export function AgentCard({ agent, agents, now, onSelect }: { agent: OfficeAgent
         <button type="button" className="secondary" onClick={() => onSelect("")}>Ver equipe</button>
       </div>
     </aside>
+  );
+}
+
+/**
+ * The order the agent keeps inside ATLAS ("ordem planejada"): nothing waits at the broker; ATLAS
+ * only sends the order at the moment the price condition is met.
+ */
+function AgentPlan({ agent }: { agent: OfficeAgent }) {
+  const [levels, setLevels] = useState<{ ticker: string; ceiling: string | null; last: string | null } | null>(null);
+  useEffect(() => {
+    if (agent.holding > 0) return;
+    const controller = new AbortController();
+    fetch(`/api/atlas/levels?ticker=${encodeURIComponent(agent.ticker)}`, { signal: controller.signal }).then((r) => r.json())
+      .then((b) => !controller.signal.aborted && setLevels({ ticker: agent.ticker, ceiling: b?.plan?.ceiling ?? null, last: b?.lastClose ?? null }))
+      .catch(() => !controller.signal.aborted && setLevels({ ticker: agent.ticker, ceiling: null, last: null }));
+    return () => controller.abort();
+  }, [agent.ticker, agent.holding]);
+  if (agent.holding > 0) {
+    const floor = minimumSellPrice(agent.paidTotal, agent.holding);
+    return (
+      <div className="agent-plan">
+        <span className="score-kicker">Ordem planejada no ATLAS</span>
+        <p>Tem <b>{agent.holding} ações</b> (pagou {formatBrl(agent.paidTotal.toFixed(2))} com taxas). <b>Vende</b> se a ação cair 15% do ponto mais alto desde a compra,
+          mas <b>nunca abaixo de {formatBrl(floor)}</b> por ação (o que pagou + corretagem + 0,5%). Abaixo disso, segura.</p>
+      </div>
+    );
+  }
+  const plan = levels?.ticker === agent.ticker ? levels : null;
+  const shares = plan?.ceiling ? Math.floor((agent.budget - 1) / Number(plan.ceiling)) : 0;
+  return (
+    <div className="agent-plan">
+      <span className="score-kicker">Ordem planejada no ATLAS</span>
+      {!plan ? <p className="muted">Calculando…</p> : plan.ceiling ? (
+        <p><b>Compra</b> cerca de <b>{Math.min(shares, 99)} ações</b> quando o preço passar de <b>{formatBrl(plan.ceiling)}</b> (o maior das últimas 4 semanas) e a tendência for de alta.
+          Hoje fechou em {plan.last ? formatBrl(plan.last) : "—"}. Notícia ruim cancela a compra.</p>
+      ) : <p className="muted">Sem histórico suficiente para planejar.</p>}
+    </div>
   );
 }

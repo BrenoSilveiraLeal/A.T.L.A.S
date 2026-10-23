@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { GatewayError, HttpExecutionGateway } from "@/providers/execution-gateway";
 import { b3Session } from "@/core/b3-calendar";
 import { mergeFractionalPositions } from "@/core/lots";
-import { custodyShortfalls, liveIntent, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
+import { custodyShortfalls, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
 import { adminClient } from "./supabase";
 import { required } from "./env";
 import { sendAlert } from "./alerts";
@@ -148,6 +148,10 @@ export async function runLive(now = new Date()) {
         if (problem) { events.push(`${agent.name}: ${problem}`); continue; }
         const size = sizeLiveSell(qty, quote.bid!);
         if (!size) continue;
+        // Owner rule: never sell below what was paid (fees included) plus a small margin.
+        const cost = mine.reduce((sum, p) => sum + Number(p.cost), 0);
+        const floor = minimumSellPrice(cost, qty);
+        if (Number(size.limit) < Number(floor)) { events.push(`${agent.name}: segurando; venda só a partir de R$ ${floor}`); continue; }
         await send(agent.id, "SELL", size.quantity, size.limit, `${agent.name}: ${proposal?.reasoning_summary ?? "sinal de venda do piloto"}`, done.has(latest.id) ? null : latest.id);
       }
     } catch (error) { events.push(`${agent.name}: ${error instanceof Error ? error.message : "erro"}`); }

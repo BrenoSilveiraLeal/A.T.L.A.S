@@ -67,3 +67,13 @@ const NOT_SENT = new Set(["EXECUTION_DISABLED", "GATEWAY_HALTED", "ORDER_IDENTIT
   "USE_STANDARD_LOT_SYMBOL", "LIMIT_DAY_NOT_SUPPORTED", "ORDER_CHECK_REJECTED", "ORDER_REJECTED", "DAY_TRADE_ENVIRONMENT_SUBMIT_UNSUPPORTED",
   "UNAPPROVED_INSTRUMENT", "INSTRUMENT_NOT_VERIFIED_B3_CASH_EQUITY"]);
 export const sendOutcome = (code: string): "REJECTED" | "UNKNOWN" => (NOT_SENT.has(code) ? "REJECTED" : "UNKNOWN");
+
+/**
+ * "Never sell at a loss": the lowest sell price per share that gives back everything paid
+ * (cost already includes the buy fees) after the sell's brokerage and B3 fees, plus a margin.
+ */
+export function minimumSellPrice(cost: number, quantity: number, marginPct = 0.5): string {
+  const fixed = (quantity >= 100 ? LIVE.lotFee : 0) + (quantity % 100 ? LIVE.fractionFee : 0);
+  const price = ((cost + fixed) / (quantity * (1 - LIVE.b3Bps / 10000))) * (1 + marginPct / 100);
+  return (Math.ceil(price * 100 - 1e-9) / 100).toFixed(2);
+}

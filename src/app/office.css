@@ -304,3 +304,6 @@
 .live-switch p { margin: 0; font-size: 13px; line-height: 1.5; }
 .live-switch input { max-width: 280px; }
 @media (max-width: 640px) { .live-money { grid-template-columns: 1fr; } }
+
+.agent-plan { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px dashed rgba(255, 178, 74, 0.5); background: rgba(255, 178, 74, 0.05); }
+.agent-plan p { margin: 0; font-size: 13px; line-height: 1.55; }
