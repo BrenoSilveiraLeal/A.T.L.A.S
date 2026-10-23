@@ -68,7 +68,7 @@ export function LivePanel({ connected }: { connected: boolean }) {
           <div><span>Já entregue às IAs</span><strong>{brl(live.assigned)}</strong></div>
           <div><span>Livre para distribuir</span><strong>{brl(Math.max(0, free))}</strong></div>
         </div>
-        {live.ceiling <= 0 && <p className="muted">Primeiro deposite na Genial e defina o teto em &quot;Dinheiro do ATLAS na Genial&quot; (Configuração), com o mesmo valor que você depositou.</p>}
+        {live.ceiling <= 0 && <p className="muted">Primeiro deposite na Genial e defina o teto em &quot;Dinheiro do ATLAS na Genial&quot;, na tela Tesouraria, com o mesmo valor que você depositou.</p>}
         <div className="live-agents">
           {live.agents.filter((a) => !["DEAD", "FIRED"].includes(a.status)).map((a) => (
             <form key={a.id} className="live-agent" onSubmit={(e) => { e.preventDefault(); void send({ action: "budget", agentId: a.id, amount: budgets[a.id] ?? String(a.realBudget) }); }}>
