@@ -1,5 +1,6 @@
 import { loadNews } from "@/lib/news";
 import { loadContribution, mutateContribution } from "@/lib/contribution";
+import { loadLive, mutateLive } from "@/lib/live-view";
 import { cdiSince } from "@/lib/benchmark";
 import { z } from "zod";
 import { ApiError, requireOwner } from "@/lib/auth";
@@ -67,6 +68,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (resource === "benchmark")
       return json(await cdiSince(z.iso.date().parse(url.searchParams.get("from"))));
     if (resource === "contribution") return json(await loadContribution(adminClient(), user.id));
+    if (resource === "live") return json(await loadLive(adminClient(), user.id));
     if (resource === "news-tv") {
       const ticker = url.searchParams.get("ticker");
       return json(await loadNews(adminClient(), user.id, ticker === null ? undefined : tickerSchema.parse(ticker)));
@@ -271,6 +273,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
     if (resource === "controls") return json(await mutateControls(admin, user.id, body));
     if (resource === "contribution") return json(await mutateContribution(admin, user.id, body));
+    if (resource === "live") return json(await mutateLive(admin, user.id, body));
     if (resource === "agent-state") {
       const input = z
         .object({ id: z.uuid(), enabled: z.boolean() })

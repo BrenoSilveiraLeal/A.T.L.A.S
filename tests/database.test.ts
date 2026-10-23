@@ -361,6 +361,80 @@ describe("owner controls: agent autopilot, capital ceiling and withdrawals", () 
   });
 });
 
+describe("real money at Genial (live orders)", () => {
+  async function ready(ceiling = 1000, budget = 500) {
+    const a = await agent("Live fixture");
+    await db.query("select public.set_capital_ceiling($1,$2)", [owner, ceiling]);
+    await db.query("select public.set_agent_real_budget($1,$2,$3)", [owner, a.id, budget]);
+    await db.query("select public.set_live_settings($1,true,300,8,'LIGAR DINHEIRO REAL')", [owner]);
+    return a;
+  }
+  const order = (agentId: string, side: string, quantity: number, limit: string, paper: string | null = null) =>
+    db.query<{ id: string; symbol: string; reserved_cash: string; status: string }>(
+      "select * from public.live_create_order($1,$2,$3,$4,$5,'teste',$6)", [owner, agentId, side, quantity, limit, paper]);
+
+  it("only turns on with the typed confirmation, a ceiling and a funded agent", async () => {
+    const a = await agent("Switch");
+    await rejected("select public.set_live_settings($1,true,300,8,'sim')", [owner], "ATLAS_LIVE_CONFIRMATION_REQUIRED");
+    await rejected("select public.set_live_settings($1,true,300,8,'LIGAR DINHEIRO REAL')", [owner], "ATLAS_LIVE_CEILING_REQUIRED");
+    await db.query("select public.set_capital_ceiling($1,400)", [owner]);
+    await rejected("select public.set_live_settings($1,true,300,8,'LIGAR DINHEIRO REAL')", [owner], "ATLAS_LIVE_BUDGET_REQUIRED");
+    await rejected("select public.set_agent_real_budget($1,$2,500)", [owner, a.id], "ATLAS_REAL_BUDGET_ABOVE_CEILING");
+    await db.query("select public.set_agent_real_budget($1,$2,400)", [owner, a.id]);
+    await db.query("select public.set_live_settings($1,true,300,8,'LIGAR DINHEIRO REAL')", [owner]);
+    const state = await db.query<{ live_trading_enabled: boolean; global_kill_switch: boolean }>("select * from public.system_state where owner_id=$1", [owner]);
+    expect([state.rows[0].live_trading_enabled, state.rows[0].global_kill_switch]).toEqual([true, false]);
+  });
+
+  it("uses the fractional symbol, reserves money with Genial brokerage and blocks a second active order", async () => {
+    const a = await ready();
+    const buy = (await order(a.id, "BUY", 5, "30.00")).rows[0];
+    expect(buy.symbol).toBe("TEST3F");
+    expect(Number(buy.reserved_cash)).toBe(151.04); // 150 + 0,99 + 0,05 (B3)
+    await rejected("select public.live_create_order($1,$2,'BUY',1,10,'x',null)", [owner, a.id], "ATLAS_LIVE_ORDER_ACTIVE");
+    await rejected("select public.live_create_order($1,$2,'BUY',137,10,'x',null)", [owner, a.id], "ATLAS_LIVE_SPLIT_REQUIRED");
+  });
+
+  it("respects the order size, the agent budget and the kill switch", async () => {
+    const a = await ready(1000, 200);
+    await rejected("select public.live_create_order($1,$2,'BUY',20,20,'x',null)", [owner, a.id], "ATLAS_LIVE_MAX_ORDER");
+    await rejected("select public.live_create_order($1,$2,'BUY',10,20,'x',null)", [owner, a.id], "ATLAS_LIVE_AGENT_BUDGET");
+    await rejected("select public.live_create_order($1,$2,'SELL',1,20,'x',null)", [owner, a.id], "ATLAS_LIVE_NOT_ENOUGH_SHARES");
+    await db.query("select public.live_halt($1,'teste de parada')", [owner]);
+    await rejected("select public.live_create_order($1,$2,'BUY',1,20,'x',null)", [owner, a.id], "ATLAS_LIVE_DISABLED");
+  });
+
+  it("records broker deals once, with fees, position and realised result", async () => {
+    const a = await ready();
+    const buy = (await order(a.id, "BUY", 5, "30.00")).rows[0];
+    await db.query("select public.live_mark_order($1,$2,'DISPATCHED',null,null,null)", [owner, buy.id]);
+    await db.query("select public.live_mark_order($1,$2,'OPEN','777',0,null)", [owner, buy.id]);
+    const deal = { executionId: "d1", brokerOrderId: "777", side: "BUY", quantity: 5, price: "29.90", executedAt: new Date().toISOString() };
+    const first = await db.query<{ r: string }>("select public.live_record_fill($1,$2::jsonb) as r", [owner, JSON.stringify(deal)]);
+    const again = await db.query<{ r: string }>("select public.live_record_fill($1,$2::jsonb) as r", [owner, JSON.stringify(deal)]);
+    expect([first.rows[0].r, again.rows[0].r]).toEqual(["RECORDED", "DUPLICATE"]);
+    const other = await db.query<{ r: string }>("select public.live_record_fill($1,$2::jsonb) as r", [owner, JSON.stringify({ ...deal, executionId: "x", brokerOrderId: "999" })]);
+    expect(other.rows[0].r).toBe("NOT_ATLAS");
+    const pos = await db.query<{ quantity: number; cost: string }>("select quantity,cost from public.live_positions where owner_id=$1", [owner]);
+    expect([pos.rows[0].quantity, Number(pos.rows[0].cost)]).toEqual([5, 150.54]); // 149,50 + 0,99 + 0,05 (B3 rounded up)
+    const filled = await db.query<{ status: string; reserved_cash: string }>("select status,reserved_cash from public.live_orders where id=$1", [buy.id]);
+    expect([filled.rows[0].status, Number(filled.rows[0].reserved_cash)]).toEqual(["FILLED", 0]);
+    await rejected("select public.live_mark_order($1,$2,'CANCELLED',null,null,null)", [owner, buy.id], "ATLAS_LIVE_ORDER_FINAL");
+    const sell = (await order(a.id, "SELL", 5, "32.00")).rows[0];
+    await db.query("select public.live_mark_order($1,$2,'DISPATCHED',null,null,null)", [owner, sell.id]);
+    await db.query("select public.live_mark_order($1,$2,'FILLED','778',5,null)", [owner, sell.id]);
+    await db.query("select public.live_record_fill($1,$2::jsonb)", [owner, JSON.stringify({ ...deal, executionId: "d2", brokerOrderId: "778", side: "SELL", price: "32.00" })]);
+    const closed = await db.query<{ quantity: number; realized_pnl: string }>("select quantity,realized_pnl from public.live_positions where owner_id=$1", [owner]);
+    expect([closed.rows[0].quantity, Number(closed.rows[0].realized_pnl)]).toEqual([0, 8.42]); // 160 - 1,04 - 150,54
+  });
+
+  it("is invisible to anonymous users and cannot be called by them", async () => {
+    await db.exec("set local role anon");
+    await rejected("select * from public.live_orders", [], "permission denied");
+    await rejected("select public.live_halt($1,'x')", [owner], "permission denied");
+  });
+});
+
 describe("paper corporate actions from official B3 events", () => {
   const recent = () => new Date(Date.now() - 60000).toISOString();
   // Holds 10 virtual shares bought 10 days ago (fills are immutable; the trigger is paused only inside this rolled-back test).

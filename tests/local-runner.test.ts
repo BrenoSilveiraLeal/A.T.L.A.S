@@ -5,7 +5,8 @@ const configured = { ATLAS_APP_URL: "http://127.0.0.1:3000", LIVE_TRADING_ENABLE
 describe("local scheduler boundaries", () => {
   it("requires the exact local origin, explicit non-live mode and server credentials", () => {
     expect(validateLocalConfiguration(configured)).toEqual(configured);
-    for (const change of [{ ATLAS_APP_URL: "https://other.example" }, { ATLAS_APP_URL: "http://127.0.0.1:3000/redirect" }, { LIVE_TRADING_ENABLED: "true" }, { CRON_SECRET: "short" }, { SUPABASE_SERVICE_ROLE_KEY: "" }, { SESSION_COOKIE_SECURE: "true" }]) {
+    expect(validateLocalConfiguration({ ...configured, LIVE_TRADING_ENABLED: "true" })).toBeTruthy();
+    for (const change of [{ ATLAS_APP_URL: "https://other.example" }, { ATLAS_APP_URL: "http://127.0.0.1:3000/redirect" }, { LIVE_TRADING_ENABLED: "yes" }, { LIVE_TRADING_ENABLED: undefined }, { CRON_SECRET: "short" }, { SUPABASE_SERVICE_ROLE_KEY: "" }, { SESSION_COOKIE_SECURE: "true" }]) {
       expect(() => validateLocalConfiguration({ ...configured, ...change })).toThrow();
     }
   });

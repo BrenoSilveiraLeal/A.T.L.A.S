@@ -283,3 +283,24 @@
 .contribution-done strong { color: #3dffa8; }
 .contribution-done span, .contribution-note { font-size: 12px; color: #c9c2b6; }
 .contribution-out { margin: 0; padding-left: 18px; font-size: 12px; color: #c9c2b6; display: grid; gap: 4px; }
+
+/* ===== Dinheiro real ===== */
+.live-panel { display: grid; gap: 14px; margin-bottom: 24px; padding: 20px; border-radius: 18px; color: #eef4fb;
+  background: linear-gradient(160deg, rgba(14, 30, 40, 0.92), rgba(8, 10, 14, 0.95)); border: 1px solid rgba(94, 231, 255, 0.3); }
+.live-switches { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.live-switches li { font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255, 93, 125, 0.5); color: #ffb3c1; }
+.live-switches li::before { content: "○ "; }
+.live-switches li.on { border-color: rgba(61, 255, 168, 0.55); color: #9dffd2; }
+.live-switches li.on::before { content: "● "; }
+.live-money { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.live-money div { display: grid; gap: 4px; padding: 12px 14px; border-radius: 12px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(94, 231, 255, 0.15); }
+.live-money span { font-size: 11px; color: #9fb3c6; }
+.live-money strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.live-agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.live-agent { display: flex; align-items: end; gap: 8px; }
+.live-agent label { display: grid; gap: 4px; font-size: 13px; flex: 1; }
+.live-agent small { color: #9fb3c6; }
+.live-switch { display: grid; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid rgba(255, 178, 74, 0.45); background: rgba(255, 178, 74, 0.06); }
+.live-switch p { margin: 0; font-size: 13px; line-height: 1.5; }
+.live-switch input { max-width: 280px; }
+@media (max-width: 640px) { .live-money { grid-template-columns: 1fr; } }

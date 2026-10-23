@@ -15,6 +15,7 @@ const Office3D = dynamic(() => import("./office-3d").then((m) => m.Office3D), {
 });
 import { placeAgent } from "@/core/office";
 import { ContributionPanel } from "./contribution-panel";
+import { LivePanel } from "./live-panel";
 import { b3Session } from "@/core/b3-calendar";
 import type { HistoricalBar } from "@/providers/types";
 
@@ -118,6 +119,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
             <strong>{item.source}</strong> {item.title}</span>)}
         </div></div>}
       </div>
+      {view !== "tv" && <LivePanel connected={connected} />}
       {view !== "tv" && <ContributionPanel connected={connected} onApplied={() => setLocal((n) => n + 1)} />}
       {view === "full" && <NewsTv band={false} items={news.items} error={news.error} team={alive.map((a) => ({ name: text(a.name), ticker: text(assets.find((x) => x.id === a.asset_id)?.ticker) }))} />}
       {view === "full" && <details className="panel office-advanced">

@@ -10,7 +10,9 @@ export function validateLocalConfiguration(env) {
   if (!/^http:\/\/127\.0\.0\.1:3000\/?$/.test(env.ATLAS_APP_URL ?? "")) {
     throw new Error("Configure ATLAS_APP_URL=http://127.0.0.1:3000 para execução local.");
   }
-  if (env.LIVE_TRADING_ENABLED !== "false") throw new Error("A execução local exige LIVE_TRADING_ENABLED=false.");
+  // Real money runs only here (next to MetaTrader) and must be stated explicitly; the owner's
+  // panel switch and the bridge's own execution switch are still required on top of this.
+  if (!["true", "false"].includes(env.LIVE_TRADING_ENABLED)) throw new Error("Defina LIVE_TRADING_ENABLED=false (ou true para dinheiro real).");
   if (!env.CRON_SECRET || env.CRON_SECRET.length < 32 || /[\r\n]/.test(env.CRON_SECRET)) {
     throw new Error("Configure um CRON_SECRET de pelo menos 32 caracteres.");
   }
@@ -63,6 +65,30 @@ async function newsAiLoop(secret, signal) {
     if (result.status === "READ") console.log(JSON.stringify({ component: "news-ai", status: "READ" }));
     const wait = result.status === "READ" ? 5000 : result.status === "IDLE" ? 60000 : 120000;
     await delay(wait, undefined, { signal }).catch(() => {});
+  }
+}
+
+// Real-money tick (the server answers OFF unless every switch is on). Logs only the status.
+export async function tickLive(secret, signal, transport = fetch) {
+  try {
+    const response = await transport("http://127.0.0.1:3000/api/live", {
+      method: "POST", headers: { authorization: `Bearer ${secret}` },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(55000)]), redirect: "error",
+    });
+    if (!response.ok) return { status: "HTTP_ERROR", httpStatus: response.status };
+    const result = await response.json();
+    return typeof result?.status === "string" ? { status: result.status } : { status: "INVALID_RESPONSE" };
+  } catch { return { status: signal.aborted ? "STOPPED" : "UNAVAILABLE" }; }
+}
+
+async function liveLoop(secret, signal) {
+  let last = "";
+  while (!signal.aborted) {
+    const result = await tickLive(secret, signal);
+    if (signal.aborted) return;
+    if (result.status !== last) { console.log(JSON.stringify({ component: "live", status: result.status })); last = result.status; }
+    const fast = ["CHECKED", "MONITORING", "IDLE"].includes(result.status);
+    await delay(fast ? 20000 : 300000, undefined, { signal }).catch(() => {});
   }
 }
 
@@ -121,6 +147,7 @@ export async function runLocal() {
       });
     });
     console.log("ATLAS disponível em http://127.0.0.1:3000. Análises locais a cada 60 segundos; Ctrl+C encerra o programa.");
+    void liveLoop(env.CRON_SECRET, controller.signal);
     if (env.ATLAS_NEWS_AI) { console.log(`Leitura de notícias por IA ligada (${env.ATLAS_NEWS_AI}).`); void newsAiLoop(env.CRON_SECRET, controller.signal); }
     while (!controller.signal.aborted) {
       const started = Date.now();
