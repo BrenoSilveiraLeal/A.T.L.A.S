@@ -27,18 +27,24 @@ Fato documental adicional: **a versão Swing Trade é limitada ao sistema Nettin
 | Custódia externa | Posições de outros canais aparecem no MT5 Swing | Conciliação precisa separar posições do proprietário e dos agentes |
 | Custos | Ver site de custos; taxas B3 no site da B3 | Custódia zero e MT5 gratuito (páginas públicas); corretagem sem RLP pendente |
 
-Perguntas enviadas por e-mail para `canaldotrader@genial.com.vc`: corretagem no canal MT5 Swing sem RLP, taxas nos negócios do MT5, limites de envio automatizado, comportamento em queda de conexão e canal alternativo, uso em VPS, posição única ou separada entre PETR4 e PETR4F, consulta de saldo e retorno de rejeição, e tipo de preenchimento `Return`.
+### Respostas por e-mail (`canaldotrader@genial.com.vc`, 23/10/2026)
+
+| Pergunta | Resposta da Genial | Efeito no ATLAS |
+| --- | --- | --- |
+| Corretagem (Swing, sem RLP) | **R$ 2,99 por ordem de lote padrão; R$ 0,99 por ordem fracionada** | Simulação cobra o mesmo por ordem (`atlas_private.paper_fee`, migração `20261023210000`) além de ~0,03% da B3; uma ordem de 137 conta as duas pernas. Piloto não compra abaixo de R$ 100 (a corretagem passaria de 1%). Aporte mensal concentrado em até 2 IAs (~R$ 100 cada) |
+| Taxas no MT5 | **Não aparecem no MT5** | Custos vêm da tabela acima; a nota de corretagem é a conferência oficial. O executor real continua marcando `EXECUTION_FEES_UNVERIFIED` até existir conciliação com a nota |
+| Limite de envio | Sem limite da Genial; valem os limites da B3 (Manual de Procedimentos, item 2 "controle de mensagens", p. 86) | ATLAS mantém seus próprios limites (ordens por minuto/dia por agente) bem abaixo dos da B3 |
+| Ordem aberta e queda de conexão | Ordem aberta **continua valendo na B3**; só aparece no MT5; confirmação por chat ou 11 4004-8888 | Ponte passou a usar preenchimento **IOC**: executa na hora o que o limite permite e cancela o resto, sem ordem esquecida no livro. Ordem em estado incerto continua travando novos envios até conciliar |
+| VPS da Genial | Tem restrições de IP; algumas chamadas de API podem não rodar | Não usar a VPS da Genial para a ponte; preferir PC próprio ou VPS própria (Windows) |
+| PETR4 e PETR4F | **Posições separadas** (lote padrão e fracionado) | `mergeFractionalPositions` soma as duas pernas (preço médio ponderado) antes da conciliação |
+| Saldo | Não aparece no MT5 Swing; programar o robô para **não ler saldo**; sem saldo, a **rejeição** aparece no histórico de ordens | Fonte do caixa passa a ser o razão interno do ATLAS + teto declarado pelo proprietário; rejeição por saldo vira estado `REJECTED` conciliado. O bloqueio `COMPLETE_CASH_ACCOUNT_PROOF_REQUIRED` só sai quando o caminho real for terminado com essa regra |
+| Preenchimento | FOK (tudo ou nada) e IOC (executa o disponível e cancela o resto) | `symbol_info` de PETR4/PETR4F retornou `filling_mode = 3` (FOK+IOC) e execução de bolsa; `order_check` (sem envio) aceitou IOC e FOK e recusou RETURN fora do pregão ("No prices"). Ponte escolhe IOC |
 
 ### O que continua não confirmado
 
-- Nome exato do servidor Swing exibido no terminal. Só o proprietário consegue ler após o login.
-- Se `account_info().margin_mode` retorna `RETAIL_NETTING` ou `EXCHANGE` nessa conta. A [documentação MQL5](https://www.mql5.com/en/docs/constants/environment_state/accountinformation) define `EXCHANGE` para mercados de bolsa, sem declarar explicitamente que é netting. O perfil aceita ambos e recusa `RETAIL_HEDGING`.
-- Lista de ações à vista negociáveis no servidor Swing, mercado fracionário (`PETR4F`), lote, tick, `filling_mode` e se `LIMIT` + `DAY` são aceitos por símbolo.
-- Se o limite operacional do MT5 Swing é segregado do restante da conta ([estrutura de limite](https://suporte.genialinvestimentos.com.br/hc/pt-br/articles/4403328046868-Estrutura-de-limite-operacional)).
-- Custos totais por ordem nesse canal (corretagem efetiva, emolumentos, liquidação, ISS).
+- Se `account_info().margin_mode` retorna `RETAIL_NETTING` ou `EXCHANGE` nessa conta. O perfil aceita ambos e recusa `RETAIL_HEDGING`.
 - Comportamento do terminal após reconexão, reinício do Windows e troca de sessão.
-
-Nenhum desses itens vira `true` por configuração. O probe somente leitura (seção 4) produz a evidência para os quatro primeiros.
+- Primeira ordem real e primeira rejeição por saldo: só ocorrem com autorização explícita do proprietário.
 
 ## 2. Arquitetura do GenialMT5Executor
 

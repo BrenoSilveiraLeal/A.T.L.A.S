@@ -26,6 +26,8 @@ PAGE_SIZE = 500
 # Documented MQL5 flag values. The official Python wheel does not export these.
 SYMBOL_ORDER_LIMIT = 2
 SYMBOL_EXPIRATION_DAY = 2
+SYMBOL_FILLING_FOK = 1
+SYMBOL_FILLING_IOC = 2
 ACCOUNT_MARGIN_MODE_RETAIL_NETTING, ACCOUNT_MARGIN_MODE_EXCHANGE, ACCOUNT_MARGIN_MODE_RETAIL_HEDGING = 0, 1, 2
 # Broker profiles add stricter, broker-specific gates; they never widen GENERIC behaviour.
 # Genial (protocol 3975509, 2026-10-06): Day Trade and Swing Trade are distinct MT5
@@ -324,6 +326,16 @@ class Gateway:
 
     def _quantity(self, volume: Any, info: Any) -> int:
         return integer(decimal(volume) * decimal(get(info, "trade_contract_size")))
+
+    def _filling(self, info):
+        # Genial (23/10/2026) lists FOK and IOC for B3. IOC fills what the limit allows now and
+        # cancels the rest, so no forgotten order stays open at B3. RETURN only as a fallback.
+        mode = getattr(info, "filling_mode", None) or 0
+        if mode & SYMBOL_FILLING_IOC:
+            return self.api.ORDER_FILLING_IOC
+        if mode & SYMBOL_FILLING_FOK:
+            return self.api.ORDER_FILLING_FOK
+        return self.api.ORDER_FILLING_RETURN
 
     def _volume(self, quantity: Any, info: Any) -> float:
         if not isinstance(quantity, int) or isinstance(quantity, bool):
@@ -628,7 +640,7 @@ class Gateway:
                       "volume": self._volume(request["quantity"], info),
                       "type": self.api.ORDER_TYPE_BUY_LIMIT if request["side"] == "BUY" else self.api.ORDER_TYPE_SELL_LIMIT,
                       "price": self._price(request["limitPrice"], info), "type_time": self.api.ORDER_TIME_DAY,
-                      "type_filling": self.api.ORDER_FILLING_RETURN, "magic": MAGIC, "comment": marker}
+                      "type_filling": self._filling(info), "magic": MAGIC, "comment": marker}
         else:
             order_ticket = ticket(params["brokerOrderId"])
             row = self._raw_order(order_ticket)

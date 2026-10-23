@@ -8,6 +8,7 @@ import { adminClient } from "./supabase";
 import { required } from "./env";
 import { SupabaseExecutorStore } from "./executor-store";
 import { sendAlert } from "./alerts";
+import { mergeFractionalPositions } from "@/core/lots";
 
 /** Issues that need the owner; permanent pre-live gates (cash proof, fees) are not alerted. */
 const ALERTS: Record<string, string> = {
@@ -121,7 +122,8 @@ export async function runExecutor() {
       if (local.error || !local.data) throw new Error("RECONCILIATION_SNAPSHOT_UNAVAILABLE");
       const at = new Date().toISOString();
       const result = reconcileExecutorAccount({ local: local.data, localOrders: localStates.data.map((s) => s.state as ManagedOrder),
-        account, cash, positions, orders, complete: gateway.capabilities.completeAccountReconciliation,
+        // Genial lists PETR4 and PETR4F separately; ATLAS keeps one position per ticker.
+        account, cash, positions: mergeFractionalPositions(positions), orders, complete: gateway.capabilities.completeAccountReconciliation,
         now: at, maxAgeMs: 30_000 });
       await store.recordObservation(brokerId, `reconciliation:${randomUUID()}`, "RECONCILIATION", { result, account, cash, positions, orders });
       const persisted = await db.rpc("finish_executor_reconciliation", { p_owner_id: owner, p_broker_account_id: brokerId, p_result: result, p_local: local.data });

@@ -32,6 +32,12 @@ export interface AutopilotInput {
   lotSize: number;
   tickSize: string;
   feeBps: number;
+  /**
+   * Genial brokerage per order (swing, no RLP): R$ 2,99 standard lot + R$ 0,99 fractional.
+   * Worst case for one buy is both legs; the order is skipped when it is too small for the fee.
+   */
+  fixedFee?: number;
+  minOrderValue?: number;
   slippageBps: number;
   stopLossPct: number;
   /** Rule-based context; it can only brake: block buys, halve size or force an exit. */
@@ -88,7 +94,7 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     if (input.context?.action === "BLOCK_BUY" || input.context?.action === "EXIT")
       return hold(`sinal de compra bloqueado pelo contexto: ${input.context.summary}`);
     const limit = toTick(price.times(1 + (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "up");
-    const fullRoom = D.min(new D(input.budgetRoom), new D(input.maxOrderValue), new D(input.availableCash));
+    const fullRoom = D.min(new D(input.budgetRoom), new D(input.maxOrderValue), new D(input.availableCash)).minus(input.fixedFee ?? 0);
     const room = input.context?.action === "REDUCE" ? fullRoom.div(2) : fullRoom;
     const perShare = limit.times(1 + input.feeBps / 10000);
     const lots = room.lte(0) ? 0 : room.div(perShare.times(input.lotSize)).floor().toNumber();
@@ -96,6 +102,8 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     const quantity = Math.min(lots * input.lotSize, 1000000);
     if (quantity < input.lotSize || limit.times(quantity).gt(input.maxOrderValue))
       return hold(`sinal de compra, mas orçamento/caixa virtual não cobre um lote a ${limit.toFixed(2)}.`);
+    if (input.minOrderValue && limit.times(quantity).lt(input.minOrderValue))
+      return hold(`sinal de compra, mas a ordem (R$ ${limit.times(quantity).toFixed(2)}) é pequena demais: a corretagem pesaria mais de 1%. Espera juntar pelo menos R$ ${input.minOrderValue.toFixed(2)}.`);
     return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
       reason: `${input.ticker}: compra virtual automática (${why}${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION}, simulação.` };
   };

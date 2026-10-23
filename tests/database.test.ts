@@ -243,7 +243,10 @@ describe("paper trading isolated virtual book", () => {
       "select quantity,realized_pnl from public.paper_positions where owner_id=$1", [owner],
     );
     expect(closed.rows[0].quantity).toBe(1);
-    expect(Number(closed.rows[0].realized_pnl)).toBeGreaterThan(0);
+    // R$ 1 of gain on one share is eaten by Genial's R$ 0,99 fractional brokerage per order.
+    expect(Number(closed.rows[0].realized_pnl)).toBeLessThan(0);
+    const fees = await db.query<{ fee: string }>("select fee from public.paper_fills where owner_id=$1 order by filled_at", [owner]);
+    expect(fees.rows.map((f) => Number(f.fee))).toEqual([1, 1]);
     const balance = await db.query<{ total: string }>("select sum(amount) as total from public.paper_ledger_entries where owner_id=$1", [owner]);
     expect(Number(balance.rows[0].total)).toBe(0);
     const real = await db.query<{ count: string }>("select count(*) from public.orders where owner_id=$1", [owner]);

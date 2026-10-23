@@ -1,4 +1,5 @@
 import "server-only";
+
 import Decimal from "decimal.js";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -13,11 +14,14 @@ import { saoPauloClock } from "@/core/b3-calendar";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
 
+// R$ 0,99 of fractional brokerage stays under 1% only from about R$ 100 per order.
+const MIN_ORDER_VALUE = 100;
+
 const STOP_LOSS_PCT = 8;
 const accountSchema = z.object({
   cash: z.coerce.string(), reserved_cash: z.coerce.string(), max_order_value: z.coerce.string(),
   max_exposure: z.coerce.string(), fee_bps: z.number(), slippage_bps: z.number(),
-  paused: z.boolean(), autopilot: z.boolean(),
+  paused: z.boolean(), autopilot: z.boolean(), fee_lot: z.coerce.number().optional(), fee_fraction: z.coerce.number().optional(),
 }).loose();
 
 function rows<T>(result: { data: T | null; error: unknown }): T {
@@ -94,6 +98,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     maxOrderValue: account.max_order_value, availableCash: availableCash.toFixed(2),
     lotSize: rows(asset).lot_size, tickSize: String(rows(asset).tick_size),
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,
+    fixedFee: Number(account.fee_lot ?? 0) + Number(account.fee_fraction ?? 0), minOrderValue: MIN_ORDER_VALUE,
     context: input.context,
     trailing,
   });

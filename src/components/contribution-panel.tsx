@@ -7,7 +7,8 @@ type Row = { agentId: string; name: string; ticker: string; amount: number; reas
 type State = {
   month: string; today: number; amount: number; day: number; configured: boolean;
   applied: { month: string; amount: string; reserve: string; allocation: { agentId: string; amount: string }[] } | null;
-  suggestion: { amount: number; rows: Row[]; reserve: number; reserveReason: string } | null;
+  suggestion: { amount: number; rows: Row[]; reserve: number; reserveReason: string;
+    skipped: { name: string; ticker: string; reason: string }[]; waiting: { name: string; ticker: string; reason: string }[] } | null;
   history: { month: string; amount: string; reserve: string }[];
 };
 const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -72,13 +73,16 @@ export function ContributionPanel({ connected, onApplied }: { connected: boolean
               {state.suggestion.rows.map((r) => (
                 <li key={r.agentId}><span><b>{r.name}</b> <small>{r.ticker}</small></span><strong>{brl(r.amount)}</strong><em>{r.reason}</em></li>
               ))}
-              <li className="reserve"><span><b>Reserva</b> <small>caixa</small></span><strong>{brl(state.suggestion.reserve)}</strong><em>{state.suggestion.reserveReason}</em></li>
+              {state.suggestion.reserve > 0 && <li className="reserve"><span><b>Reserva</b> <small>caixa</small></span><strong>{brl(state.suggestion.reserve)}</strong><em>{state.suggestion.reserveReason}</em></li>}
             </ul>
+            {[...state.suggestion.skipped, ...state.suggestion.waiting].length > 0 && <ul className="contribution-out">
+              {[...state.suggestion.skipped, ...state.suggestion.waiting].map((x) => <li key={x.ticker}><b>{x.name}</b> ({x.ticker}): {x.reason}</li>)}
+            </ul>}
             <button type="button" className="secondary" disabled={busy} onClick={() => void send({ action: "apply" })}>Aplicar o aporte deste mês agora (simulação)</button>
           </>
         )}
-        {!state.configured && <p className="muted">Defina o valor (por exemplo R$ 200) e o dia. Todo mês a IA gestora divide o dinheiro: mais para as IAs que vão bem e cujas ações estão subindo; nada para ações em queda ou com notícia ruim (essa parte fica na reserva).</p>}
-        <p className="muted contribution-note">Na simulação o dinheiro entra sozinho no dia escolhido (com o ATLAS ligado). Na conta real, quem transfere é você: faça o PIX para a Genial pelo app. O ATLAS nunca movimenta seu dinheiro. Com R$ 200 dá para comprar ações fracionadas (1 a 99 ações).</p>
+        {!state.configured && <p className="muted">Defina o valor (por exemplo R$ 200) e o dia. Todo mês a IA gestora escolhe até 2 IAs (cerca de R$ 100 cada, para a corretagem de R$ 0,99 pesar perto de 1%): as que vão bem e cujas ações estão subindo. Ações em queda ou com notícia ruim não recebem nada.</p>}
+        <p className="muted contribution-note">Na simulação o dinheiro entra sozinho no dia escolhido (com o ATLAS ligado). Na conta real, quem transfere é você: faça o PIX para a Genial pelo app. O ATLAS nunca movimenta seu dinheiro. Corretagem Genial: R$ 0,99 por ordem fracionada (1 a 99 ações) e R$ 2,99 por lote de 100, já descontada na simulação.</p>
         {state.history.length > 0 && <p className="muted">Histórico: {state.history.map((h) => `${monthName(h.month)} ${brl(h.amount)}`).join(" · ")}</p>}
       </>}
     </section>

@@ -181,7 +181,8 @@ export function RealMoneyChecklist({ connected }: { connected: boolean }) {
     ["Teto de dinheiro definido", controls ? Number(controls.ceiling) > 0 : null, "Defina na Carteira quanto as IAs podem usar."],
     ["Plataforma SwingTrade confirmada", true, "Genial confirmou: MT5 SwingTrade, servidor GenialInvestimentos-PRD, posição pode passar de um dia para o outro."],
     ["Regras de lote e saldo confirmadas", true, "Lote padrão em múltiplos de 100; 1 a 99 ações pelo código F (fracionário); Swing usa o saldo da conta."],
-    ["Respostas pendentes da Genial (corretagem, taxas, limites, VPS, fracionário)", false, "Enviadas por e-mail para canaldotrader@genial.com.vc. Cole a resposta no chat com o Claude."],
+    ["Respostas da Genial aplicadas (corretagem, taxas, limites, VPS, fracionário)", true, "Corretagem R$ 0,99 fracionário e R$ 2,99 lote na simulação; posições PETR4 + PETR4F somadas; ordens IOC; saldo lido do controle interno do ATLAS."],
+    ["Caminho da ordem real terminado", false, "Falta ligar a decisão da IA ao envio na Genial usando o caixa interno do ATLAS (a Genial não informa saldo) e conferir as taxas pela nota de corretagem."],
     ["Regra das IAs aprovada no backtest", false, "Nenhuma regra testada superou o CDI e o comprar e segurar ainda (docs/BACKTEST_STRATEGIES.md)."],
     ["Primeira ordem real de validação autorizada por você", false, "Pequena, com ação, quantidade e preço escolhidos por você."],
   ];

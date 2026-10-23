@@ -23,7 +23,7 @@ class TerminalFixture:
     ORDER_TYPE_BUY_LIMIT, ORDER_TYPE_SELL_LIMIT = 2, 3
     ORDER_TYPE_BUY_STOP, ORDER_TYPE_SELL_STOP = 4, 5
     ORDER_TYPE_BUY_STOP_LIMIT, ORDER_TYPE_SELL_STOP_LIMIT = 6, 7
-    ORDER_TIME_DAY, ORDER_FILLING_RETURN = 1, 2
+    ORDER_TIME_DAY, ORDER_FILLING_RETURN, ORDER_FILLING_IOC, ORDER_FILLING_FOK = 1, 2, 3, 4
     ORDER_STATE_STARTED, ORDER_STATE_PLACED, ORDER_STATE_CANCELED = 0, 1, 2
     ORDER_STATE_PARTIAL, ORDER_STATE_FILLED, ORDER_STATE_REJECTED, ORDER_STATE_EXPIRED = 3, 4, 5, 6
     DEAL_TYPE_BUY, DEAL_TYPE_SELL, DEAL_TYPE_BUY_CANCELED, DEAL_TYPE_SELL_CANCELED = 0, 1, 13, 14
@@ -166,8 +166,14 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(self.request["quantity"], result["request"]["quantity"])
         sent = self.api.sent[0]
         self.assertEqual(self.api.TRADE_ACTION_PENDING, sent["action"])
-        self.assertEqual(self.api.ORDER_FILLING_RETURN, sent["type_filling"])
+        self.assertEqual(self.api.ORDER_FILLING_RETURN, sent["type_filling"])  # fake symbol advertises no FOK/IOC
         self.assertEqual(self.api.ORDER_TIME_DAY, sent["type_time"])
+
+    def test_genial_symbols_use_ioc(self):
+        # Genial advertises FOK|IOC (filling_mode 3) on B3 symbols: fill now up to the limit, cancel the rest.
+        self.api.symbol.filling_mode = 3
+        self.submit()
+        self.assertEqual(self.api.ORDER_FILLING_IOC, self.api.sent[0]["type_filling"])
 
     def test_dispatch_is_durable_before_sdk_send(self):
         def inspect_database():
