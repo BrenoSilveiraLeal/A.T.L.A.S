@@ -28,7 +28,13 @@ export async function runScheduler() {
     p_window_seconds: 55,
   });
   if (rate.error) throw rate.error;
-  if (!rate.data) return { skipped: "RECENT_TICK", jobs: [] };
+  if (!rate.data) {
+    // Another scheduler (e.g. the cloud one) already ran this minute's analyses. The light,
+    // idempotent extras still run here: they are each rate-limited or once per month.
+    await loadNews(db, owner).catch(() => undefined);
+    await maybeContribute(db, owner).catch(() => undefined);
+    return { skipped: "RECENT_TICK", jobs: [] };
+  }
   // Housekeeping is bounded and never deletes decisions, orders or financial evidence.
   // A maintenance failure degrades health without preventing read-only analysis.
   const maintenanceRate = await db.rpc("consume_rate_limit", {
