@@ -1,6 +1,7 @@
 import { loadNews } from "@/lib/news";
 import { loadContribution, mutateContribution } from "@/lib/contribution";
 import { loadLive, mutateLive } from "@/lib/live-view";
+import { loadCosts } from "@/lib/costs";
 import { cdiSince } from "@/lib/benchmark";
 import { z } from "zod";
 import { ApiError, requireOwner } from "@/lib/auth";
@@ -69,6 +70,7 @@ export async function GET(request: Request, context: RouteContext) {
       return json(await cdiSince(z.iso.date().parse(url.searchParams.get("from"))));
     if (resource === "contribution") return json(await loadContribution(adminClient(), user.id));
     if (resource === "live") return json(await loadLive(adminClient(), user.id));
+    if (resource === "costs") return json(await loadCosts(adminClient(), user.id));
     if (resource === "news-tv") {
       const ticker = url.searchParams.get("ticker");
       return json(await loadNews(adminClient(), user.id, ticker === null ? undefined : tickerSchema.parse(ticker)));

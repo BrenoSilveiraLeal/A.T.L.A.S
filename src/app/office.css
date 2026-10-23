@@ -307,3 +307,11 @@
 
 .agent-plan { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px dashed rgba(255, 178, 74, 0.5); background: rgba(255, 178, 74, 0.05); }
 .agent-plan p { margin: 0; font-size: 13px; line-height: 1.55; }
+.costs-panel { display: grid; gap: 12px; margin-bottom: 24px; padding: 20px; border-radius: 18px; color: #eef4fb;
+  background: rgba(12, 16, 22, 0.92); border: 1px solid rgba(255, 93, 125, 0.25); }
+.segmented { display: inline-flex; border: 1px solid rgba(94, 231, 255, 0.3); border-radius: 999px; overflow: hidden; }
+.segmented button { border: 0; border-radius: 0; background: transparent; color: #9fb3c6; padding: 6px 14px; min-height: 34px; font-size: 13px; }
+.segmented button.active { background: rgba(94, 231, 255, 0.15); color: #eef4fb; }
+.contribution-form { justify-content: flex-start; }
+.contribution-form label { flex: 0 0 200px; width: 200px; max-width: 200px; margin: 0; text-align: left; align-items: stretch; }
+.contribution-form button { align-self: end; }
