@@ -21,3 +21,6 @@ __pycache__/
 *.sqlite3-wal
 *.sqlite3-shm
 .venv-mt5/
+
+# Claude Code local settings (personal permissions)
+.claude/settings.local.json
