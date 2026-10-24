@@ -4,7 +4,7 @@ import { buyAndHoldStrategy, researchActions, researchBars, type DailyRow } from
 import { trailingHoldResearchStrategy } from "@/core/strategies";
 import { runBacktest, type ResearchConfig, type ResearchStrategy } from "@/core/research";
 import { isinPrefix, type CorporateEvent } from "@/core/corporate-actions";
-import { fetchB3Events } from "@/providers/b3-events";
+import { fetchB3CashHistory, fetchB3Events } from "@/providers/b3-events";
 
 /**
  * Opt-in, stock by stock: the agents' rule (15% trailing stop, re-entry on a 20-day high) with
@@ -39,11 +39,18 @@ it.skipIf(!CSV)("ranks stocks for the agents' rule with the never-sell-at-a-loss
     const rows = all.filter((r) => r.ticker === t);
     return rows.length >= 500 && Date.parse(last) - Date.parse(rows.at(-1)!.date) <= 10 * 86400000;
   });
+  // Exact ISIN from the official file: also covers units (TAEE11, BPAC11...), whose dividends
+  // a share-class prefix would miss.
+  const isinOf = new Map(all.map((r) => [r.ticker, (r as unknown as { isin: string }).isin]));
   const events = new Map<string, CorporateEvent[]>();
   for (const t of tickers) {
-    const prefix = isinPrefix(t);
+    const isin = isinOf.get(t) ?? isinPrefix(t);
     for (let attempt = 0; attempt < 2 && !events.has(t); attempt++) {
-      try { events.set(t, (await fetchB3Events(t.slice(0, 4))).filter((e) => prefix && e.isin.startsWith(prefix))); }
+      try {
+        // Stock events from the summary service; every dividend/JCP since 2023 from the full history.
+        const stock = (await fetchB3Events(t.slice(0, 4))).filter((e) => e.kind !== "CASH" && isin && e.isin.startsWith(isin));
+        events.set(t, [...stock, ...(await fetchB3CashHistory(t))]);
+      }
       catch { await new Promise((r) => setTimeout(r, 3000)); }
     }
   }
@@ -71,7 +78,7 @@ it.skipIf(!CSV)("ranks stocks for the agents' rule with the never-sell-at-a-loss
   const both = (r: (typeof table)[number]) => r.rule[1]!.metrics.totalReturn > benchmarks[1] && r.rule[2]!.metrics.totalReturn > benchmarks[2];
   const out = [`# Quais ações para as IAs`, "",
     `Gerado em ${new Date().toISOString().slice(0, 10)} por \`tests/research-stocks.test.ts\` (execução manual). ${table.length} ações líquidas da B3 com histórico oficial (COTAHIST) de ${all.reduce((m, r) => (r.date < m ? r.date : m), "9999")} a ${last}.`,
-    "", `**Regra testada:** a das IAs (compra ao passar da máxima de 20 pregões, vende após cair 15% do topo) **com a regra do dono: nunca vender abaixo de 1% acima do preço de compra**. R$ 1.000 por ação em fracionário, corretagem Genial R$ 0,99 por ordem, taxas B3 0,03%, spread e slippage. Decisão no fechamento, execução na abertura seguinte. Sem imposto e sem dividendos.`,
+    "", `**Regra testada:** a das IAs (compra ao passar da máxima de 20 pregões, vende após cair 15% do topo) **com a regra do dono: nunca vender abaixo de 1% acima do preço de compra**. R$ 1.000 por ação em fracionário, corretagem Genial R$ 0,99 por ordem, taxas B3 0,03%, spread e slippage. Decisão no fechamento, execução na abertura seguinte. Dividendos e JCP incluídos pelo histórico completo da B3 (JCP com 15% de IR descontado; pagamento aproximado em 30 dias após a data com); sem imposto sobre ganho.`,
     "", `CDI: período todo ${pct(benchmarks[0])} · 2023–2024 ${pct(benchmarks[1])} · 2025–2026 ${pct(benchmarks[2])}.`, "",
     "| Ação | Preço atual | Regra (todo) | 2023–2024 | 2025–2026 | Comprar e segurar | Pior queda | Operações | Bate o CDI nas duas metades |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",

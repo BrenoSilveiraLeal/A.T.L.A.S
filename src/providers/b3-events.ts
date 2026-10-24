@@ -77,3 +77,44 @@ export async function fetchB3Events(issuer: string, transport: typeof fetch = fe
     throw new ProviderError("b3", "INVALID_RESPONSE");
   }
 }
+
+const B3_COMPANY = "https://sistemaswebb3-listados.b3.com.br/listedCompaniesProxy/CompanyCall/";
+const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64");
+const CLASS_BY_SUFFIX: Record<string, string> = { "3": "ON", "4": "PN", "5": "PNA", "6": "PNB", "11": "UNT" };
+
+async function getJson(url: string): Promise<unknown> {
+  let response: Response;
+  try { response = await fetch(url, { redirect: "error", cache: "no-store", signal: AbortSignal.timeout(20_000) }); }
+  catch { throw new ProviderError("b3", "TIMEOUT"); }
+  if (!response.ok) { await response.body?.cancel(); throw new ProviderError("b3", "UNAVAILABLE", response.status); }
+  return response.json();
+}
+
+/**
+ * Full cash-dividend history (dividends and JCP, all years) for one ticker, from the B3
+ * listed-companies service. The summary endpoint above only lists recent events. This one has
+ * no payment date: payment is approximated as 30 days after the "data com" (research only).
+ */
+export async function fetchB3CashHistory(ticker: string): Promise<B3Event[]> {
+  const match = /^([A-Z]{4})(\d{1,2})$/.exec(ticker);
+  const typeStock = match ? CLASS_BY_SUFFIX[match[2]] : undefined;
+  if (!match || !typeStock) throw new ProviderError("b3", "INVALID_INPUT");
+  const companies = z.object({ results: z.array(z.object({ issuingCompany: z.string(), tradingName: z.string() }).loose()) }).loose()
+    .parse(await getJson(`${B3_COMPANY}GetInitialCompanies/${encode({ language: "pt-br", pageNumber: 1, pageSize: 20, company: match[1] })}`));
+  const tradingName = companies.results.find((c) => c.issuingCompany === match[1])?.tradingName;
+  if (!tradingName) throw new ProviderError("b3", "INVALID_RESPONSE");
+  const rowSchema = z.object({ typeStock: z.string(), valueCash: decimal, corporateAction: z.string(), lastDatePriorEx: date }).loose();
+  const pageSchema = z.object({ page: z.object({ totalPages: z.number().int().min(0).max(50) }).loose(), results: z.array(rowSchema).max(500) }).loose();
+  const events: B3Event[] = [];
+  for (let page = 1, total = 1; page <= total; page++) {
+    const body = pageSchema.parse(await getJson(`${B3_COMPANY}GetListedCashDividends/${encode({ language: "pt-br", pageNumber: page, pageSize: 120, tradingName })}`));
+    total = body.page.totalPages;
+    for (const row of body.results) {
+      if (row.typeStock !== typeStock || !/DIVIDENDO|JRS CAP PROPRIO|RENDIMENTO/.test(row.corporateAction)) continue;
+      const exDate = iso(row.lastDatePriorEx);
+      const paid = new Date(Date.parse(`${exDate}T12:00:00Z`) + 30 * 86400000).toISOString().slice(0, 10);
+      events.push({ kind: "CASH", label: row.corporateAction, isin: ticker, value: plain(row.valueCash), lastDatePrior: exDate, paymentDate: paid });
+    }
+  }
+  return events;
+}
