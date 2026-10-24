@@ -3,9 +3,11 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { required, secureCookies } from "./env";
+import { REMEMBER_COOKIE, sessionMaxAge } from "./session-cookie";
 
-export async function sessionClient() {
+export async function sessionClient(remember?: boolean) {
   const jar = await cookies();
+  const maxAge = sessionMaxAge(remember ?? jar.get(REMEMBER_COOKIE)?.value === "1");
   return createServerClient(
     required("SUPABASE_URL"),
     required("SUPABASE_PUBLISHABLE_KEY"),
@@ -15,7 +17,7 @@ export async function sessionClient() {
         secure: secureCookies(),
         sameSite: "strict",
         path: "/",
-        maxAge: 3600,
+        maxAge,
       },
       cookies: {
         getAll: () => jar.getAll(),
@@ -27,7 +29,7 @@ export async function sessionClient() {
                 httpOnly: true,
                 secure: secureCookies(),
                 sameSite: "strict",
-                maxAge: options.maxAge === 0 ? 0 : 3600,
+                maxAge: options.maxAge === 0 ? 0 : maxAge,
               }),
             );
           } catch {

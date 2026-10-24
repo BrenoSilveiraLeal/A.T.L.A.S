@@ -10,7 +10,7 @@ describe("monthly contribution (R$ 200): every active agent gets an equal share"
     const plan = planContribution(200, team);
     expect(plan.rows.map((r) => r.amount)).toEqual([33, 33, 33, 33, 33, 33]);
     expect(plan.reserve).toBe(2);
-    expect(plan.rows[0].reason).toContain("R$ 100");
+    expect(plan.rows[0].reason).toContain("R$ 80");
   });
 
   it("leaves out retired and eliminated agents", () => {

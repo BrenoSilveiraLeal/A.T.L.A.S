@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { REMEMBER_COOKIE, sessionMaxAge } from "@/lib/session-cookie";
 
 export async function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
@@ -10,6 +11,7 @@ export async function proxy(request: NextRequest) {
   headers.set("Content-Security-Policy", csp);
   let response = NextResponse.next({ request: { headers } });
   if (process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY) {
+    const maxAge = sessionMaxAge(request.cookies.get(REMEMBER_COOKIE)?.value === "1");
     const client = createServerClient(
       process.env.SUPABASE_URL,
       process.env.SUPABASE_PUBLISHABLE_KEY,
@@ -19,7 +21,7 @@ export async function proxy(request: NextRequest) {
           secure: process.env.SESSION_COOKIE_SECURE !== "false" && !dev,
           sameSite: "strict",
           path: "/",
-          maxAge: 3600,
+          maxAge,
         },
         cookies: {
           getAll: () => request.cookies.getAll(),
@@ -35,7 +37,7 @@ export async function proxy(request: NextRequest) {
                 httpOnly: true,
                 secure: process.env.SESSION_COOKIE_SECURE !== "false" && !dev,
                 sameSite: "strict",
-                maxAge: options.maxAge === 0 ? 0 : 3600,
+                maxAge: options.maxAge === 0 ? 0 : maxAge,
               }),
             );
           },

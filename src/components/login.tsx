@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
@@ -11,6 +11,12 @@ export function Login({ configured }: { configured: boolean }) {
   const [secret, setSecret] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  // The e-mail (never the password) is kept on this device when "Lembrar de mim" is on.
+  const [remember, setRemember] = useState(true);
+  const emailField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    try { const saved = localStorage.getItem("atlas-email"); if (saved && emailField.current && !emailField.current.value) emailField.current.value = saved; } catch { /* storage blocked */ }
+  }, [step]);
   async function send(body: object) {
     setBusy(true);
     setError("");
@@ -61,10 +67,13 @@ export function Login({ configured }: { configured: boolean }) {
             onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
+              const email = String(f.get("email") ?? "");
+              try { if (remember) localStorage.setItem("atlas-email", email); else localStorage.removeItem("atlas-email"); } catch { /* storage blocked */ }
               void send({
                 action: "login",
-                email: f.get("email"),
+                email,
                 password: f.get("password"),
+                remember,
               });
             }}
           >
@@ -74,6 +83,7 @@ export function Login({ configured }: { configured: boolean }) {
                 name="email"
                 type="email"
                 autoComplete="username"
+                ref={emailField}
                 required
               />
             </label>
@@ -85,6 +95,10 @@ export function Login({ configured }: { configured: boolean }) {
                 autoComplete="current-password"
                 required
               />
+            </label>
+            <label className="remember-me">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              Lembrar de mim por 30 dias neste aparelho
             </label>
             <button disabled={busy}>
               {busy ? "Verificando…" : "Continuar"}

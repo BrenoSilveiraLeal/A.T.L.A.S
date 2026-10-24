@@ -81,7 +81,7 @@ export function ContributionPanel({ connected, onApplied }: { connected: boolean
             <button type="button" className="secondary" disabled={busy} onClick={() => void send({ action: "apply" })}>Aplicar o aporte deste mês agora (simulação)</button>
           </>
         )}
-        {!state.configured && <p className="muted">Defina o valor (por exemplo R$ 200) e o dia. Todo mês a IA gestora escolhe até 2 IAs (cerca de R$ 100 cada, para a corretagem de R$ 0,99 pesar perto de 1%): as que vão bem e cujas ações estão subindo. Ações em queda ou com notícia ruim não recebem nada.</p>}
+        {!state.configured && <p className="muted">Defina o valor (por exemplo R$ 200) e o dia. Todo mês o valor é dividido igualmente entre as IAs ativas (R$ 33 cada com R$ 200 e 6 IAs). Cada uma junta a sua parte e compra quando tiver R$ 80, cerca de 3 meses, para a corretagem de R$ 0,99 pesar perto de 1%.</p>}
         <p className="muted contribution-note">Na simulação o dinheiro entra sozinho no dia escolhido (com o ATLAS ligado). Na conta real, quem transfere é você: faça o PIX para a Genial pelo app. O ATLAS nunca movimenta seu dinheiro. Corretagem Genial: R$ 0,99 por ordem fracionada (1 a 99 ações) e R$ 2,99 por lote de 100, já descontada na simulação.</p>
         {state.history.length > 0 && <p className="muted">Histórico: {state.history.map((h) => `${monthName(h.month)} ${brl(h.amount)}`).join(" · ")}</p>}
       </>}

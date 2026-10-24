@@ -18,7 +18,7 @@ export const TRAILING_VERSION = "paper-autopilot-trailing15/1.0.0";
 /**
  * Owner's rule (24/10/2026): "comprar na baixa, vender na alta" done the way that held up on
  * B3 history 2023–2026 (docs/BACKTEST_ACUMULAR.md): the agent buys with every share of the
- * monthly contribution as soon as it has R$ 100 (fixed money buys more shares when the price is
+ * monthly contribution as soon as it has the minimum order (R$ 80) (fixed money buys more shares when the price is
  * low, which lowers the average), holds through falls, and sells everything only after a big
  * gain over its average (`targetPct`) once the price has turned `turnPct` down from its top.
  * Never at a loss. The only rule tested that beat the CDI in both 2023–24 and 2025–26.

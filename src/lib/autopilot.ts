@@ -15,8 +15,8 @@ import { minimumSellPrice } from "@/core/live";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
 
-// R$ 0,99 of fractional brokerage stays under 1% only from about R$ 100 per order.
-const MIN_ORDER_VALUE = 100;
+// R$ 0,99 of fractional brokerage is about 1,2% at R$ 80: three monthly shares of R$ 33 buy once.
+const MIN_ORDER_VALUE = 80;
 
 const STOP_LOSS_PCT = 8;
 // Owner's rule: sell only after +60% over the average price and an 8% turn from the top.
@@ -134,8 +134,12 @@ async function trailingInputs(db: SupabaseClient, owner: string, agentId: string
   const stored = (await loadBars(db, ticker, 1000)).filter((b) => b.trade_date < today);
   if (stored.length < 20) return undefined;
   const adjusted = adjustStoredBars(stored, stockEvents).map((b, i) => ({ date: stored[i].trade_date, close: Number(b.close) }));
+  // Only fills of the current book count: a restart closes the old positions.
+  const restart = maybe(await db.from("paper_book_restarts").select("started_at").eq("owner_id", owner)
+    .order("started_at", { ascending: false }).limit(1).maybeSingle()) as { started_at: string } | null;
   const fills = maybe(await db.from("paper_fills").select("side,quantity,filled_at").eq("owner_id", owner).eq("agent_id", agentId)
-    .eq("asset_id", assetId).order("filled_at", { ascending: true })) as { side: string; quantity: number; filled_at: string }[] | null;
+    .eq("asset_id", assetId).gt("filled_at", restart?.started_at ?? "1970-01-01T00:00:00Z")
+    .order("filled_at", { ascending: true })) as { side: string; quantity: number; filled_at: string }[] | null;
   let quantity = 0, entryDate: string | null = null;
   for (const fill of fills ?? []) {
     const before = quantity;

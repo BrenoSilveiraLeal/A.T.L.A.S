@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { cookies } from "next/headers";
+import { REMEMBER_COOKIE, REMEMBER_SECONDS } from "@/lib/session-cookie";
+import { secureCookies } from "@/lib/env";
 import { requireOwner, ApiError } from "@/lib/auth";
 import { adminClient, sessionClient } from "@/lib/supabase";
 import { required } from "@/lib/env";
@@ -9,6 +12,7 @@ const schema = z.discriminatedUnion("action", [
     action: z.literal("login"),
     email: z.email().max(254),
     password: z.string().min(1).max(256),
+    remember: z.boolean().optional(),
   }),
   z.object({ action: z.literal("enroll") }),
   z.object({
@@ -26,7 +30,11 @@ export async function POST(request: Request) {
     if (body.action === "login") {
       // Password attempts are governed by Supabase Auth's native rate limits.
       // Do not create an unauthenticated global bucket that can lock out the owner.
-      const db = await sessionClient();
+      const remember = body.remember === true;
+      const jar = await cookies();
+      if (remember) jar.set(REMEMBER_COOKIE, "1", { httpOnly: true, secure: secureCookies(), sameSite: "strict", path: "/", maxAge: REMEMBER_SECONDS });
+      else jar.delete(REMEMBER_COOKIE);
+      const db = await sessionClient(remember);
       const { data, error } = await db.auth.signInWithPassword({
         email: body.email,
         password: body.password,
@@ -50,6 +58,7 @@ export async function POST(request: Request) {
     if (body.action === "logout") {
       const result = await db.auth.signOut();
       if (result.error) throw result.error;
+      (await cookies()).delete(REMEMBER_COOKIE);
       return json({ ok: true });
     }
     const limit = await adminClient().rpc("consume_rate_limit", {
