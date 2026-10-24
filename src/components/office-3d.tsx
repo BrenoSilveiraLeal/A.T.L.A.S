@@ -8,53 +8,63 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { formatBrl } from "@/core/format";
 import type { OfficeZone } from "@/core/office";
-import { OfficeMap, type OfficeAgent } from "./office-map";
+import type { Vote } from "@/core/committee";
+import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
 
 /**
- * 3D office (three.js). Every robot is a real agent placed by `placeAgent`; it walks along the
- * corridors to its room whenever its activity changes. Decorative staff (reception, research,
- * risk) are labelled by role and never show money. Falls back to the 2D map without WebGL.
+ * 3D office (three.js). One desk per agent: its monitors show the real daily candles of its stock
+ * and the price now. Three meeting rooms, each with three specialist robots (Risco, Balanço,
+ * Estratégia): an agent that is analysing walks into a free room and the room shows the debate
+ * and the chart under discussion. A big market panel shows the whole team's stocks. Replaced
+ * agents are deleted, so there is no exit room. Falls back to the 2D map without WebGL.
  */
 type V2 = [number, number];
 interface Slot { pos: V2; face: number; pose: "sit" | "stand" | "type" | "cue"; route: V2[] }
 interface Robot {
   group: THREE.Group; legs: THREE.Group[]; arms: THREE.Group[]; body: THREE.Group; cue: THREE.Mesh;
-  label: CSS2DObject; labelEl: HTMLDivElement; path: V2[]; slot: Slot | null; key: string; phase: number; ghost: boolean;
+  label: CSS2DObject; labelEl: HTMLDivElement; path: V2[]; slot: Slot | null; key: string; phase: number;
 }
 
 const CORRIDOR_Z = -4.8;
-const DESKS: V2[] = [[-8, -1], [-3, -1], [2, -1], [7, -1], [-8, 5], [-3, 5], [2, 5], [7, 5]];
-const TABLE: V2 = [-9.5, -9.4];
-const money = (v: number | null) => (v === null ? "—" : `${v >= 0 ? "+" : "−"}${formatBrl(Math.abs(v).toFixed(2))}`);
-const tone = (v: number | null) => (v === null || Math.abs(v) < 0.005 ? "flat" : v > 0 ? "gain" : "loss");
+// Robot size: small enough that seated robots never cover the room screens.
+const ROBOT_SCALE = 1.7;
+const DESKS: V2[] = [[-8, -1], [-2, -1], [4, -1], [-8, 5], [-2, 5], [4, 5]];
+const BACK: [number, number] = [-13, -5.6];
+const MEETING_ROOMS = [[-23, -14.5], [-14, -5.5], [-5, 3.5]].map(([x1, x2]) => ({ x1, x2, table: [(x1 + x2) / 2, -9.7] as V2 }));
+const SPECIALISTS: { role: string; color: number }[] = [{ role: "Risco", color: 0xff9f43 }, { role: "Balanço", color: 0x4fb6ff }, { role: "Estratégia", color: 0x3dffa8 }];
+const VOTE_LABEL: Record<Vote, string> = { A_FAVOR: "a favor", CONTRA: "contra", NEUTRO: "neutro" };
 const hue = (id: string) => [...id].reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5) % 360;
+const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Chairs around a meeting table: 0–2 on the far side (specialists), 3–5 on the near side (agents). */
+function meetingSeat(room: number, seat: number): { pos: V2; face: number } {
+  const [tx, tz] = MEETING_ROOMS[room].table;
+  const dx = [-2, 0, 2][seat % 3], far = seat < 3;
+  const pos: V2 = [tx + dx, tz + (far ? -1 : 1) * (dx ? 1.55 : 1.75)];
+  return { pos, face: Math.atan2(tx - pos[0], tz - pos[1]) };
+}
 
 function slotFor(zone: OfficeZone, index: number, desk: number): Slot {
   if (zone === "DESK") {
     const [x, z] = DESKS[desk % DESKS.length];
-    const gap = x + 2.5;
-    return { pos: [x, z + 1.05], face: Math.PI, pose: "type", route: [[gap, CORRIDOR_Z], [gap, z + 1.9], [x, z + 1.9]] };
+    return { pos: [x, z + 1.05], face: Math.PI, pose: "type", route: [[x + 3, CORRIDOR_Z], [x + 3, z + 1.9], [x, z + 1.9]] };
   }
   if (zone === "MEETING") {
-    const angle = Math.PI / 2 + (index - 2.5) * 0.62 + (index % 2 ? Math.PI : 0);
-    const x = TABLE[0] + Math.cos(angle) * 3.3, z = TABLE[1] + Math.sin(angle) * 1.75;
-    return { pos: [x, z], face: Math.atan2(TABLE[0] - x, TABLE[1] - z), pose: "sit", route: [[-9.5, CORRIDOR_Z], [-9.5, -6.4], [x, -6.9]] };
-  }
-  if (zone === "COFFEE") {
-    const spots: V2[] = [[7.4, -9.7], [9.0, -9.7], [10.6, -9.7], [6.0, -11.0]];
-    const [x, z] = spots[index % spots.length];
-    return { pos: [x + Math.floor(index / spots.length) * 0.5, z], face: index === 3 ? Math.PI : 0, pose: index === 3 ? "stand" : "sit", route: [[10.5, CORRIDOR_Z], [10.5, -6.4], [x, -7.4]] };
+    const room = index % 3, { pos, face } = meetingSeat(room, 3 + (Math.floor(index / 3) % 3));
+    const [tx] = MEETING_ROOMS[room].table;
+    return { pos, face, pose: "sit", route: [[tx, CORRIDOR_Z], [pos[0], -6.3], pos] };
   }
   if (zone === "POOL") {
-    const spots: [V2, number][] = [[[12.4, -9.2], Math.PI / 2], [[16.6, -9.2], -Math.PI / 2], [[14.5, -7.4], Math.PI], [[14.5, -11.1], 0]];
+    const spots: [V2, number][] = [[[17.4, -9.2], Math.PI / 2], [[21.6, -9.2], -Math.PI / 2], [[19.5, -7.4], Math.PI], [[19.5, -11.1], 0]];
     const [[x, z], face] = spots[index % spots.length];
-    return { pos: [x, z], face, pose: "cue", route: [[14.5, CORRIDOR_Z], [14.5, -6.4], [x < 13.5 ? 12.4 : x > 15.5 ? 16.6 : x, -6.6]] };
+    return { pos: [x, z], face, pose: "cue", route: [[19.5, CORRIDOR_Z], [19.5, -6.4], [x < 18.5 ? 17.4 : x > 20.5 ? 21.6 : x, -6.6]] };
   }
-  const spots: V2[] = [[-18.6, 9.6], [-17.2, 9.6], [-18.6, 11.2], [-17.2, 11.2]];
+  // COFFEE (and any other resting place).
+  const spots: V2[] = [[12.4, -9.7], [14.0, -9.7], [15.6, -9.7], [11.2, -11.0]];
   const [x, z] = spots[index % spots.length];
-  return { pos: [x, z], face: 0, pose: "stand", route: [[-13.5, CORRIDOR_Z], [-13.5, 8.2], [x, 8.2]] };
+  return { pos: [x + Math.floor(index / spots.length) * 0.5, z], face: index % 4 === 3 ? Math.PI : 0, pose: index % 4 === 3 ? "stand" : "sit",
+    route: [[15.5, CORRIDOR_Z], [15.5, -6.4], [x, -7.4]] };
 }
 
 const mat = {
@@ -64,7 +74,7 @@ const mat = {
   glow: (c: THREE.ColorRepresentation) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(2.4), toneMapped: false }),
 };
 
-function makeRobot(accent: THREE.Color): Omit<Robot, "label" | "labelEl" | "path" | "slot" | "key" | "phase" | "ghost"> {
+function makeRobot(accent: THREE.Color): Omit<Robot, "label" | "labelEl" | "path" | "slot" | "key" | "phase"> {
   const group = new THREE.Group();
   const body = new THREE.Group();
   group.add(body);
@@ -113,24 +123,50 @@ function makeRobot(accent: THREE.Color): Omit<Robot, "label" | "labelEl" | "path
   return { group, legs, arms, body, cue };
 }
 
-function chartTexture(color: string, seed: number) {
-  const c = document.createElement("canvas"); c.width = 256; c.height = 160;
-  const g = c.getContext("2d")!;
-  g.fillStyle = "#03101b"; g.fillRect(0, 0, 256, 160);
-  g.strokeStyle = "rgba(94,231,255,0.12)";
-  for (let y = 20; y < 160; y += 28) { g.beginPath(); g.moveTo(0, y); g.lineTo(256, y); g.stroke(); }
-  let v = 80, s = seed;
-  for (let x = 8; x < 250; x += 9) {
-    s = (s * 9301 + 49297) % 233280;
-    const open = v; v = Math.max(20, Math.min(140, v + ((s / 233280) - 0.5) * 30));
-    g.fillStyle = v < open ? "#3dffa8" : "#ff5d7d";
-    g.fillRect(x, Math.min(open, v), 5, Math.max(2, Math.abs(v - open)));
+/** Price now and change against the previous close (green rising, red falling). */
+function quoteOf(chart: AgentChart | undefined) {
+  const bars = chart?.bars ?? [];
+  const price = chart?.last ?? bars.at(-1)?.close ?? null;
+  const prev = chart?.last != null ? bars.at(-1)?.close : bars.at(-2)?.close;
+  const change = price !== null && prev ? price / prev - 1 : null;
+  return { price, change, color: change === null || Math.abs(change) < 0.0005 ? "#5ee7ff" : change > 0 ? "#3dffa8" : "#ff5d7d" };
+}
+
+/** Daily candles of one stock with its header (ticker, price now, change today). */
+function drawChart(g: CanvasRenderingContext2D, x0: number, y0: number, w: number, h: number, title: string, chart: AgentChart | undefined, scale = 1) {
+  g.fillStyle = "#03101b"; g.fillRect(x0, y0, w, h);
+  const { price, change, color } = quoteOf(chart);
+  g.fillStyle = "#e8f6ff"; g.font = `bold ${30 * scale}px sans-serif`; g.textBaseline = "top";
+  g.fillText(title, x0 + 16 * scale, y0 + 12 * scale);
+  if (price !== null) {
+    g.fillStyle = color; g.font = `bold ${30 * scale}px sans-serif`; g.textAlign = "right";
+    g.fillText(`${brl(price)}  ${change === null ? "" : `${change >= 0 ? "▲ +" : "▼ "}${(change * 100).toFixed(1)}%`}`, x0 + w - 16 * scale, y0 + 12 * scale);
+    g.textAlign = "left";
   }
-  g.strokeStyle = color; g.lineWidth = 3; g.beginPath();
-  s = seed * 7;
-  for (let x = 0, y = 110; x <= 256; x += 16) { s = (s * 9301 + 49297) % 233280; y = Math.max(20, Math.min(140, y - 10 + (s / 233280) * 16)); if (x) g.lineTo(x, y); else g.moveTo(x, y); }
-  g.stroke();
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  const bars = chart?.bars ?? [];
+  const top = y0 + 58 * scale, bottom = y0 + h - 14 * scale, left = x0 + 12 * scale, right = x0 + w - 12 * scale;
+  g.strokeStyle = "rgba(94,231,255,0.12)"; g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const y = top + ((bottom - top) * i) / 4; g.beginPath(); g.moveTo(left, y); g.lineTo(right, y); g.stroke(); }
+  if (!bars.length) { g.fillStyle = "#7f93a6"; g.font = `${24 * scale}px sans-serif`; g.fillText("Sem gráfico ainda", left + 8, top + 20 * scale); return; }
+  const hi = Math.max(...bars.map((b) => b.high), price ?? 0), lo = Math.min(...bars.map((b) => b.low), price ?? Infinity);
+  const yOf = (v: number) => bottom - ((v - lo) / (hi - lo || 1)) * (bottom - top);
+  const step = (right - left) / bars.length;
+  bars.forEach((b, i) => {
+    const cx = left + step * (i + 0.5), up = b.close >= b.open;
+    g.strokeStyle = g.fillStyle = up ? "#3dffa8" : "#ff5d7d";
+    g.beginPath(); g.moveTo(cx, yOf(b.high)); g.lineTo(cx, yOf(b.low)); g.stroke();
+    const y1 = yOf(Math.max(b.open, b.close)), y2 = yOf(Math.min(b.open, b.close));
+    g.fillRect(cx - step * 0.32, y1, step * 0.64, Math.max(1.5, y2 - y1));
+  });
+  if (price !== null) {
+    g.setLineDash([6 * scale, 6 * scale]); g.strokeStyle = color; g.beginPath(); g.moveTo(left, yOf(price)); g.lineTo(right, yOf(price)); g.stroke(); g.setLineDash([]);
+  }
+}
+
+function canvasTexture(w: number, h: number) {
+  const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4;
+  return { canvas, g: canvas.getContext("2d")!, texture };
 }
 
 function drawTv(canvas: HTMLCanvasElement, tv: { headline: { title: string; source: string } | null; lines: [string, string, string][] }) {
@@ -138,6 +174,7 @@ function drawTv(canvas: HTMLCanvasElement, tv: { headline: { title: string; sour
   const w = canvas.width, h = canvas.height;
   const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, "#04203a"); grad.addColorStop(1, "#020a14");
   g.fillStyle = grad; g.fillRect(0, 0, w, h);
+  g.textBaseline = "alphabetic";
   g.fillStyle = "#e0263c"; g.fillRect(28, 26, 150, 44);
   g.fillStyle = "#fff"; g.font = "bold 28px sans-serif"; g.fillText("AO VIVO", 44, 58);
   g.fillStyle = "#ffc65c"; g.font = "bold 26px sans-serif"; g.fillText(tv.headline?.source ?? "ATLAS", 200, 58);
@@ -160,7 +197,6 @@ function drawTv(canvas: HTMLCanvasElement, tv: { headline: { title: string; sour
 function plaque(title: string, subtitle: string, className = "plaque") {
   const el = document.createElement("div");
   el.className = className;
-  el.innerHTML = "";
   const t = document.createElement("strong"); t.textContent = title; el.appendChild(t);
   if (subtitle) { const s = document.createElement("span"); s.textContent = subtitle; el.appendChild(s); }
   return new CSS2DObject(el);
@@ -194,30 +230,30 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x07090c);
-    scene.fog = new THREE.Fog(0x07090c, 42, 80);
+    scene.fog = new THREE.Fog(0x07090c, 46, 86);
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 200);
-    const home = new THREE.Vector3(0.5, 25, 23.5);
+    const home = new THREE.Vector3(0, 27, 25.5);
     camera.position.copy(home);
     const controls = new OrbitControls(camera, labels.domElement);
-    controls.target.set(0, 0, 0);
+    controls.target.set(0, 0, -0.5);
     controls.enableDamping = true; controls.dampingFactor = 0.08;
-    controls.minDistance = 14; controls.maxDistance = 52;
+    controls.minDistance = 12; controls.maxDistance = 56;
     controls.minPolarAngle = 0.35; controls.maxPolarAngle = 1.2;
     controls.screenSpacePanning = false;
 
     scene.add(new THREE.HemisphereLight(0xffe2bd, 0x1a1d24, 0.65));
     scene.add(new THREE.AmbientLight(0xfff0dc, 0.12));
     const sun = new THREE.DirectionalLight(0xfff1dc, 0.9); sun.position.set(-8, 20, 10); scene.add(sun);
-    for (const [x, z, c] of [[-9.5, -9, 0xffb24a], [0.5, -9.5, 0x5ab8ff], [11, -9, 0xffb24a], [0, 3, 0xffc674], [16, 0, 0x7fd0ff], [16, 9, 0xffb24a], [-18, 0, 0xffb24a]] as [number, number, number][]) {
+    for (const [x, z, c] of [[-18.75, -9, 0xffb24a], [-9.75, -9, 0xffb24a], [-0.75, -9, 0xffb24a], [7.25, -9.5, 0x5ab8ff], [17, -9, 0xffb24a],
+      [-2, 3, 0xffc674], [14.6, 5, 0x7fd0ff], [-18, 3, 0xffb24a]] as [number, number, number][]) {
       const p = new THREE.PointLight(c, 9, 18, 1.4); p.position.set(x, 6, z); scene.add(p);
     }
-
-    // Warm pools of light over the two rows of agent desks.
     for (const [x, z] of DESKS) { const lamp = new THREE.PointLight(0xffd8a0, 1.6, 6, 1.8); lamp.position.set(x, 4.2, z - 0.2); scene.add(lamp); }
+
     // Floor, walkways and rooms.
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(48, 30), new THREE.MeshStandardMaterial({ color: 0x2a2b2f, roughness: 0.3, metalness: 0.5 }));
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, 30), new THREE.MeshStandardMaterial({ color: 0x2a2b2f, roughness: 0.3, metalness: 0.5 }));
     floor.rotation.x = -Math.PI / 2; scene.add(floor);
     const amber = mat.glow(0xffa53a);
     const strip = (x1: number, z1: number, x2: number, z2: number, width = 0.07, color: THREE.Material = amber) => {
@@ -225,29 +261,26 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       const m = new THREE.Mesh(new THREE.BoxGeometry(len, 0.02, width), color);
       m.position.set((x1 + x2) / 2, 0.012, (z1 + z2) / 2); m.rotation.y = -Math.atan2(z2 - z1, x2 - x1); scene.add(m);
     };
-    for (const [a, b, c, d] of [[-13, -4, 11, -4], [11, -4, 11, 10.5], [11, 10.5, -13, 10.5], [-13, 10.5, -13, -4]] as [number, number, number, number][]) strip(a, b, c, d, 0.09);
+    for (const [a, b, c, d] of [[-12, -4, 9, -4], [9, -4, 9, 9.5], [9, 9.5, -12, 9.5], [-12, 9.5, -12, -4]] as [number, number, number, number][]) strip(a, b, c, d, 0.09);
     const tile = new THREE.MeshStandardMaterial({ color: 0x2f2b27, roughness: 0.35, metalness: 0.3 });
     const glass = new THREE.MeshPhysicalMaterial({ color: 0x8fb8d8, transparent: true, opacity: 0.07, roughness: 0.05, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false });
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.6, metalness: 0.2 });
-    const room = (x1: number, z1: number, x2: number, z2: number, title: string, subtitle: string, frame = amber, plaqueX?: number) => {
+    const room = (x1: number, x2: number, title: string, subtitle: string, frame = amber) => {
+      const [z1, z2] = BACK;
       const w = x2 - x1, d = z2 - z1, cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
       const base = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, d), tile); base.position.set(cx, 0.04, cz); scene.add(base);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(w, 3.2, 0.15), wallMat); back.position.set(cx, 1.6, z1); scene.add(back);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(w, 4.6, 0.15), wallMat); back.position.set(cx, 2.3, z1); scene.add(back);
       for (const [px, pz, rw, rd] of [[x1, cz, 0.06, d], [x2, cz, 0.06, d], [cx, z2, w, 0.06]] as [number, number, number, number][]) {
         const pane = new THREE.Mesh(new THREE.BoxGeometry(rw, 1.4, rd), glass); pane.position.set(px, 0.78, pz); scene.add(pane);
         const rail = new THREE.Mesh(new THREE.BoxGeometry(rw + 0.02, 0.05, rd + 0.02), frame); rail.position.set(px, 1.5, pz); scene.add(rail);
       }
       strip(x1, z1 + 0.12, x2, z1 + 0.12, 0.05, frame);
-      const top = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, 0.06), frame); top.position.set(cx, 3.2, z1); scene.add(top);
-      const label = plaque(title, subtitle); label.position.set(plaqueX ?? cx, 3.9, z1); scene.add(label);
+      const top = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, 0.06), frame); top.position.set(cx, 4.6, z1); scene.add(top);
+      const label = plaque(title, subtitle); label.position.set(cx, 5.3, z1); scene.add(label);
     };
-    room(-15.5, -13, -3.5, -5.6, "Sala de Reunião", "análise e estratégia", amber, -14.6);
-    room(-3, -13, 4, -5.6, "IA Central", "lendo notícias do mercado", mat.glow(0x4fb6ff));
-    room(5, -13, 18, -5.6, "Sala de Descanso", "café e sinuca");
-    room(12.5, -3, 21.5, 3.8, "Laboratório", "testes de estratégias", mat.glow(0x4fb6ff));
-    room(12.5, 5, 21.5, 12.5, "Gestão de Risco", "controle e segurança");
-    room(-22, 7.4, -14.5, 13, "Saída", "IAs eliminadas", mat.glow(0xff4d6a));
-    const stationsLabel = plaque("Estações dos Agentes", "computadores · trabalhando"); stationsLabel.position.set(-0.5, 2.6, 2.1); scene.add(stationsLabel);
+    MEETING_ROOMS.forEach((r, i) => room(r.x1, r.x2, `Reunião ${i + 1}`, "Risco · Balanço · Estratégia"));
+    room(4, 10.5, "IA Central", "notícias ao vivo", mat.glow(0x4fb6ff));
+    room(11, 23, "Descanso", "café e sinuca");
 
     // Furniture helpers.
     const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
@@ -273,94 +306,146 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       g.position.set(x, 0, z); g.rotation.y = face; scene.add(g);
     };
 
-    // Agent desks with three monitors each; screens are recoloured by the agent's result.
-    const textures = { gain: chartTexture("#3dffa8", 3), loss: chartTexture("#ff5d7d", 11), flat: chartTexture("#5ee7ff", 7) };
-    const screens: THREE.MeshBasicMaterial[] = [];
-    const deskPlates: CSS2DObject[] = [];
-    DESKS.forEach(([x, z], i) => {
+    // One desk per agent: left monitor = daily candles, right monitor = price now and the decision.
+    const desks = DESKS.map(([x, z], i) => {
       box(3.4, 0.08, 1.3, x, 0.78, z, deskTop);
       box(3.3, 0.7, 0.06, x, 0.42, z - 0.6, black);
-      const screen = new THREE.MeshBasicMaterial({ map: textures.flat, toneMapped: false });
-      screens.push(screen);
-      for (const dx of [-1.05, 0, 1.05]) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.6, 0.04), black); m.position.set(x + dx, 1.25, z - 0.35); m.rotation.y = -dx * 0.25; scene.add(m);
-        const s = new THREE.Mesh(new THREE.PlaneGeometry(0.88, 0.53), screen); s.position.set(x + dx, 1.25, z - 0.32); s.rotation.y = -dx * 0.25; scene.add(s);
-      }
+      const screens = [-0.82, 0.82].map((dx) => {
+        const t = canvasTexture(640, 400);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.98, 0.04), black); frame.position.set(x + dx, 1.42, z - 0.35); frame.rotation.y = -dx * 0.22; scene.add(frame);
+        const s = new THREE.Mesh(new THREE.PlaneGeometry(1.48, 0.92), new THREE.MeshBasicMaterial({ map: t.texture, toneMapped: false }));
+        s.position.set(x + dx, 1.42, z - 0.32); s.rotation.y = -dx * 0.22; scene.add(s);
+        return t;
+      });
       box(0.9, 0.03, 0.3, x, 0.83, z + 0.15, black);
       chair(x, z + 1.05, Math.PI);
-      const p = plaque("", "", "plaque desk-plate"); p.position.set(x, 2.15, z - 0.4); p.visible = false; scene.add(p); deskPlates.push(p);
-      if (i % 4 === 3) plant(x + 2.7, z - 0.4, 0.8);
+      if (i === 2 || i === 5) plant(x + 2.6, z - 0.4, 0.8);
+      return { screens, key: "" };
     });
+    const drawDesk = (i: number, agent: OfficeAgent | null) => {
+      const d = desks[i], [left, right] = d.screens;
+      const key = agent ? `${agent.id}:${agent.chart?.last}:${agent.chart?.bars.length}:${agent.debate?.summary}` : "free";
+      if (d.key === key) return;
+      d.key = key;
+      drawChart(left.g, 0, 0, 640, 400, agent ? `${agent.name} · ${agent.ticker}` : "Mesa livre", agent?.chart, 0.9);
+      left.texture.needsUpdate = true;
+      const g = right.g;
+      g.fillStyle = "#03101b"; g.fillRect(0, 0, 640, 400); g.textBaseline = "top"; g.textAlign = "left";
+      if (agent) {
+        const { price, change, color } = quoteOf(agent.chart);
+        g.fillStyle = "#a9c0d6"; g.font = "26px sans-serif"; g.fillText(`${agent.ticker} agora`, 24, 22);
+        g.fillStyle = color; g.font = "bold 84px sans-serif"; g.fillText(price === null ? "—" : brl(price), 24, 58);
+        g.font = "bold 40px sans-serif"; g.fillText(change === null ? "" : `${change >= 0 ? "▲ subindo" : "▼ caindo"} ${(Math.abs(change) * 100).toFixed(1)}% hoje`, 24, 156);
+        g.fillStyle = "#e8f6ff"; g.font = "bold 30px sans-serif";
+        g.fillText(agent.holding > 0 ? `${agent.holding} ações na carteira` : "Ainda sem ações", 24, 236);
+        if (agent.debate) { g.fillStyle = "#ffc65c"; g.font = "28px sans-serif"; g.fillText(agent.debate.summary.slice(0, 40), 24, 290); }
+      }
+      right.texture.needsUpdate = true;
+    };
 
-    // Meeting room: table, chairs, big TV.
-    const table = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.1, 48), wood); table.scale.set(2.6, 1, 1.25); table.position.set(TABLE[0], 0.8, TABLE[1]); scene.add(table);
-    const tableLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, 0.75), black); tableLeg.position.set(TABLE[0], 0.38, TABLE[1]); scene.add(tableLeg);
-    for (let i = 0; i < 6; i++) { const [x, z] = slotFor("MEETING", i, 0).pos; chair(x, z, Math.atan2(TABLE[0] - x, TABLE[1] - z) + Math.PI); }
+    // Meeting rooms: table, six chairs, three specialists, a screen with the chart under discussion and the debate.
+    const rooms = MEETING_ROOMS.map((r, roomIndex) => {
+      const [tx, tz] = r.table;
+      const table = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.1, 48), wood); table.scale.set(2.5, 1, 1.05); table.position.set(tx, 0.8, tz); scene.add(table);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, 0.75), black); leg.position.set(tx, 0.38, tz); scene.add(leg);
+      for (let s = 0; s < 6; s++) { const { pos, face } = meetingSeat(roomIndex, s); chair(pos[0], pos[1], face + Math.PI); }
+      const screen = canvasTexture(900, 380);
+      box(4.4, 1.95, 0.08, tx, 3.45, BACK[0] + 0.12, black);
+      const tv = new THREE.Mesh(new THREE.PlaneGeometry(4.25, 1.8), new THREE.MeshBasicMaterial({ map: screen.texture, toneMapped: false }));
+      tv.position.set(tx, 3.45, BACK[0] + 0.18); scene.add(tv);
+      const bubbleEl = document.createElement("div"); bubbleEl.className = "debate-bubble"; bubbleEl.hidden = true;
+      const bubble = new CSS2DObject(bubbleEl); bubble.position.set(tx, 3.6, tz + 1.4); scene.add(bubble);
+      return { screen, bubbleEl, key: "" };
+    });
+    const drawRoom = (i: number, agent: OfficeAgent | null) => {
+      const room = rooms[i];
+      const key = agent ? `${agent.id}:${agent.chart?.last}:${agent.debate?.summary}` : "free";
+      if (room.key === key) return;
+      room.key = key;
+      if (agent) drawChart(room.screen.g, 0, 0, 900, 380, `Em análise: ${agent.ticker}`, agent.chart);
+      else {
+        const g = room.screen.g; g.fillStyle = "#03101b"; g.fillRect(0, 0, 900, 380);
+        g.fillStyle = "#4e6478"; g.font = "bold 40px sans-serif"; g.textBaseline = "middle"; g.textAlign = "center"; g.fillText("Sala livre", 450, 190); g.textAlign = "left";
+      }
+      room.screen.texture.needsUpdate = true;
+      room.bubbleEl.replaceChildren();
+      room.bubbleEl.hidden = !agent?.debate;
+      if (!agent?.debate) return;
+      const head = document.createElement("b"); head.textContent = `${agent.name} · ${agent.ticker}`;
+      room.bubbleEl.append(head);
+      for (const o of agent.debate.opinions) {
+        const row = document.createElement("span"); row.className = `vote ${o.vote.toLowerCase()}`;
+        row.textContent = `${o.role}: ${VOTE_LABEL[o.vote]}`; row.title = o.text; room.bubbleEl.append(row);
+      }
+      const verdict = document.createElement("em"); verdict.textContent = agent.debate.summary; room.bubbleEl.append(verdict);
+    };
+
+    // Specialists sit on the far side of every meeting table (same colour = same speciality).
+    const staff: { robot: ReturnType<typeof makeRobot>; pose: Slot["pose"] }[] = [];
+    MEETING_ROOMS.forEach((_, roomIndex) => SPECIALISTS.forEach((sp, s) => {
+      const robot = makeRobot(new THREE.Color(sp.color));
+      const { pos, face } = meetingSeat(roomIndex, s);
+      robot.group.position.set(pos[0], 0, pos[1]); robot.group.rotation.y = face; robot.group.scale.setScalar(ROBOT_SCALE); scene.add(robot.group);
+      staff.push({ robot, pose: "sit" });
+    }));
+
+    // IA Central: the live news TV and a small hologram.
     const tvCanvas = document.createElement("canvas"); tvCanvas.width = 1280; tvCanvas.height = 380;
     const tvTexture = new THREE.CanvasTexture(tvCanvas); tvTexture.colorSpace = THREE.SRGBColorSpace;
-    const tv = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 2.5), new THREE.MeshBasicMaterial({ map: tvTexture, toneMapped: false }));
-    tv.position.set(-8.6, 2.2, -12.85); scene.add(tv);
-    box(8.6, 2.7, 0.08, -8.6, 2.2, -12.92, black);
-    plant(-14.6, -12.2); plant(-4.4, -12.2, 0.8);
+    box(5.9, 1.9, 0.08, 7.25, 3.3, BACK[0] + 0.12, black);
+    const tv = new THREE.Mesh(new THREE.PlaneGeometry(5.75, 1.72), new THREE.MeshBasicMaterial({ map: tvTexture, toneMapped: false }));
+    tv.position.set(7.25, 3.3, BACK[0] + 0.18); scene.add(tv);
+    const core = new THREE.Group(); core.position.set(7.25, 0, -8.2); scene.add(core);
+    const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.0, 0.3, 48), black); pedestal.position.y = 0.15; core.add(pedestal);
+    const ring = (r: number, y: number) => { const t = new THREE.Mesh(new THREE.TorusGeometry(r, 0.025, 8, 64), mat.glow(0x4fb6ff)); t.rotation.x = Math.PI / 2; t.position.y = y; core.add(t); return t; };
+    const rings = [ring(0.95, 0.32), ring(0.6, 1.9)];
+    const brain = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45, 2), new THREE.MeshBasicMaterial({ color: 0x5ab8ff, wireframe: true, toneMapped: false }));
+    brain.position.y = 1.2; core.add(brain);
+    const brainCore = new THREE.Mesh(new THREE.SphereGeometry(0.26, 24, 16), mat.glow(0x2f7fff)); brainCore.position.y = 1.2; core.add(brainCore);
 
-    // IA Central: glass cylinder with a pulsing hologram.
-    const core = new THREE.Group(); core.position.set(0.5, 0, -9.4); scene.add(core);
-    const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.7, 0.4, 48), black); pedestal.position.y = 0.2; core.add(pedestal);
-    const ring = (r: number, y: number) => { const t = new THREE.Mesh(new THREE.TorusGeometry(r, 0.03, 8, 64), mat.glow(0x4fb6ff)); t.rotation.x = Math.PI / 2; t.position.y = y; core.add(t); return t; };
-    const rings = [ring(1.55, 0.42), ring(1.1, 2.9), ring(0.8, 3.15)];
-    const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.45, 1.45, 3, 48, 1, true), glass); tube.position.y = 1.9; core.add(tube);
-    const brain = new THREE.Mesh(new THREE.IcosahedronGeometry(0.75, 2), new THREE.MeshBasicMaterial({ color: 0x5ab8ff, wireframe: true, toneMapped: false }));
-    brain.position.y = 1.8; core.add(brain);
-    const brainCore = new THREE.Mesh(new THREE.SphereGeometry(0.45, 24, 16), mat.glow(0x2f7fff)); brainCore.position.y = 1.8; core.add(brainCore);
-    for (const dx of [-2.6, 2.6]) { box(0.6, 2.4, 0.5, 0.5 + dx, 1.2, -12.2, black); box(0.45, 2.1, 0.02, 0.5 + dx, 1.2, -11.94, mat.glow(0x153a66)); }
-
-    // Rest room: sofas, coffee machine, pool table.
+    // Rest room: sofa, coffee machine, pool table.
     const sofa = new THREE.MeshStandardMaterial({ color: 0x8c8274, roughness: 0.85 });
-    box(3.8, 0.45, 1, 8.9, 0.3, -10.4, sofa); box(3.8, 0.7, 0.3, 8.9, 0.7, -10.9, sofa);
-    box(1.6, 0.4, 0.9, 8.9, 0.22, -8.2, wood);
-    box(0.9, 1.8, 0.7, 6.0, 0.9, -12.3, black); box(0.5, 0.3, 0.05, 6.0, 1.3, -11.94, mat.glow(0xffb24a));
-    box(4.2, 0.18, 2.4, 14.5, 0.8, -9.2, wood);
-    box(3.8, 0.04, 2.0, 14.5, 0.9, -9.2, new THREE.MeshStandardMaterial({ color: 0x0f6b4e, roughness: 0.9 }));
-    for (const [dx, dz] of [[-1.8, -0.9], [1.8, -0.9], [-1.8, 0.9], [1.8, 0.9]]) box(0.2, 0.75, 0.2, 14.5 + dx, 0.38, -9.2 + dz, black);
+    box(3.8, 0.45, 1, 13.9, 0.3, -10.4, sofa); box(3.8, 0.7, 0.3, 13.9, 0.7, -10.9, sofa);
+    box(1.6, 0.4, 0.9, 13.9, 0.22, -8.2, wood);
+    box(0.9, 1.8, 0.7, 11.2, 0.9, -12.3, black); box(0.5, 0.3, 0.05, 11.2, 1.3, -11.94, mat.glow(0xffb24a));
+    box(4.2, 0.18, 2.4, 19.5, 0.8, -9.2, wood);
+    box(3.8, 0.04, 2.0, 19.5, 0.9, -9.2, new THREE.MeshStandardMaterial({ color: 0x0f6b4e, roughness: 0.9 }));
+    for (const [dx, dz] of [[-1.8, -0.9], [1.8, -0.9], [-1.8, 0.9], [1.8, 0.9]]) box(0.2, 0.75, 0.2, 19.5 + dx, 0.38, -9.2 + dz, black);
     [0xffd55c, 0xff5d7d, 0xffffff, 0x4fb6ff].forEach((c, i) => {
       const ball = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 10), new THREE.MeshStandardMaterial({ color: c, roughness: 0.2 }));
-      ball.position.set(13.8 + i * 0.4, 0.97, -9.3 + (i % 2) * 0.3); scene.add(ball);
+      ball.position.set(18.8 + i * 0.4, 0.97, -9.3 + (i % 2) * 0.3); scene.add(ball);
     });
-    plant(17.2, -12.2); plant(5.6, -6.6, 0.7);
+    plant(22.2, -12.2);
 
-    // Lab, risk desk, reception, exit door.
-    box(5, 0.08, 1.3, 17, 0.78, -0.6, deskTop);
-    for (const dx of [-1.8, -0.6, 0.6, 1.8]) { box(1.05, 0.62, 0.04, 17 + dx, 1.3, -1.05, black); box(0.98, 0.55, 0.01, 17 + dx, 1.3, -1.02, new THREE.MeshBasicMaterial({ map: textures.flat, toneMapped: false })); }
-    const holo = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 1.1), new THREE.MeshBasicMaterial({ color: 0x4fb6ff, wireframe: true, toneMapped: false })); holo.position.set(19.8, 1.9, 1.6); scene.add(holo);
-    box(4.5, 0.08, 1.3, 17, 0.78, 8.6, deskTop);
-    for (const dx of [-1.2, 0, 1.2]) { box(1.05, 0.62, 0.04, 17 + dx, 1.3, 8.15, black); box(0.98, 0.55, 0.01, 17 + dx, 1.3, 8.18, new THREE.MeshBasicMaterial({ map: textures.gain, toneMapped: false })); }
-    const shield = new THREE.Mesh(new THREE.CircleGeometry(0.7, 6), mat.glow(0xffb24a)); shield.position.set(17, 2.4, 5.12); scene.add(shield);
-    const recep = new THREE.Mesh(new THREE.TorusGeometry(2, 0.35, 12, 48, Math.PI), deskTop); recep.rotation.x = -Math.PI / 2; recep.position.set(-18.4, 0.6, 1.5); scene.add(recep);
+    // Market panel: every stock of the team, live.
+    const wall = canvasTexture(1800, 1000);
+    box(7.9, 4.5, 0.2, 14.6, 2.75, 2.6, black);
+    const wallScreen = new THREE.Mesh(new THREE.PlaneGeometry(7.7, 4.28), new THREE.MeshBasicMaterial({ map: wall.texture, toneMapped: false }));
+    wallScreen.position.set(14.6, 2.75, 2.71); scene.add(wallScreen);
+    box(0.4, 0.6, 0.4, 11.6, 0.3, 2.6, black); box(0.4, 0.6, 0.4, 17.6, 0.3, 2.6, black);
+    const wallLabel = plaque("Painel do Mercado", "ações da equipe ao vivo"); wallLabel.position.set(14.6, 5.6, 2.6); scene.add(wallLabel);
+    let wallKey = "";
+    const drawWall = (list: OfficeAgent[]) => {
+      const key = list.map((a) => `${a.ticker}:${a.chart?.last}:${a.chart?.bars.length}`).join("|");
+      if (key === wallKey) return;
+      wallKey = key;
+      wall.g.fillStyle = "#010810"; wall.g.fillRect(0, 0, 1800, 1000);
+      list.slice(0, 6).forEach((a, i) => drawChart(wall.g, 10 + (i % 3) * 597, 10 + Math.floor(i / 3) * 495, 585, 485, `${a.ticker} · ${a.name}`, a.chart, 0.95));
+      wall.texture.needsUpdate = true;
+    };
+
+    // Brand wall and plants.
     box(4.5, 3.4, 0.2, -18.4, 1.7, -2.4, wallMat);
     const logo = plaque("ATLAS", "Trading AI System", "plaque logo-plate"); logo.position.set(-18.4, 2.2, -2.2); scene.add(logo);
-    box(1.4, 2.4, 0.1, -20.8, 1.2, 12.9, mat.glow(0x4a0d18));
-    plant(-14.2, -3.6); plant(-14.2, 6.6); plant(11.8, -3.6, 0.8); plant(11.8, 11.6, 0.8); plant(-1, 11.7, 0.8);
+    plant(-14.2, -3.6); plant(-14.2, 6.6); plant(10.4, -3.6, 0.8); plant(-1, 9, 0.8); plant(19.5, 8, 0.8);
 
-    // Decorative staff, labelled by role (never agents, never money).
-    const staff: { robot: ReturnType<typeof makeRobot>; pose: Slot["pose"] }[] = [];
-    const addStaff = (x: number, z: number, face: number, pose: Slot["pose"], role: string) => {
-      const robot = makeRobot(new THREE.Color(0xffb24a));
-      robot.group.position.set(x, 0, z); robot.group.rotation.y = face; robot.group.scale.setScalar(2.1); scene.add(robot.group);
-      const tag = plaque(role, "", "plaque staff-plate"); tag.position.set(0, 2.15, 0); robot.group.add(tag);
-      staff.push({ robot, pose });
-    };
-    addStaff(-18.4, 2.6, Math.PI, "type", "Recepção");
-    addStaff(17, 0.3, Math.PI, "type", "Pesquisa");
-    addStaff(17, 9.5, Math.PI, "type", "Risco");
-    const wanderer = makeRobot(new THREE.Color(0xffb24a)); wanderer.group.scale.setScalar(2.1); scene.add(wanderer.group);
-    const loop: V2[] = [[-12.3, 10], [10.3, 10], [10.3, -3.4], [-12.3, -3.4]];
+    const wanderer = makeRobot(new THREE.Color(0xffb24a)); wanderer.group.scale.setScalar(ROBOT_SCALE); scene.add(wanderer.group);
+    const loop: V2[] = [[-11.3, 9], [8.3, 9], [8.3, -3.4], [-11.3, -3.4]];
     let wanderT = 0;
 
     // Agents.
     const robots = new Map<string, Robot>();
     const pickables: THREE.Object3D[] = [];
-    let current: OfficeAgent[] = [];
-    let selectedId: string | null = null;
     const deskOf = new Map<string, number>();
 
     const setTarget = (r: Robot, slot: Slot, key: string, instant: boolean) => {
@@ -376,53 +461,43 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     };
 
     const sync = (list: OfficeAgent[], sel: string | null) => {
-      current = list; selectedId = sel;
       const counters: Partial<Record<OfficeZone, number>> = {};
+      const inRoom: (OfficeAgent | null)[] = [null, null, null];
+      // A desk belongs to an agent for as long as it exists; a removed agent frees it.
+      for (const id of [...deskOf.keys()]) if (!list.some((a) => a.id === id)) deskOf.delete(id);
       list.forEach((agent, i) => {
-        if (!deskOf.has(agent.id)) deskOf.set(agent.id, deskOf.size);
-        const desk = deskOf.get(agent.id)!;
+        if (!deskOf.has(agent.id)) { const used = new Set(deskOf.values()); deskOf.set(agent.id, DESKS.findIndex((_, d) => !used.has(d))); }
+        const desk = Math.max(0, deskOf.get(agent.id)!);
         let r = robots.get(agent.id);
         const first = !r;
         if (!r) {
           const made = makeRobot(new THREE.Color(`hsl(${hue(agent.id)}, 90%, 60%)`));
           const labelEl = document.createElement("div");
-          labelEl.className = "agent3d-label";
           labelEl.addEventListener("pointerdown", (e) => { e.stopPropagation(); select.current(agent.id); });
           const label = new CSS2DObject(labelEl); label.position.set(0, 2.15, 0); made.group.add(label);
-          made.group.scale.setScalar(2.1);
-          made.group.userData.agentId = agent.id;
+          made.group.scale.setScalar(ROBOT_SCALE);
           made.group.traverse((o) => { o.userData.agentId = agent.id; });
           scene.add(made.group); pickables.push(made.group);
-          r = { ...made, label, labelEl, path: [], slot: null, key: "", phase: i * 1.7, ghost: false };
+          r = { ...made, label, labelEl, path: [], slot: null, key: "", phase: i * 1.7 };
           robots.set(agent.id, r);
         }
-        const index = counters[agent.zone] ?? 0; counters[agent.zone] = index + 1;
-        setTarget(r, slotFor(agent.zone, index, desk), `${agent.zone}:${index}:${desk}`, first);
-        // Neighbours in the same room alternate label heights so names never overlap.
-        r.label.position.y = 2.15 + (agent.zone === "DESK" ? 0 : (index % 2) * 0.62);
-        const t = tone(agent.pnl);
-        r.labelEl.className = `agent3d-label ${t} ${sel === agent.id ? "selected" : ""} zone-${agent.zone.toLowerCase()}`;
-        r.labelEl.replaceChildren();
-        const name = document.createElement("b"); name.textContent = `${agent.name} · ${agent.ticker}`;
-        const value = document.createElement("span"); value.textContent = money(agent.pnl);
-        r.labelEl.append(name, value);
+        const zone: OfficeZone = agent.zone === "OUT" ? "COFFEE" : agent.zone;
+        const index = counters[zone] ?? 0; counters[zone] = index + 1;
+        if (zone === "MEETING" && !inRoom[index % 3]) inRoom[index % 3] = agent;
+        setTarget(r, slotFor(zone, index, desk), `${zone}:${index}:${desk}`, first);
+        r.labelEl.className = `agent3d-label ${sel === agent.id ? "selected" : ""}`;
+        r.labelEl.textContent = agent.name;
         r.labelEl.title = agent.activity;
-        const dead = agent.zone === "OUT";
-        if (dead !== r.ghost) {
-          r.ghost = dead;
-          r.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.transparent = dead; o.material.opacity = dead ? 0.35 : 1; } });
-        }
-        screens[desk % screens.length].map = textures[t];
-        screens[desk % screens.length].needsUpdate = true;
-        const plate = deskPlates[desk % deskPlates.length];
-        plate.visible = agent.zone !== "DESK";
-        const [title, sub] = plate.element.children as unknown as HTMLElement[];
-        if (title) title.textContent = agent.name;
-        const away = agent.zone === "OUT" ? "eliminada" : "fora da mesa";
-        if (sub) sub.textContent = `${agent.ticker} · ${away}`;
-        else { const s = document.createElement("span"); s.textContent = `${agent.ticker} · ${away}`; plate.element.appendChild(s); }
+        drawDesk(desk, agent);
       });
-      for (const [id, r] of robots) if (!list.some((a) => a.id === id)) { scene.remove(r.group); robots.delete(id); }
+      const used = new Set(deskOf.values());
+      DESKS.forEach((_, d) => { if (!used.has(d)) drawDesk(d, null); });
+      inRoom.forEach((agent, i) => drawRoom(i, agent));
+      drawWall(list);
+      for (const [id, r] of robots) if (!list.some((a) => a.id === id)) {
+        scene.remove(r.group); robots.delete(id);
+        pickables.splice(pickables.indexOf(r.group), 1);
+      }
     };
 
     const updateTv = (h: typeof tvHeadline, l: typeof tvLines) => { drawTv(tvCanvas, { headline: h, lines: l }); tvTexture.needsUpdate = true; };
@@ -444,8 +519,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.45, 1.25);
-    composer.addPass(bloom);
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.45, 1.25));
     composer.addPass(new OutputPass());
 
     const resize = () => {
@@ -475,7 +549,8 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       r.legs.forEach((l) => { l.rotation.x = seated ? -1.45 : 0; l.position.y = seated ? 0.5 : 0.62; });
       if (kind === "type") { r.arms[0].rotation.x = -1.15 + (reduced ? 0 : Math.sin(t * 18 + phase) * 0.08); r.arms[1].rotation.x = -1.15 + (reduced ? 0 : Math.cos(t * 18 + phase) * 0.08); }
       else if (kind === "cue") { r.arms[0].rotation.x = -1.0; r.arms[1].rotation.x = -0.9 + (reduced ? 0 : Math.max(0, Math.sin(t * 1.4 + phase)) * 0.35); }
-      else { r.arms[0].rotation.x = seated ? -0.4 : Math.sin(t * 1.2 + phase) * 0.05; r.arms[1].rotation.x = r.arms[0].rotation.x; }
+      // Seated specialists gesture now and then, as if debating.
+      else { r.arms[0].rotation.x = seated ? -0.4 + (reduced ? 0 : Math.max(0, Math.sin(t * 0.9 + phase)) * 0.5) : Math.sin(t * 1.2 + phase) * 0.05; r.arms[1].rotation.x = seated ? -0.4 : r.arms[0].rotation.x; }
     };
 
     const tick = () => {
@@ -490,9 +565,9 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
           else { p.x += (dx / dist) * step; p.z += (dz / dist) * step; r.group.rotation.y = Math.atan2(dx, dz); }
           pose(r, "walk", t, r.phase);
           if (!r.path.length && r.slot) r.group.rotation.y = r.slot.face;
-        } else if (r.slot) pose(r, r.ghost ? "stand" : r.slot.pose, t, r.phase);
+        } else if (r.slot) pose(r, r.slot.pose, t, r.phase);
       }
-      for (const s of staff) pose(s.robot, s.pose, t, 2);
+      staff.forEach((s, i) => pose(s.robot, s.pose, t, i * 1.3));
       if (!reduced) {
         wanderT += dt * 0.045;
         const seg = Math.floor(wanderT * loop.length) % loop.length, f = (wanderT * loop.length) % 1;
@@ -503,7 +578,6 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
         brain.rotation.y = t * 0.4; brain.rotation.x = Math.sin(t * 0.3) * 0.2;
         brainCore.scale.setScalar(1 + Math.sin(t * 2.2) * 0.08);
         rings.forEach((ring, i) => (ring.rotation.z = t * (i % 2 ? -0.5 : 0.35)));
-        holo.rotation.y = t * 0.6; holo.rotation.x = t * 0.25;
       }
       controls.update();
       composer.render();
@@ -513,7 +587,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
 
     api.current = {
       sync, tv: updateTv,
-      reset: () => { camera.position.copy(home).multiplyScalar(el.clientWidth / el.clientHeight < 1.2 ? 1.45 : 1); controls.target.set(0, 0, 0); },
+      reset: () => { camera.position.copy(home).multiplyScalar(el.clientWidth / el.clientHeight < 1.2 ? 1.45 : 1); controls.target.set(0, 0, -0.5); },
     };
     return () => {
       cancelAnimationFrame(frame);
@@ -530,7 +604,6 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       renderer.dispose();
       el.replaceChildren();
       api.current = null;
-      void current; void selectedId;
     };
   }, []);
 

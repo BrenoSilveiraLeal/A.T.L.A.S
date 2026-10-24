@@ -24,6 +24,8 @@ export const TRAILING_VERSION = "paper-autopilot-trailing15/1.0.0";
  * Never at a loss. The only rule tested that beat the CDI in both 2023–24 and 2025–26.
  */
 export const STEADY_VERSION = "paper-autopilot-monthly-sell-high/1.0.0";
+/** Sell after +60% over the average and an 8% turn from the top; buy from R$ 80 (3 monthly shares). */
+export const STEADY_RULE = { targetPct: 60, turnPct: 8, minOrder: 80 } as const;
 const D = Decimal.clone({ precision: 32, rounding: Decimal.ROUND_HALF_EVEN });
 const LIMIT_BUFFER_BPS = 20;
 

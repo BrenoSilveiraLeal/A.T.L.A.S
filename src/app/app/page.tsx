@@ -1,5 +1,5 @@
-import { Screen } from "@/components/screen";
+import { OfficePage } from "@/components/simple-pages";
 import { configured } from "@/lib/env";
-export default function Dashboard() {
-  return <Screen section="overview" connected={configured()} />;
+export default function Office() {
+  return <OfficePage connected={configured()} />;
 }

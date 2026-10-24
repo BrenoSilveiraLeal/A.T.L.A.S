@@ -3,40 +3,22 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
-  LayoutDashboard,
   Building2,
-  Users,
-  ChartCandlestick,
-  Newspaper,
-  ListOrdered,
-  Wallet,
+  ArrowLeftRight,
+  History,
   ShieldCheck,
-  ScrollText,
   Settings2,
-  Activity,
   OctagonX,
   Menu,
-  ArrowUpRight,
   X,
   LogOut,
-  Tv,
 } from "lucide-react";
 
+// The owner's three screens; the technical pages stay reachable under "Avançado".
 const navigation = [
-  { path: "/app", label: "Visão geral", icon: LayoutDashboard },
-  { path: "/app/office", label: "Trading floor", icon: Building2 },
-  { path: "/tv", label: "Modo TV (transmitir)", icon: Tv },
-  { path: "/app/agents", label: "Agentes", icon: Users },
-  { path: "/app/portfolio", label: "Carteira", icon: Wallet },
-  { path: "/app/market", label: "Mercado", icon: ChartCandlestick },
-  { path: "/app/news", label: "Inteligência", icon: Newspaper },
-  { path: "/app/orders", label: "Ordens", icon: ListOrdered },
-  { path: "/app/paper", label: "Simulação", icon: ChartCandlestick },
-  { path: "/app/treasury", label: "Tesouraria", icon: Wallet },
-  { path: "/app/risk", label: "Risco e limites", icon: ShieldCheck },
-  { path: "/app/audit", label: "Auditoria", icon: ScrollText },
-  { path: "/app/health", label: "Saúde do sistema", icon: Activity },
-  { path: "/app/settings", label: "Configuração", icon: Settings2 },
+  { path: "/app", label: "Escritório", icon: Building2 },
+  { path: "/app/trades", label: "Compras e vendas", icon: ArrowLeftRight },
+  { path: "/app/history", label: "Histórico", icon: History },
 ];
 export function Shell({
   children,
@@ -122,10 +104,6 @@ export function Shell({
             ATLAS<small>Autonomous Trading System</small>
           </span>
         </Link>
-        <div className="workspace-label">
-          <span className="status-dot" />
-          ESPAÇO PESSOAL
-        </div>
         <nav aria-label="Navegação principal">
           {navigation.map(({ path, label, icon: Icon }) => (
             <Link
@@ -140,13 +118,9 @@ export function Shell({
             </Link>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <ShieldCheck size={20} />
-          <div>
-            <strong>Risco tem prioridade</strong>
-            <small>Execução real bloqueada</small>
-          </div>
-        </div>
+        <Link href="/app/settings" className="sidebar-advanced" onClick={() => setOpen(false)}>
+          <Settings2 size={15} /> Avançado
+        </Link>
         <div className="owner-avatar">
           <span>P</span>
           <div>
@@ -177,26 +151,16 @@ export function Shell({
           <div className="breadcrumb">
             Workspace <span>/</span>{" "}
             <strong>
-              {navigation.find((n) => n.path === pathname)?.label ??
-                "Detalhe do agente"}
+              {navigation.find((n) => n.path === pathname)?.label ?? "Avançado"}
             </strong>
           </div>
-          <div className="topbar-actions">
-            <span className="mode-badge">
-              <span />
-              CONFIGURAÇÃO
-            </span>
-            <Link href="/app/settings" className="text-link">
-              Conectar serviços <ArrowUpRight size={14} />
-            </Link>
-          </div>
+
         </header>
         <div className="safety-strip">
           <div>
             <ShieldCheck size={16} />
             <span>
-              <strong>Execução bloqueada.</strong> Operação real aguarda
-              integração e validação.
+              Dinheiro real só opera com a sua confirmação. Em emergência, pare tudo:
             </span>
           </div>
           <button

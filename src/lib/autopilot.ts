@@ -4,7 +4,7 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MarketHistory, MarketQuote } from "@/providers/types";
-import { autopilotDecision, corporateActionSuspected, ruleVersion } from "@/core/autopilot";
+import { autopilotDecision, corporateActionSuspected, ruleVersion, STEADY_RULE } from "@/core/autopilot";
 import { paperReferencePrice } from "@/core/paper";
 import { b3Session } from "@/core/b3-calendar";
 import { applyPaperCorporateActions } from "./corporate-actions";
@@ -12,15 +12,16 @@ import { loadBars } from "./market-bars";
 import { adjustStoredBars } from "@/core/strategies";
 import { saoPauloClock } from "@/core/b3-calendar";
 import { minimumSellPrice } from "@/core/live";
+import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
 
 // R$ 0,99 of fractional brokerage is about 1,2% at R$ 80: three monthly shares of R$ 33 buy once.
-const MIN_ORDER_VALUE = 80;
+const MIN_ORDER_VALUE = STEADY_RULE.minOrder;
 
 const STOP_LOSS_PCT = 8;
 // Owner's rule: sell only after +60% over the average price and an 8% turn from the top.
-const SELL_TARGET_PCT = 60, SELL_TURN_PCT = 8;
+const SELL_TARGET_PCT = STEADY_RULE.targetPct, SELL_TURN_PCT = STEADY_RULE.turnPct;
 const accountSchema = z.object({
   cash: z.coerce.string(), reserved_cash: z.coerce.string(), max_order_value: z.coerce.string(),
   max_exposure: z.coerce.string(), fee_bps: z.number(), slippage_bps: z.number(),
@@ -93,6 +94,10 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   const exposure = rows(allPositions).reduce((sum, p) => sum.plus(new D(p.quantity).times(String(p.average_cost))), new D(0));
   const availableCash = D.min(new D(account.cash).minus(reserved), new D(account.max_exposure).minus(exposure).minus(reserved));
   const trailing = await trailingInputs(db, owner, agentId, assetId, input.ticker, held.quantity, events.stockEvents).catch(() => undefined);
+  // A company in danger (court protection, negative equity, repeated losses) gets no new money.
+  const health = (await cachedCompanyHealth(db, owner).catch(() => null))?.[input.ticker];
+  const context = health?.level === "PERIGO" && input.context?.action !== "EXIT"
+    ? { action: "BLOCK_BUY" as const, summary: `saúde da empresa em perigo: ${health.reasons[0]}` } : input.context;
   const steady = { peak: trailing?.peak ?? null, targetPct: SELL_TARGET_PCT, turnPct: SELL_TURN_PCT };
   const decision = autopilotDecision({
     ticker: input.ticker, quote, history: input.history, now: new Date().toISOString(),
@@ -104,7 +109,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,
     fixedFee: Number(account.fee_lot ?? 0) + Number(account.fee_fraction ?? 0), minOrderValue: MIN_ORDER_VALUE,
     minSellPrice: held.quantity > 0 ? minimumSellPrice(basis.toNumber(), held.quantity) : undefined,
-    context: input.context,
+    context,
     steady,
   });
   if (decision.action === "HOLD") return { filled, corporateActions: events.applied, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };

@@ -442,6 +442,12 @@ export async function fetchCvmFundamentals(
   return parseCvmDfpArchive(bytes, query, new Date().toISOString());
 }
 
+/** One year's DFP archive (all filers, ~13 MB) to parse several companies from one download. */
+export async function fetchCvmDfpArchive(year: number): Promise<Buffer> {
+  if (!Number.isSafeInteger(year) || year < 2010 || year > new Date().getUTCFullYear()) throw new CvmProviderError("INVALID_INPUT");
+  return downloadCvmArchive(`${SOURCE}dfp_cia_aberta_${year}.zip`);
+}
+
 async function downloadCvmArchive(url: string): Promise<Buffer> {
   try {
     const response = await fetch(url, {

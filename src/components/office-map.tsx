@@ -1,11 +1,13 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, CircleDot, Coffee, DoorOpen, Monitor, Users } from "lucide-react";
+import { ArrowRight, CircleDot, Coffee, Monitor, Users } from "lucide-react";
 import { formatBrl } from "@/core/format";
 import { minimumSellPrice } from "@/core/live";
 import type { OfficeZone } from "@/core/office";
 import type { NewsDirection } from "@/core/news";
+import type { Opinion, Verdict } from "@/core/committee";
+import { HEALTH_LABELS, type HealthLevel } from "@/core/company-health";
 
 export interface OfficeAgent {
   id: string; name: string; ticker: string; company: string; zone: OfficeZone; activity: string;
@@ -13,7 +15,13 @@ export interface OfficeAgent {
   /** What the open simulated position cost, fees included (0 without position). */
   paidTotal: number;
   headline: { title: string; url: string; direction: NewsDirection } | null; nextAnalysisAt: string | null;
+  /** Daily candles of the stock (oldest first) and the latest price seen by the agent. */
+  chart?: AgentChart;
+  /** Company health from the annual statements and the meeting-room committee. */
+  health?: { level: HealthLevel; reason: string } | null;
+  debate?: { opinions: Opinion[]; verdict: Verdict; summary: string };
 }
+export interface AgentChart { bars: { open: number; high: number; low: number; close: number }[]; last: number | null }
 
 const W = 1600, H = 850;
 const at = (x: number, y: number) => ({ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` });
@@ -24,7 +32,7 @@ const SLOTS: Record<OfficeZone, [number, number][]> = {
   MEETING: [[1060, 420], [1400, 420], [1150, 490], [1310, 490], [1230, 470], [1000, 470], [1460, 470]],
   COFFEE: [[225, 800], [405, 800], [565, 800], [315, 805], [485, 805]],
   POOL: [[730, 790], [1110, 790], [850, 825], [990, 825]],
-  OUT: [[1290, 800], [1410, 800], [1350, 805], [1470, 805]],
+  OUT: [[225, 800], [405, 800], [565, 800], [315, 805], [485, 805]],
 };
 const hue = (id: string) => [...id].reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5) % 360;
 const money = (v: number | null) => (v === null ? "—" : `${v >= 0 ? "+" : "−"}${formatBrl(Math.abs(v).toFixed(2))}`);
@@ -75,10 +83,10 @@ export function OfficeLegend() {
   return (
     <ul className="office-legend" aria-label="O que cada lugar significa">
       <li><Monitor size={15} /> <b>Computador</b> = trabalhando</li>
-      <li><Users size={15} /> <b>Reunião</b> = analisando</li>
+      <li><Users size={15} /> <b>Reunião</b> = debatendo com os especialistas</li>
       <li><Coffee size={15} /> <b>Café</b> e <CircleDot size={15} /> <b>Sinuca</b> = descansando</li>
-      <li><DoorOpen size={15} /> <b>Saída</b> = eliminada</li>
-      <li><span className="dot gain" /> verde ganha · <span className="dot loss" /> vermelho perde</li>
+      <li><span className="dot risk" /> Risco · <span className="dot balance" /> Balanço · <span className="dot strategy" /> Estratégia</li>
+      <li><span className="dot gain" /> verde sobe · <span className="dot loss" /> vermelho cai</li>
     </ul>
   );
 }
@@ -139,7 +147,6 @@ export function OfficeMap({ agents, tvHeadline, selected, onSelect }: {
         <Room x={900} y={30} w={670} h={470} icon="◎" title="REUNIÃO" note="analisando" />
         <Room x={30} y={550} w={590} h={280} icon="☕" title="CAFÉ" note="descansando" />
         <Room x={650} y={550} w={540} h={280} icon="●" title="SINUCA" note="descansando" />
-        <Room x={1220} y={530} w={350} h={300} icon="⇥" title="SAÍDA" note="eliminadas" />
         <ellipse cx="1230" cy="370" rx="150" ry="62" className="table" />
         <ellipse cx="1230" cy="370" rx="118" ry="42" className="table-glow" />
         <rect x="70" y="620" width="70" height="110" rx="10" className="machine" />
@@ -149,7 +156,6 @@ export function OfficeMap({ agents, tvHeadline, selected, onSelect }: {
         <rect x="816" y="674" width="208" height="92" rx="14" className="pool-felt" />
         {[[818, 676], [920, 672], [1022, 676], [818, 764], [920, 768], [1022, 764]].map(([cx, cy]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="7" className="pocket" />)}
         <circle cx="900" cy="715" r="6" className="ball" /><circle cx="955" cy="725" r="6" className="ball b2" /><circle cx="870" cy="735" r="6" className="ball b3" />
-        <rect x="1490" y="580" width="56" height="96" rx="8" className="door" />
       </svg>
       <div className="office-tv" style={{ ...at(990, 85), width: `${(480 / W) * 100}%`, height: `${(150 / H) * 100}%` }}>
         <span className="office-tv-live"><span className="pulse on" aria-hidden="true" /> TV · notícias</span>
@@ -179,18 +185,10 @@ export function OfficeMap({ agents, tvHeadline, selected, onSelect }: {
   );
 }
 
-/** Plain-language card for the selected agent; with nothing selected it lists the team. */
-export function AgentCard({ agent, agents, now, onSelect }: { agent: OfficeAgent | null; agents: OfficeAgent[]; now: number; onSelect: (id: string) => void }) {
-  if (!agent) return (
-    <aside className="agent-card">
-      <h3>Toque numa IA</h3>
-      <p className="muted">para ver o que ela está fazendo, quanto ganhou ou perdeu e a última notícia que viu.</p>
-      <ul className="team-list">{agents.map((a) => (
-        <li key={a.id}><button type="button" onClick={() => onSelect(a.id)}>
-          <span>{a.name} <small>{a.ticker}</small></span><b className={tone(a.pnl)}>{money(a.pnl)}</b>
-        </button></li>))}</ul>
-    </aside>
-  );
+/** Plain-language card for the selected agent. */
+export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null; now: number; onSelect: (id: string) => void }) {
+  // The team list lives below the office; the card only opens for a chosen agent.
+  if (!agent) return null;
   const state = tone(agent.pnl);
   return (
     <aside className="agent-card" aria-live="polite">
@@ -201,10 +199,17 @@ export function AgentCard({ agent, agents, now, onSelect }: { agent: OfficeAgent
         <span>{agent.zone === "OUT" ? "Resultado final" : state === "gain" ? "Está ganhando" : state === "loss" ? "Está perdendo" : "Ainda sem ganho ou perda"}</span>
         <strong>{money(agent.pnl)}</strong>
       </div>
+      {agent.health && <p className={`health-chip ${agent.health.level.toLowerCase()}`} title={agent.health.reason}>
+        <b>{HEALTH_LABELS[agent.health.level]}</b> {agent.health.reason}</p>}
+      {agent.debate && <div className="committee">
+        <span className="score-kicker">Reunião com os especialistas</span>
+        <ul>{agent.debate.opinions.map((o) => <li key={o.role} className={`vote ${o.vote.toLowerCase()}`}><b>{o.role}</b> {o.text}</li>)}</ul>
+        <strong>{agent.debate.summary}</strong>
+      </div>}
       {agent.life !== null && <div className="agent-life">
         <div className="life-label"><span>Vida</span><span>{agent.life.toFixed(0)}%</span></div>
         <div className="life-track"><div className={`life-fill ${agent.life < 35 ? "low" : agent.life < 70 ? "mid" : ""}`} style={{ width: `${agent.life}%` }} /></div>
-        <small>É eliminada se perder {formatBrl(agent.maxLoss.toFixed(2))} do orçamento de {formatBrl(agent.budget.toFixed(2))}.</small>
+        <small>Se perder {formatBrl(agent.maxLoss.toFixed(2))} do orçamento de {formatBrl(agent.budget.toFixed(2))}, ela é substituída por outra IA.</small>
       </div>}
       <dl className="agent-facts">
         <div><dt>Ações na carteira</dt><dd>{agent.holding}</dd></div>

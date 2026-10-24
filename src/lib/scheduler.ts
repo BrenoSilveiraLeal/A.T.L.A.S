@@ -10,6 +10,7 @@ import { runPaperAutopilot } from "./autopilot";
 import { sendAlert } from "./alerts";
 import { loadNews } from "./news";
 import { maybeContribute } from "./contribution";
+import { refreshCompanyHealth } from "./company-health";
 import { contextFor, contextSummary, loadContextSources, type ContextSources } from "./context";
 import { storeBars } from "./market-bars";
 
@@ -33,6 +34,7 @@ export async function runScheduler() {
     // idempotent extras still run here: they are each rate-limited or once per month.
     await loadNews(db, owner).catch(() => undefined);
     await maybeContribute(db, owner).catch(() => undefined);
+    await refreshCompanyHealth(db, owner).catch(() => undefined);
     return { skipped: "RECENT_TICK", jobs: [] };
   }
   // Housekeeping is bounded and never deletes decisions, orders or financial evidence.
@@ -212,6 +214,8 @@ export async function runScheduler() {
   await loadNews(db, owner).catch(() => undefined);
   // Monthly contribution (simulation): once per month on or after the owner's chosen day.
   await maybeContribute(db, owner).catch(() => undefined);
+  // Company health from the annual statements: downloads at most once a week.
+  await refreshCompanyHealth(db, owner).catch(() => undefined);
   return { jobs: results };
 
   async function health(status: string, message: string) {

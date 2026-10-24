@@ -1,27 +1,25 @@
 "use client";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { ArrowRight } from "lucide-react";
 import { formatBrl } from "@/core/format";
 import { CandleChart, type ChartMarker } from "./candle-chart";
-import { FleetAutopilot } from "./controls-panel";
-import { Gestora, NewsTv, readingOf, useCdi, useNews, type NewsItem } from "./news-tv";
-import { AgentCard, OfficeLegend, Scoreboard, useNow, type OfficeAgent } from "./office-map";
+import { readingOf, useCdi, useNews, type NewsItem } from "./news-tv";
+import { AgentCard, OfficeLegend, Scoreboard, useNow, type AgentChart, type OfficeAgent } from "./office-map";
 
 // three.js is loaded only in the browser, on the office screens.
 const Office3D = dynamic(() => import("./office-3d").then((m) => m.Office3D), {
   ssr: false, loading: () => <div className="office3d office3d-loading" role="status">Montando o escritório 3D…</div>,
 });
 import { placeAgent } from "@/core/office";
-import { ContributionPanel } from "./contribution-panel";
-import { LivePanel } from "./live-panel";
-import { CostsPanel } from "./costs-panel";
+import { committee } from "@/core/committee";
+import { STEADY_RULE } from "@/core/autopilot";
+import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
+import type { ContextAction } from "@/core/context";
 import { b3Session } from "@/core/b3-calendar";
 import type { HistoricalBar } from "@/providers/types";
 
 type Row = Record<string, unknown>;
-type Floor = { paper: Record<string, Row[]> | null; decisions: Row[]; error: string; loading: boolean };
+type Floor = { paper: Record<string, Row[]> | null; decisions: Row[]; health: Record<string, CompanyHealth> | null; error: string; loading: boolean };
 const text = (v: unknown) => (v == null ? "—" : String(v));
 const ago = (v: unknown) => {
   if (!v) return "sem registro";
@@ -30,7 +28,7 @@ const ago = (v: unknown) => {
 };
 
 function useFloor(connected: boolean, revision: number): Floor {
-  const [state, setState] = useState<Floor>({ paper: null, decisions: [], error: "", loading: true });
+  const [state, setState] = useState<Floor>({ paper: null, decisions: [], health: null, error: "", loading: true });
   useEffect(() => {
     if (!connected) return;
     const controller = new AbortController();
@@ -39,38 +37,57 @@ function useFloor(connected: boolean, revision: number): Floor {
       if (!r.ok) throw new Error(body.error ?? "Serviço indisponível.");
       return body;
     });
-    Promise.all([read("paper"), read("decisions")])
-      .then(([paper, decisions]) => !controller.signal.aborted && setState({ paper, decisions, error: "", loading: false }))
-      .catch((e) => !controller.signal.aborted && setState({ paper: null, decisions: [], loading: false,
+    Promise.all([read("paper"), read("decisions"), read("company-health").catch(() => null)])
+      .then(([paper, decisions, health]) => !controller.signal.aborted && setState({ paper, decisions, health, error: "", loading: false }))
+      .catch((e) => !controller.signal.aborted && setState({ paper: null, decisions: [], health: null, loading: false,
         error: e instanceof Error ? e.message : "Serviço indisponível." }));
     return () => controller.abort();
   }, [connected, revision]);
-  return connected ? state : { paper: null, decisions: [], error: "", loading: false };
+  return connected ? state : { paper: null, decisions: [], health: null, error: "", loading: false };
+}
+
+/** Daily candles of every team stock for the desk monitors (cached server-side; refreshed every 10 min). */
+function useCharts(tickers: string[]) {
+  const [charts, setCharts] = useState<Record<string, AgentChart["bars"]>>({});
+  const key = [...tickers].sort().join(",");
+  const tick = Math.floor(useNow(600000) / 600000);
+  useEffect(() => {
+    if (!key) return;
+    const controller = new AbortController();
+    Promise.all(key.split(",").map((ticker) => fetch(`/api/atlas/history?ticker=${encodeURIComponent(ticker)}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { bars?: HistoricalBar[] } | null) => [ticker, (b?.bars ?? []).slice(-60).map((x) => ({
+        open: Number(x.open), high: Number(x.high), low: Number(x.low), close: Number(x.close) }))] as const)
+      .catch(() => [ticker, []] as const)))
+      .then((rows) => { if (!controller.signal.aborted) setCharts(Object.fromEntries(rows)); });
+    return () => controller.abort();
+  }, [key, tick]);
+  return charts;
 }
 
 /**
- * The office. `mode`: "full" (office page with controls), "summary" (home page) or "tv"
- * (full-screen broadcast). Refreshes every 30 s so the agents walk between rooms live.
+ * The office. `mode`: "full" (office page: scoreboard, 3D office and what each AI is doing),
+ * "summary" (without the team list) or "tv" (full-screen broadcast). Refreshes every 30 s.
  */
 export function AgentFloor({ connected, revision, tv = false, mode }: { connected: boolean; revision: number; tv?: boolean; mode?: "full" | "summary" | "tv" }) {
   const view = mode ?? (tv ? "tv" : "full");
   const now = useNow(30000);
-  const [local, setLocal] = useState(0);
   const [selected, setSelected] = useState("");
-  const floor = useFloor(connected, revision + local + Math.floor(now / 30000));
+  const floor = useFloor(connected, revision + Math.floor(now / 30000));
   const news = useNews(connected);
-  const account = floor.paper?.paper_accounts?.[0];
+  const paper = floor.paper ?? {};
+  const assets = paper.assets ?? [];
+  const charts = useCharts(assets.map((a) => text(a.ticker)));
+  const account = paper.paper_accounts?.[0];
   const cdiPct = useCdi(account?.created_at ? String(account.created_at).slice(0, 10) : null);
   if (!connected) return null;
   if (floor.loading) return <div className="loading-state" role="status">Abrindo o escritório…</div>;
   if (floor.error) return <div className="notice error-text" role="alert">{floor.error}</div>;
-  const paper = floor.paper ?? {};
-  const agents = paper.agents ?? [], assets = paper.assets ?? [], vitals = paper.paper_agent_vitals ?? [];
+  const agents = paper.agents ?? [], vitals = paper.paper_agent_vitals ?? [];
   if (!agents.length) return (
     <section className="panel empty-floor">
       <h2>O escritório está vazio.</h2>
-      <p>Cadastre um ativo em Mercado e contrate o primeiro agente. Cada agente ganha uma mesa aqui.</p>
-      <Link className="text-link" href="/app/agents">Contratar agente <ArrowRight size={14} /></Link>
+      <p>Nenhuma IA contratada. Peça ao Claude Code para criar uma IA para uma ação.</p>
     </section>
   );
   const vitalOf = (id: unknown) => vitals.find((v) => v.agent_id === id);
@@ -78,16 +95,13 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const alive = agents.filter((a) => !["DEAD", "FIRED"].includes(text(a.status)));
   const totalPnl = vitals.reduce((sum, v) => sum + (pnlOf(v) ?? 0), 0);
   const session = b3Session(new Date(now));
-  const maxLossPct = Number(account?.agent_max_loss_pct ?? 20);
-  // Retired agents (analysis or autopilot switched off, no shares left) leave the office;
-  // eliminated ones stay at the exit.
-  const working = agents.filter((agent) => (agent.enabled !== false && agent.autopilot !== false) || ["DEAD", "FIRED"].includes(text(agent.status))
-    || (paper.paper_positions ?? []).some((p) => p.agent_id === agent.id && Number(p.quantity) > 0));
-  const office: OfficeAgent[] = working.map((agent) => {
+  const maxLossPct = Number(account?.agent_max_loss_pct ?? 40);
+  const office: OfficeAgent[] = alive.map((agent) => {
     const asset = assets.find((a) => a.id === agent.asset_id);
     const ticker = text(asset?.ticker);
     const paperPosition = (paper.paper_positions ?? []).find((p) => p.agent_id === agent.id);
     const holding = Number(paperPosition?.quantity ?? 0);
+    const averageCost = holding > 0 ? Number(paperPosition?.average_cost ?? 0) : null;
     const order = (paper.paper_orders ?? []).find((o) => o.agent_id === agent.id && o.status === "OPEN");
     const headline = recentHeadline(news.items, ticker);
     const fresh = headline !== null && now - Date.parse(headline.item.published_at) < 3600000;
@@ -96,11 +110,23 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       lastAnalysisAt: agent.last_analysis_at ? String(agent.last_analysis_at) : null, freshNews: fresh, marketOpen: session.status === "OPEN", now });
     const budget = Number(agent.budget);
     const vital = vitalOf(agent.id);
+    const bars = charts[ticker] ?? [];
+    const last = vital?.mark_price != null ? Number(vital.mark_price) : null;
+    const h = floor.health?.[ticker];
+    const health = h ? { level: h.level, reason: h.reasons[0] ?? "" } : null;
+    const decision = floor.decisions.find((d) => d.agent_id === agent.id);
+    const ctx = (decision?.inputs as { context?: { action: ContextAction; reasons?: { text: string }[] } } | undefined)?.context;
+    const debate = committee({
+      context: ctx ? { action: ctx.action, summary: ctx.reasons?.[0]?.text ?? "" } : null, health,
+      holding, averageCost, price: last ?? bars.at(-1)?.close ?? null,
+      budgetRoom: budget - (averageCost ?? 0) * holding, rule: STEADY_RULE,
+    });
     return { id: text(agent.id), name: text(agent.name), ticker, company: text(asset?.company_name ?? ticker), ...place,
       pnl: pnlOf(vital), life: vital ? Number(vital.life_pct) : null, budget, holding,
-      paidTotal: holding > 0 ? holding * Number(paperPosition?.average_cost ?? 0) : 0,
+      paidTotal: holding > 0 ? holding * (averageCost ?? 0) : 0,
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
-      headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null };
+      headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null,
+      chart: { bars, last }, health, debate };
   });
   const items = news.items ?? [];
   const top = items.find((i) => readingOf(i).tags.length) ?? items[0] ?? null;
@@ -112,59 +138,50 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
         <Scoreboard initial={account ? Number(account.initial_cash) : null} pnl={totalPnl} cdiPct={cdiPct}
           marketOpen={session.status === "OPEN"}
           marketNote={session.status === "OPEN" ? "As IAs podem comprar e vender (10h05 às 16h50)." : `${session.reason} As IAs só operam das 10h05 às 16h50 em dias úteis.`}
-          alive={alive.length} total={agents.length} />
+          alive={alive.length} total={alive.length} />
         <OfficeLegend />
         <div className="office-stage three">
           <Office3D agents={office} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected}
             tvLines={[["Equipe (simulação)", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
               ["CDI no período", cdiPct === null || !account ? "—" : `+${formatBrl(((Number(account.initial_cash) * cdiPct) / 100).toFixed(2))}`, "#ffc65c"],
               ["Bolsa", session.status === "OPEN" ? "Aberta" : "Fechada", session.status === "OPEN" ? "#3dffa8" : "#a9c0d6"]]} />
-          {view !== "tv" && <AgentCard agent={chosen} agents={office} now={now} onSelect={setSelected} />}
+          {view !== "tv" && <AgentCard agent={chosen} now={now} onSelect={setSelected} />}
         </div>
         {band.length > 0 && <div className="news-band office-band" aria-label="Últimas manchetes"><div className="news-band-track">
           {[...band, ...band].map((item, index) => <span key={`${item.url}-${index}`} aria-hidden={index >= band.length}>
             <strong>{item.source}</strong> {item.title}</span>)}
         </div></div>}
       </div>
-      {view !== "tv" && <LivePanel connected={connected} />}
-      {view === "full" && <CostsPanel connected={connected} />}
-      {view !== "tv" && <ContributionPanel connected={connected} onApplied={() => setLocal((n) => n + 1)} />}
-      {view === "full" && <NewsTv band={false} items={news.items} error={news.error} team={alive.map((a) => ({ name: text(a.name), ticker: text(assets.find((x) => x.id === a.asset_id)?.ticker) }))} />}
-      {view === "full" && <details className="panel office-advanced">
-        <summary>Controles, ranking e IA gestora</summary>
-        <FleetAutopilot agents={agents} onChange={() => setLocal((n) => n + 1)} />
-        <section className="ranking-panel">
-          <div className="section-heading"><h2>Ranking da equipe</h2><span className="muted">Simulação</span></div>
-          <div className="table-scroll"><table>
-            <thead><tr><th>#</th><th>Agente</th><th>Resultado virtual</th><th>Vendas fechadas</th><th>Acerto</th><th>Vida</th></tr></thead>
-            <tbody>{[...agents]
-              .map((agent) => {
-                const sells = (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL");
-                const wins = sells.filter((f) => Number(f.realized_pnl) > 0).length;
-                const vital = vitalOf(agent.id);
-                return { agent, pnl: pnlOf(vital), life: vital ? Number(vital.life_pct) : null, sells: sells.length, wins,
-                  dead: ["DEAD", "FIRED"].includes(text(agent.status)) };
-              })
-              .sort((a, b) => Number(a.dead) - Number(b.dead) || (b.pnl ?? -Infinity) - (a.pnl ?? -Infinity))
-              .map((row, index) => (
-                <tr key={text(row.agent.id)} className={row.dead ? "muted" : ""}>
-                  <td>{index + 1}</td>
-                  <td>{text(row.agent.name)} · {text(assets.find((a) => a.id === row.agent.asset_id)?.ticker)}{row.dead ? " · eliminado" : ""}</td>
-                  <td className={row.pnl == null ? "" : row.pnl > 0 ? "up" : row.pnl < 0 ? "down" : ""}>{row.pnl == null ? "—" : formatBrl(row.pnl.toFixed(2))}</td>
-                  <td>{row.sells}</td>
-                  <td>{row.sells ? `${Math.round((row.wins / row.sells) * 100)}%` : "—"}</td>
-                  <td>{row.life == null ? "—" : `${row.life.toFixed(0)}%`}</td>
-                </tr>
-              ))}</tbody>
-          </table></div>
-          <p className="muted">Acerto = vendas virtuais com lucro ÷ vendas fechadas. Poucas operações não provam nada: use o ranking depois de semanas.</p>
-        </section>
-        <Gestora agents={agents.map((agent) => ({ id: text(agent.id), name: text(agent.name), ticker: text(assets.find((a) => a.id === agent.asset_id)?.ticker),
-          budget: Number(agent.budget), pnl: pnlOf(vitalOf(agent.id)), dead: ["DEAD", "FIRED"].includes(text(agent.status)),
-          sells: (paper.paper_fills ?? []).filter((f) => f.agent_id === agent.id && f.side === "SELL").length }))}
-          maxLossPct={maxLossPct} onApplied={() => setLocal((n) => n + 1)} />
-      </details>}
+      {view === "full" && <TeamStatus agents={office} onSelect={setSelected} />}
     </>
+  );
+}
+
+/** What each AI is doing, in plain words: one row per agent. */
+function TeamStatus({ agents, onSelect }: { agents: OfficeAgent[]; onSelect: (id: string) => void }) {
+  return (
+    <section className="panel team-status">
+      <div className="section-heading"><h2>O que cada IA está fazendo</h2><span className="muted">atualiza a cada 30 s</span></div>
+      <ul>{agents.map((a) => {
+        const price = a.chart?.last ?? a.chart?.bars.at(-1)?.close ?? null;
+        return (
+          <li key={a.id}>
+            <button type="button" onClick={() => { onSelect(a.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
+              <span className="team-who"><b>{a.name}</b> {a.ticker}{price !== null && <small>{formatBrl(price.toFixed(2))}</small>}</span>
+              <span className="team-doing">{a.activity}</span>
+              {a.debate && <span className={`team-verdict ${a.debate.verdict.toLowerCase()}`}>{a.debate.summary}</span>}
+              <span className="team-facts">
+                <span>{a.holding > 0 ? `${a.holding} ações a ${formatBrl((a.paidTotal / a.holding).toFixed(2))}` : "sem ações ainda"}</span>
+                {a.health && <span className={`health-chip ${a.health.level.toLowerCase()}`}>{HEALTH_LABELS[a.health.level]}</span>}
+                <span className={a.pnl === null || Math.abs(a.pnl) < 0.005 ? "" : a.pnl > 0 ? "up" : "down"}>
+                  {a.pnl === null ? "—" : `${a.pnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(a.pnl).toFixed(2))}`}</span>
+              </span>
+            </button>
+          </li>
+        );
+      })}</ul>
+      <p className="muted">Toque numa IA para ver a reunião dela com os especialistas (Risco, Balanço e Estratégia), o plano e a última notícia.</p>
+    </section>
   );
 }
 

@@ -43,8 +43,8 @@ function paperErrorMessage(code: string) {
 }
 
 export async function loadPaper(db: SupabaseClient, ownerId: string) {
-  const tables = ["paper_accounts", "paper_positions", "paper_proposals", "paper_orders", "paper_fills", "paper_ledger_entries", "paper_events", "paper_agent_vitals", "agents", "assets"] as const;
-  const sort: Record<string, string> = { paper_accounts: "owner_id", paper_agent_vitals: "checked_at", paper_positions: "updated_at", paper_proposals: "created_at", paper_orders: "placed_at", paper_fills: "filled_at", paper_ledger_entries: "created_at", paper_events: "created_at", agents: "created_at", assets: "created_at" };
+  const tables = ["paper_accounts", "paper_positions", "paper_proposals", "paper_orders", "paper_fills", "paper_ledger_entries", "paper_events", "paper_agent_vitals", "agents", "assets", "paper_book_restarts"] as const;
+  const sort: Record<string, string> = { paper_book_restarts: "started_at", paper_accounts: "owner_id", paper_agent_vitals: "checked_at", paper_positions: "updated_at", paper_proposals: "created_at", paper_orders: "placed_at", paper_fills: "filled_at", paper_ledger_entries: "created_at", paper_events: "created_at", agents: "created_at", assets: "created_at" };
   const results = await Promise.all(tables.map((table) => db.from(table).select("*").eq("owner_id", ownerId).order(sort[table], { ascending: false }).limit(200)));
   return Object.fromEntries(tables.map((table, index) => [table, checked(results[index])])) as Record<typeof tables[number], Record<string, unknown>[]>;
 }

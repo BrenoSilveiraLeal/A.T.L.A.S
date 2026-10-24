@@ -316,3 +316,49 @@
 .contribution-form, .live-agent { flex-direction: row; justify-content: flex-start; }
 .contribution-form label { width: 200px; }
 .contribution-form button, .live-agent button { align-self: flex-end; }
+
+/* ===== 24/10/2026: simpler office, meeting-room committee, desk charts, three pages ===== */
+.agent3d-label { font-size: 11px; padding: 3px 9px; font-weight: 700; }
+.office-legend .dot.risk { background: #ff9f43; }
+.office-legend .dot.balance { background: #4fb6ff; }
+.office-legend .dot.strategy { background: #3dffa8; }
+.debate-bubble { display: grid; gap: 3px; max-width: 230px; padding: 8px 11px; border-radius: 12px; pointer-events: none;
+  background: rgba(6, 10, 16, 0.9); border: 1px solid rgba(255, 198, 92, 0.55); color: #e8f4ff; font-size: 11px; line-height: 1.35;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+.debate-bubble b { font-size: 12px; }
+.debate-bubble em { font-style: normal; font-weight: 700; color: #ffc65c; }
+.vote::before { content: "●"; margin-right: 5px; }
+.vote.a_favor::before { color: #3dffa8; }
+.vote.contra::before { color: #ff5d7d; }
+.vote.neutro::before { color: #8ea4ba; }
+@media (max-width: 640px) { .debate-bubble { max-width: 150px; font-size: 9px; } .debate-bubble span { display: none; } }
+
+.committee { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 198, 92, 0.35); background: rgba(255, 198, 92, 0.05); }
+.committee ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; line-height: 1.45; }
+.committee b { margin-right: 4px; }
+.committee strong { color: #ffc65c; font-size: 13px; }
+.health-chip { display: inline-block; margin: 0; padding: 3px 9px; border-radius: 999px; font-size: 12px; line-height: 1.4;
+  border: 1px solid rgba(142, 164, 186, 0.4); color: #c7d0ca; }
+.health-chip.saudavel { border-color: rgba(61, 255, 168, 0.5); color: #9ff5cf; }
+.health-chip.atencao { border-color: rgba(255, 198, 92, 0.6); color: #ffd98f; }
+.health-chip.perigo { border-color: rgba(255, 93, 125, 0.7); color: #ff9db1; }
+p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
+
+.team-status ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.team-status li button { width: 100%; display: grid; grid-template-columns: minmax(130px, 0.7fr) minmax(0, 2fr) minmax(0, 1.4fr); gap: 6px 16px;
+  align-items: center; text-align: left; padding: 12px 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(94, 231, 255, 0.14); color: inherit; font: inherit; cursor: pointer; }
+.team-status li button:hover { border-color: rgba(94, 231, 255, 0.45); }
+.team-who { display: grid; gap: 2px; } .team-who b { font-size: 15px; } .team-who small { color: #8ea4ba; font-variant-numeric: tabular-nums; }
+.team-doing { font-size: 13px; color: #c7d0ca; }
+.team-verdict { font-size: 13px; font-weight: 700; color: #ffc65c; }
+.team-verdict.comprar { color: #3dffa8; }
+.team-facts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 12px; color: #8ea4ba; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .team-status li button { grid-template-columns: minmax(0, 1fr); } }
+
+.sidebar-advanced { display: inline-flex; align-items: center; gap: 6px; margin: auto 0 10px; padding: 8px 12px; font-size: 12px; color: #8ea4ba; border-radius: 8px; }
+.sidebar-advanced:hover { color: #e8f4ff; background: rgba(255, 255, 255, 0.04); }
+.decisions-log ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.decisions-log li { display: grid; gap: 3px; padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.03); font-size: 13px; line-height: 1.45; }
+.decisions-log li small { color: #8ea4ba; }
+.wallet .live-money { margin-bottom: 12px; }

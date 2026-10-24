@@ -20,6 +20,7 @@ import {
   publishObservationStrategy,
 } from "@/lib/agent-config";
 import { CvmProviderError } from "@/providers/cvm";
+import { cachedCompanyHealth } from "@/lib/company-health";
 import {
   readQuote,
   readHistory,
@@ -71,6 +72,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (resource === "contribution") return json(await loadContribution(adminClient(), user.id));
     if (resource === "live") return json(await loadLive(adminClient(), user.id));
     if (resource === "costs") return json(await loadCosts(adminClient(), user.id));
+    if (resource === "company-health") return json(await cachedCompanyHealth(adminClient(), user.id) ?? {});
     if (resource === "news-tv") {
       const ticker = url.searchParams.get("ticker");
       return json(await loadNews(adminClient(), user.id, ticker === null ? undefined : tickerSchema.parse(ticker)));
