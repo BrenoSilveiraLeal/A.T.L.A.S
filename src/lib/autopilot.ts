@@ -16,7 +16,7 @@ import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
 
-// R$ 0,99 of fractional brokerage is about 1,2% at R$ 80: three monthly shares of R$ 33 buy once.
+// Owner's minimum order (R$ 40): one share of the cheapest team stocks.
 const MIN_ORDER_VALUE = STEADY_RULE.minOrder;
 
 const STOP_LOSS_PCT = 8;
@@ -107,7 +107,9 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     maxOrderValue: account.max_order_value, availableCash: availableCash.toFixed(2),
     lotSize: rows(asset).lot_size, tickSize: String(rows(asset).tick_size),
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,
-    fixedFee: Number(account.fee_lot ?? 0) + Number(account.fee_fraction ?? 0), minOrderValue: MIN_ORDER_VALUE,
+    // Below a round lot only the fractional brokerage (R$ 0,99) applies; both legs only when 100 shares fit.
+    fixedFee: Number(account.fee_fraction ?? 0) + (Number(quote.price) * 100 <= Number(rows(agent).budget) ? Number(account.fee_lot ?? 0) : 0),
+    minOrderValue: MIN_ORDER_VALUE,
     minSellPrice: held.quantity > 0 ? minimumSellPrice(basis.toNumber(), held.quantity) : undefined,
     context,
     steady,

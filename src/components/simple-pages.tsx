@@ -49,13 +49,14 @@ type Bridge = { available: boolean; reason?: string; balance?: { balance: string
  */
 export function GenialBalance({ connected, compact = false }: { connected: boolean; compact?: boolean }) {
   const [genial, setGenial] = useState<Genial | null>(null);
+  const [team, setTeam] = useState<{ id: string; name: string; ticker: string }[]>([]);
   const [bridge, setBridge] = useState<Bridge | null>(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [tick, setTick] = useState(0);
   const load = useCallback((signal?: AbortSignal) => {
     fetch("/api/atlas/live", { signal }).then(async (r) => {
       const body = await r.json(); if (!r.ok) throw new Error(body.error ?? "Indisponível.");
-      setGenial(body.genial); setError("");
+      setGenial(body.genial); setTeam(body.agents ?? []); setError("");
     }).catch((e) => { if (!signal?.aborted) setError(e instanceof Error ? e.message : "Indisponível."); });
     fetch("/api/atlas/broker-live", { signal }).then((r) => r.json()).then((b: Bridge) => setBridge(b)).catch(() => undefined);
   }, []);
@@ -71,14 +72,17 @@ export function GenialBalance({ connected, compact = false }: { connected: boole
   const reported = bridge?.available && bridge.balance && Number(bridge.balance.balance) > 0 ? Number(bridge.balance.balance) : null;
   async function deposit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const amount = Number(String(new FormData(event.currentTarget).get("amount") ?? "").replace(",", "."));
+    const form = new FormData(event.currentTarget);
+    const amount = Number(String(form.get("amount") ?? "").replace(",", "."));
+    const agentId = String(form.get("agent") ?? "");
     if (!genial || !(amount > 0)) return;
     setBusy(true); setMessage("");
     try {
-      const r = await fetch("/api/atlas/controls", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "capital", ceiling: (genial.deposited + amount).toFixed(2) }) });
+      const r = await fetch("/api/atlas/live", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "deposit", amount: amount.toFixed(2), ...(agentId ? { agentId } : {}) }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.error ?? "Recusado.");
-      setMessage(`Anotado: +${brl(amount)}. As IAs já podem usar.`); load();
+      const who = team.find((a) => a.id === agentId);
+      setMessage(`Anotado: +${brl(amount)} ${who ? `para ${who.name} (${who.ticker})` : "dividido igualmente entre as IAs"}.`); load();
       (event.target as HTMLFormElement).reset();
     } catch (e) { setMessage(e instanceof Error ? e.message : "Falha de conexão."); }
     finally { setBusy(false); }
@@ -102,6 +106,12 @@ export function GenialBalance({ connected, compact = false }: { connected: boole
           <form className="genial-deposit" onSubmit={(e) => void deposit(e)}>
             <label>Depositei mais na Genial (R$)
               <input name="amount" inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" placeholder="200" required />
+            </label>
+            <label>Para quem
+              <select name="agent" defaultValue="">
+                <option value="">Dividir igualmente entre as IAs</option>
+                {team.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.ticker})</option>)}
+              </select>
             </label>
             <button disabled={busy}>{busy ? "Anotando…" : "Adicionar"}</button>
           </form>
@@ -166,7 +176,7 @@ function Wallet({ connected, revision }: { connected: boolean; revision: number 
           </tr>;
         })}</tbody>
       </table></div>
-      <p className="muted">Juntando = parte do aporte que a IA ainda não usou; ela compra quando chega a R$ 80. Vende só com +60% sobre o preço médio, nunca no prejuízo.</p>
+      <p className="muted">Juntando = parte do aporte que a IA ainda não usou; ela compra quando tem R$ 40 ou mais. Vende só com +60% sobre o preço médio, nunca no prejuízo.</p>
     </section>
   );
 }

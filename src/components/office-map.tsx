@@ -231,7 +231,7 @@ export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null;
 
 /**
  * The agent's plan in plain words (owner's rule): every share of the monthly contribution buys
- * more shares once it reaches R$ 80; it sells everything only after +60% over the average price
+ * more shares once it reaches R$ 40; it sells everything only after +60% over the average price
  * and an 8% turn from the top, never below what it paid.
  */
 function AgentPlan({ agent }: { agent: OfficeAgent }) {
@@ -249,7 +249,7 @@ function AgentPlan({ agent }: { agent: OfficeAgent }) {
   return (
     <div className="agent-plan">
       <span className="score-kicker">Plano: comprar na baixa, vender na alta</span>
-      <p>Recebe a sua parte do aporte todo mês e <b>compra assim que juntar R$ 80</b> (cerca de 3 meses; a corretagem fica perto de 1%). Depois segura nas quedas e vende só com +60% de lucro. Notícia ruim adia a compra.</p>
+      <p>Recebe a sua parte do aporte todo mês e <b>compra assim que tiver R$ 40</b> (o preço de 1 ação; a corretagem é R$ 0,99). Depois segura nas quedas e vende só com +60% de lucro. Notícia ruim adia a compra.</p>
     </div>
   );
 }

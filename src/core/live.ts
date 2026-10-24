@@ -5,7 +5,7 @@ import Decimal from "decimal.js";
  * symbol), IOC, priced a little through the live book so they fill now or not at all.
  * Brokerage: R$ 2,99 standard / R$ 0,99 fractional per order, plus B3 ~0,03%.
  */
-export const LIVE = { bufferBps: 30, b3Bps: 3, lotFee: 2.99, fractionFee: 0.99, minOrder: 80, maxQuoteAgeMs: 60_000, maxDeviation: 0.03 } as const;
+export const LIVE = { bufferBps: 30, b3Bps: 3, lotFee: 2.99, fractionFee: 0.99, minOrder: 40, maxQuoteAgeMs: 60_000, maxDeviation: 0.03 } as const;
 
 const D = Decimal.clone({ rounding: Decimal.ROUND_HALF_EVEN });
 const tick = (v: Decimal, mode: "up" | "down") => v.toDecimalPlaces(2, mode === "up" ? Decimal.ROUND_UP : Decimal.ROUND_DOWN);
@@ -25,7 +25,7 @@ export function sizeLiveBuy(room: number, maxOrder: number, ask: string): { quan
     : Math.min(99, Math.floor(new D(budget - LIVE.fractionFee).div(perShare).toNumber()));
   if (quantity <= 0) return { skip: `dinheiro da IA (R$ ${room.toFixed(2)}) não paga nem 1 ação a R$ ${limit.toFixed(2)}` };
   if (limit.times(quantity).gt(maxOrder)) return { skip: "acima do valor máximo por ordem" };
-  if (limit.times(quantity).lt(LIVE.minOrder)) return { skip: `ordem de R$ ${limit.times(quantity).toFixed(2)} pequena demais: a corretagem passaria de 1,2%` };
+  if (limit.times(quantity).lt(LIVE.minOrder)) return { skip: `ordem de R$ ${limit.times(quantity).toFixed(2)} pequena demais: a corretagem passaria de 2,5%` };
   return { quantity, limit: limit.toFixed(2) };
 }
 

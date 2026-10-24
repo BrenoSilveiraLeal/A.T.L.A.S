@@ -1,4 +1,5 @@
 import "server-only";
+import { bridgeExecution } from "./live-view";
 import { HttpExecutionGateway, GatewayError } from "@/providers/execution-gateway";
 import { adminClient } from "./supabase";
 
@@ -34,7 +35,8 @@ export async function readBrokerLive(ownerId: string) {
     available: true as const,
     account: { ...account, accountId: `****${account.accountId.slice(-3)}` },
     provider: gateway.capabilities.providerId,
-    executionEnabled: false,
+    // The bridge's own switch (gateway.env): true only when it may send orders.
+    executionEnabled: (await bridgeExecution()) === true,
     health, balance, positions, orders, quotes, observedAt: new Date().toISOString(),
   };
 }

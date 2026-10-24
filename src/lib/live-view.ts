@@ -8,6 +8,8 @@ const amount = z.string().regex(/^\d{1,9}(?:\.\d{1,2})?$/);
 export const liveSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("settings"), enabled: z.boolean(), maxOrder: amount, dailyOrders: z.number().int().min(1).max(100), confirm: z.string().max(40).optional() }),
   z.object({ action: z.literal("budget"), agentId: z.uuid(), amount }),
+  // A real deposit at Genial: all to one agent, or split equally over the working agents.
+  z.object({ action: z.literal("deposit"), amount, agentId: z.uuid().optional() }),
 ]);
 
 const MESSAGES: Record<string, string> = {
@@ -18,6 +20,9 @@ const MESSAGES: Record<string, string> = {
   ATLAS_INVALID_REAL_BUDGET: "Valor inválido.",
   ATLAS_AGENT_ELIMINATED: "IA eliminada não recebe dinheiro real.",
   ATLAS_INVALID_LIVE_SETTINGS: "Valores inválidos.",
+  ATLAS_INVALID_DEPOSIT: "Valor de depósito inválido.",
+  ATLAS_DEPOSIT_OVERALLOCATED: "A divisão passou do valor depositado.",
+  ATLAS_AGENT_NOT_FOUND: "IA não encontrada.",
 };
 function checked<T>(result: { data: T | null; error: { message: string } | null }) {
   if (result.error) {
@@ -29,7 +34,7 @@ function checked<T>(result: { data: T | null; error: { message: string } | null 
 }
 
 /** The bridge's own execution switch, read from its local config (only that one line). */
-async function bridgeExecution(): Promise<boolean | null> {
+export async function bridgeExecution(): Promise<boolean | null> {
   try {
     const text = await readFile(process.env.ATLAS_GATEWAY_ENV_PATH ?? "C:/atlas-data/gateway.env", "utf8");
     const line = text.split(/\r?\n/).find((l) => l.startsWith("ATLAS_MT5_ENABLE_EXECUTION="));
@@ -74,6 +79,18 @@ export async function loadLive(db: SupabaseClient, ownerId: string) {
 
 export async function mutateLive(db: SupabaseClient, ownerId: string, raw: unknown) {
   const input = liveSchema.parse(raw);
+  if (input.action === "deposit") {
+    const total = Number(input.amount);
+    let allocation: { agentId: string; amount: number }[];
+    if (input.agentId) allocation = [{ agentId: input.agentId, amount: total }];
+    else {
+      const team = await db.from("agents").select("id").eq("owner_id", ownerId).eq("enabled", true).eq("autopilot", true).not("status", "in", "(DEAD,FIRED)");
+      if (team.error) throw new Error("LIVE_DATABASE_UNAVAILABLE");
+      const share = team.data.length ? Math.floor((total / team.data.length) * 100) / 100 : 0;
+      allocation = share > 0 ? team.data.map((a) => ({ agentId: a.id, amount: share })) : [];
+    }
+    return checked(await db.rpc("register_deposit", { p_owner_id: ownerId, p_amount: input.amount, p_allocation: allocation }));
+  }
   if (input.action === "budget")
     return checked(await db.rpc("set_agent_real_budget", { p_owner_id: ownerId, p_agent_id: input.agentId, p_amount: input.amount }));
   return checked(await db.rpc("set_live_settings", { p_owner_id: ownerId, p_enabled: input.enabled, p_max_order: input.maxOrder,

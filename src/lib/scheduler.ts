@@ -9,7 +9,6 @@ import { loadAgentObservationConfiguration } from "./agent-config";
 import { runPaperAutopilot } from "./autopilot";
 import { sendAlert } from "./alerts";
 import { loadNews } from "./news";
-import { maybeContribute } from "./contribution";
 import { refreshCompanyHealth } from "./company-health";
 import { contextFor, contextSummary, loadContextSources, type ContextSources } from "./context";
 import { storeBars } from "./market-bars";
@@ -33,7 +32,6 @@ export async function runScheduler() {
     // Another scheduler (e.g. the cloud one) already ran this minute's analyses. The light,
     // idempotent extras still run here: they are each rate-limited or once per month.
     await loadNews(db, owner).catch(() => undefined);
-    await maybeContribute(db, owner).catch(() => undefined);
     await refreshCompanyHealth(db, owner).catch(() => undefined);
     return { skipped: "RECENT_TICK", jobs: [] };
   }
@@ -212,8 +210,7 @@ export async function runScheduler() {
   if (alerts.length) await sendAlert(alerts);
   // Keeps the office TV filled even with the panel closed (refresh at most every 5 min).
   await loadNews(db, owner).catch(() => undefined);
-  // Monthly contribution (simulation): once per month on or after the owner's chosen day.
-  await maybeContribute(db, owner).catch(() => undefined);
+  // No simulated contribution: the agents' money comes only from real deposits (register_deposit).
   // Company health from the annual statements: downloads at most once a week.
   await refreshCompanyHealth(db, owner).catch(() => undefined);
   return { jobs: results };

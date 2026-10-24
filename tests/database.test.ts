@@ -281,6 +281,22 @@ describe("paper trading isolated virtual book", () => {
     expect((await db.query(kinds, [owner])).rows).toEqual(before);
   });
 
+  it("registers a real deposit for one agent: real budget, decision budget, ceiling and cash move together", async () => {
+    await openPaper();
+    const a = await agent("Ana");
+    const before = await db.query<{ cash: string }>("select cash from public.paper_accounts where owner_id=$1", [owner]);
+    await db.query("select public.register_deposit($1, 50, $2::jsonb)", [owner, JSON.stringify([{ agentId: a.id, amount: 50 }])]);
+    const agentRow = await db.query<{ budget: string; real_budget: string }>("select budget,real_budget from public.agents where id=$1", [a.id]);
+    expect(Number(agentRow.rows[0].real_budget)).toBe(50);
+    const ceiling = await db.query<{ ceiling: string }>("select ceiling from public.capital_plans where owner_id=$1", [owner]);
+    expect(Number(ceiling.rows[0].ceiling)).toBe(50);
+    const after = await db.query<{ cash: string }>("select cash from public.paper_accounts where owner_id=$1", [owner]);
+    expect(Number(after.rows[0].cash) - Number(before.rows[0].cash)).toBe(50);
+    await db.exec("savepoint over");
+    await expect(db.query("select public.register_deposit($1, 10, $2::jsonb)", [owner, JSON.stringify([{ agentId: a.id, amount: 20 }])])).rejects.toThrow(/ATLAS_DEPOSIT_OVERALLOCATED/);
+    await db.exec("rollback to savepoint over");
+  });
+
   it("rejects insufficient virtual cash, short selling and direct anonymous access", async () => {
     await openPaper();
     const a = await agent("Risk fixture");
