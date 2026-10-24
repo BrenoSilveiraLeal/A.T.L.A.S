@@ -253,6 +253,34 @@ describe("paper trading isolated virtual book", () => {
     expect(Number(real.rows[0].count)).toBe(0);
   });
 
+  it("removes a replaced agent with its whole history, keeps the virtual ledger balanced, refuses one holding shares", async () => {
+    await openPaper();
+    const a = await agent("Replaced trader");
+    await db.query("select public.update_agent_enabled($1,$2,true)", [owner, a.id]);
+    const trade = async (side: string, key: string, price: number) => {
+      const p = await propose(a.id, side, 2, side === "BUY" ? "10.50" : "9.00", key);
+      const r = await db.query<{ result: { orderId: string } }>("select public.paper_review_proposal($1,$2,true) as result", [owner, p.id]);
+      await admin();
+      await db.query("update public.paper_orders set placed_at=now()-interval '2 minutes' where id=$1", [r.rows[0].result.orderId]);
+      await service();
+      await db.query("select public.paper_settle_quote($1,$2,$3,'https://example.test/quote',$4)", [owner, assetId, price, new Date(Date.now() - 60000).toISOString()]);
+    };
+    await trade("BUY", "30000000-0000-4000-8000-000000000101", 10);
+    await db.exec("savepoint holding");
+    await expect(db.query("select public.remove_agent($1,$2)", [owner, a.id])).rejects.toThrow(/ATLAS_AGENT_HOLDS_SHARES/);
+    await db.exec("rollback to savepoint holding");
+    await trade("SELL", "30000000-0000-4000-8000-000000000102", 11);
+    const kinds = "select account_kind,sum(amount)::text as total from public.paper_ledger_entries where owner_id=$1 group by account_kind having sum(amount)<>0 order by 1";
+    const before = (await db.query(kinds, [owner])).rows;
+    const removed = await db.query<{ r: { removed: string; assetRemoved: boolean } }>("select public.remove_agent($1,$2) as r", [owner, a.id]);
+    expect(removed.rows[0].r).toMatchObject({ removed: "Replaced trader", assetRemoved: true });
+    for (const table of ["agents", "paper_fills", "paper_orders", "paper_proposals", "paper_positions", "assets"]) {
+      const left = await db.query<{ count: string }>(`select count(*) from public.${table} where owner_id=$1`, [owner]);
+      expect([table, Number(left.rows[0].count)]).toEqual([table, 0]);
+    }
+    expect((await db.query(kinds, [owner])).rows).toEqual(before);
+  });
+
   it("rejects insufficient virtual cash, short selling and direct anonymous access", async () => {
     await openPaper();
     const a = await agent("Risk fixture");

@@ -7,7 +7,7 @@ import Decimal from "decimal.js";
 export interface OrderLeg { symbol: string; quantity: number }
 
 export function splitLots(ticker: string, quantity: number, roundLot = 100): OrderLeg[] {
-  if (!/^[A-Z]{4}\d{1,2}$/.test(ticker)) throw new Error("INVALID_TICKER");
+  if (!/^[A-Z][A-Z0-9]{3}\d{1,2}$/.test(ticker)) throw new Error("INVALID_TICKER");
   if (!Number.isSafeInteger(quantity) || quantity <= 0) throw new Error("INVALID_QUANTITY");
   const standard = Math.floor(quantity / roundLot) * roundLot;
   const fractional = quantity - standard;
@@ -25,7 +25,7 @@ export function splitLots(ticker: string, quantity: number, roundLot = 100): Ord
 export function mergeFractionalPositions<T extends { symbol: string; quantity: number; averagePrice: string; observedAt: string }>(positions: readonly T[]): T[] {
   const merged = new Map<string, T>();
   for (const p of positions) {
-    const symbol = /^[A-Z]{4}\d{1,2}F$/.test(p.symbol) ? p.symbol.slice(0, -1) : p.symbol;
+    const symbol = /^[A-Z][A-Z0-9]{3}\d{1,2}F$/.test(p.symbol) ? p.symbol.slice(0, -1) : p.symbol;
     const prev = merged.get(symbol);
     if (!prev) { merged.set(symbol, { ...p, symbol }); continue; }
     const quantity = prev.quantity + p.quantity;

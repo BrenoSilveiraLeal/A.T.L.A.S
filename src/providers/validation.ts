@@ -8,7 +8,7 @@ export const tickerSchema = z
   .string()
   .trim()
   .toUpperCase()
-  .regex(/^[A-Z]{4}\d{1,2}F?$/);
+  .regex(/^[A-Z][A-Z0-9]{3}\d{1,2}F?$/);
 export const decimalSchema = z
   .union([
     z.number().finite(),

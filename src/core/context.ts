@@ -25,14 +25,14 @@ export const COMPANIES: Record<string, CompanyProfile> = {
   ITUB4: { name: "Itaú Unibanco", cvmCode: "019348", query: '(itau OR "itau unibanco" OR itub4)', aliases: ["itau", "itub4"] },
   MGLU3: { name: "Magazine Luiza", cvmCode: "022470", query: '("magazine luiza" OR magalu OR mglu3)', aliases: ["magazine luiza", "magalu", "mglu3"] },
   BBAS3: { name: "Banco do Brasil", cvmCode: "001023", query: '("banco do brasil" OR bbas3)', aliases: ["banco do brasil", "bbas3"] },
-  // Added 23/10/2026 with the new agents; CVM codes are resolved from the filer directory.
+  // Added 23/10/2026; B3, Axia and Embraer codes verified in the 2025 DFP (Axia has several filers named alike).
   UGPA3: { name: "Ultrapar", cvmCode: null, query: '(ultrapar OR ipiranga OR ugpa3)', aliases: ["ultrapar", "ipiranga", "ugpa3"], commodity: "BRENT" },
   SBSP3: { name: "Sabesp", cvmCode: null, query: '(sabesp OR sbsp3)', aliases: ["sabesp", "sbsp3"] },
   CXSE3: { name: "Caixa Seguridade", cvmCode: null, query: '("caixa seguridade" OR cxse3)', aliases: ["caixa seguridade", "cxse3"] },
   VIVT3: { name: "Vivo", cvmCode: null, query: '("telefonica brasil" OR vivt3 OR "operadora vivo")', aliases: ["telefonica brasil", "vivt3", "operadora vivo"] },
-  B3SA3: { name: "B3", cvmCode: null, query: '("b3 sa" OR b3sa3 OR "bolsa b3")', aliases: ["b3sa3", "b3 s.a", "bolsa b3"] },
-  AXIA3: { name: "Axia Energia", cvmCode: null, query: '("axia energia" OR eletrobras OR axia3)', aliases: ["axia energia", "eletrobras", "axia3", "elet3"] },
-  EMBJ3: { name: "Embraer", cvmCode: null, query: '(embraer OR embj3)', aliases: ["embraer", "embj3", "embr3"] },
+  B3SA3: { name: "B3", cvmCode: "021610", query: '("b3 sa" OR b3sa3 OR "bolsa b3")', aliases: ["b3sa3", "b3 s.a", "bolsa b3"] },
+  AXIA3: { name: "Axia Energia", cvmCode: "002437", query: '("axia energia" OR eletrobras OR axia3)', aliases: ["axia energia", "eletrobras", "axia3", "elet3"] },
+  EMBJ3: { name: "Embraer", cvmCode: "020087", query: '(embraer OR embj3)', aliases: ["embraer", "embj3", "embr3"] },
 };
 export const MARKET_QUERY = '(ibovespa OR "bolsa brasileira" OR "mercado brasileiro")';
 

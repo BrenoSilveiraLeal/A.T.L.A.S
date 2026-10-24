@@ -66,14 +66,17 @@ export type CvmFundamentals = {
   limitations: string[];
 };
 
+type AccountLayout = { code: string; descriptions: string[] };
+/** Commercial layout first; `bank` is the fixed layout banks file (e.g. Itaú: 3.09, 2.08). */
 const definitions: Record<
   CvmMetricName,
-  { statement: CvmStatement; code: string; descriptions: string[] }
+  { statement: CvmStatement; code: string; descriptions: string[]; bank?: AccountLayout }
 > = {
   revenue: {
     statement: "DRE",
     code: "3.01",
     descriptions: ["Receita de Venda de Bens e/ou Serviços"],
+    bank: { code: "3.01", descriptions: ["Receitas da Intermediação Financeira"] },
   },
   netIncome: {
     statement: "DRE",
@@ -82,6 +85,7 @@ const definitions: Record<
       "Lucro/Prejuízo do Período",
       "Lucro/Prejuízo Consolidado do Período",
     ],
+    bank: { code: "3.09", descriptions: ["Lucro/Prejuízo Consolidado do Período", "Lucro ou Prejuízo Líquido Consolidado do Período"] },
   },
   cash: {
     statement: "BPA",
@@ -102,6 +106,7 @@ const definitions: Record<
     statement: "BPP",
     code: "2.03",
     descriptions: ["Patrimônio Líquido", "Patrimônio Líquido Consolidado"],
+    bank: { code: "2.08", descriptions: ["Patrimônio Líquido Consolidado"] },
   },
 };
 
@@ -149,7 +154,7 @@ export function deriveCvmFundamentals(input: {
   for (const [name, definition] of Object.entries(definitions)) {
     const key = name as CvmMetricName;
     metrics[key] = null;
-    const candidates = facts.filter(
+    const pick = (layout: AccountLayout) => facts.filter(
       (fact) =>
         fact.cvmCode === document.cvmCode &&
         fact.cnpj === document.cnpj &&
@@ -157,9 +162,16 @@ export function deriveCvmFundamentals(input: {
         fact.version === document.version &&
         fact.scope === scope &&
         fact.statement === definition.statement &&
-        fact.accountCode === definition.code &&
+        fact.accountCode === layout.code &&
         fact.periodEnd === document.referenceDate,
     );
+    const means = (fact: CvmFact, layout: AccountLayout) =>
+      fact.fixedAccount && layout.descriptions.map(normalized).includes(normalized(fact.accountDescription));
+    let candidates = pick(definition);
+    if (definition.bank && !(candidates.length === 1 && means(candidates[0], definition))) {
+      const bank = pick(definition.bank);
+      if (bank.length === 1 && means(bank[0], definition.bank)) candidates = bank;
+    }
     if (candidates.length !== 1) {
       limitations.push(
         `${name}:${candidates.length ? "AMBIGUOUS_ACCOUNT" : "MISSING_ACCOUNT"}`,
@@ -167,12 +179,7 @@ export function deriveCvmFundamentals(input: {
       continue;
     }
     const fact = candidates[0];
-    if (
-      !fact.fixedAccount ||
-      !definition.descriptions
-        .map(normalized)
-        .includes(normalized(fact.accountDescription))
-    ) {
+    if (!means(fact, definition) && !(definition.bank && fact.accountCode === definition.bank.code && means(fact, definition.bank))) {
       limitations.push(`${name}:UNSUPPORTED_ACCOUNT_MEANING`);
       continue;
     }
