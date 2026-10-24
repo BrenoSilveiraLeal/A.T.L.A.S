@@ -130,7 +130,8 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
 async function trailingInputs(db: SupabaseClient, owner: string, agentId: string, assetId: string, ticker: string,
   heldQuantity: number, stockEvents: readonly CorporateEvent[]) {
   const today = saoPauloClock(new Date()).date;
-  const stored = (await loadBars(db, ticker, 120)).filter((b) => b.trade_date < today);
+  // The owner's rule can hold for years: the top since entry needs the long history (DB max 1000 rows).
+  const stored = (await loadBars(db, ticker, 1000)).filter((b) => b.trade_date < today);
   if (stored.length < 20) return undefined;
   const adjusted = adjustStoredBars(stored, stockEvents).map((b, i) => ({ date: stored[i].trade_date, close: Number(b.close) }));
   const fills = maybe(await db.from("paper_fills").select("side,quantity,filled_at").eq("owner_id", owner).eq("agent_id", agentId)
