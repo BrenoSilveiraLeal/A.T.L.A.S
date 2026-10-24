@@ -30,6 +30,9 @@ export const COMPANIES: Record<string, CompanyProfile> = {
   SBSP3: { name: "Sabesp", cvmCode: null, query: '(sabesp OR sbsp3)', aliases: ["sabesp", "sbsp3"] },
   CXSE3: { name: "Caixa Seguridade", cvmCode: null, query: '("caixa seguridade" OR cxse3)', aliases: ["caixa seguridade", "cxse3"] },
   VIVT3: { name: "Vivo", cvmCode: null, query: '("telefonica brasil" OR vivt3 OR "operadora vivo")', aliases: ["telefonica brasil", "vivt3", "operadora vivo"] },
+  B3SA3: { name: "B3", cvmCode: null, query: '("b3 sa" OR b3sa3 OR "bolsa b3")', aliases: ["b3sa3", "b3 s.a", "bolsa b3"] },
+  AXIA3: { name: "Axia Energia", cvmCode: null, query: '("axia energia" OR eletrobras OR axia3)', aliases: ["axia energia", "eletrobras", "axia3", "elet3"] },
+  EMBJ3: { name: "Embraer", cvmCode: null, query: '(embraer OR embj3)', aliases: ["embraer", "embj3", "embr3"] },
 };
 export const MARKET_QUERY = '(ibovespa OR "bolsa brasileira" OR "mercado brasileiro")';
 

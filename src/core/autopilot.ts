@@ -15,6 +15,15 @@ export const AUTOPILOT_VERSION = "paper-autopilot-sma20x50/1.0.0";
  * re-enter on a new 20-day closing high. The first entry is immediate.
  */
 export const TRAILING_VERSION = "paper-autopilot-trailing15/1.0.0";
+/**
+ * Owner's rule (24/10/2026): "comprar na baixa, vender na alta" done the way that held up on
+ * B3 history 2023–2026 (docs/BACKTEST_ACUMULAR.md): the agent buys with every share of the
+ * monthly contribution as soon as it has R$ 100 (fixed money buys more shares when the price is
+ * low, which lowers the average), holds through falls, and sells everything only after a big
+ * gain over its average (`targetPct`) once the price has turned `turnPct` down from its top.
+ * Never at a loss. The only rule tested that beat the CDI in both 2023–24 and 2025–26.
+ */
+export const STEADY_VERSION = "paper-autopilot-monthly-sell-high/1.0.0";
 const D = Decimal.clone({ precision: 32, rounding: Decimal.ROUND_HALF_EVEN });
 const LIMIT_BUFFER_BPS = 20;
 
@@ -50,6 +59,12 @@ export interface AutopilotInput {
    * 20 sessions and whether this agent ever held the asset.
    */
   trailing?: { peak: string | null; priorHigh: string; everHeld: boolean; trailPct: number };
+  /** Owner's monthly rule: highest close since the position was opened and the sell trigger. */
+  steady?: { peak: string | null; targetPct: number; turnPct: number };
+}
+
+export function ruleVersion(input: Pick<AutopilotInput, "steady" | "trailing">) {
+  return input.steady ? STEADY_VERSION : input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION;
 }
 
 export type AutopilotDecision =
@@ -93,7 +108,7 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
       return hold(`queria vender (${why}), mas R$ ${limit.toFixed(2)} fica abaixo do que pagou com as taxas (mínimo R$ ${input.minSellPrice}). Segura até subir.`);
     return { action: "SELL", quantity: input.position.quantity, limitPrice: limit.toFixed(2),
       referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
-      reason: `${input.ticker}: venda virtual automática (${why}). Regra ${input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION}, simulação.` };
+      reason: `${input.ticker}: venda virtual automática (${why}). Regra ${ruleVersion(input)}, simulação.` };
   };
   if (input.context?.action === "EXIT" && input.position.quantity > 0) return sellAll(`contexto: ${input.context.summary}`);
   const buy = (why: string): AutopilotDecision => {
@@ -111,8 +126,25 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     if (input.minOrderValue && limit.times(quantity).lt(input.minOrderValue))
       return hold(`sinal de compra, mas a ordem (R$ ${limit.times(quantity).toFixed(2)}) é pequena demais: a corretagem pesaria mais de 1%. Espera juntar pelo menos R$ ${input.minOrderValue.toFixed(2)}.`);
     return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
-      reason: `${input.ticker}: compra virtual automática (${why}${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION}, simulação.` };
+      reason: `${input.ticker}: compra virtual automática (${why}${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${ruleVersion(input)}, simulação.` };
   };
+  if (input.steady) {
+    const st = input.steady;
+    if (input.position.quantity > 0) {
+      const average = new D(input.position.averageCost);
+      const peak = D.max(new D(st.peak ?? price), price);
+      const gain = price.div(average).minus(1), turned = new D(1).minus(price.div(peak));
+      if (gain.gte(st.targetPct / 100) && turned.gte(st.turnPct / 100))
+        return sellAll(`subiu ${gain.times(100).toFixed(1)}% sobre o preço médio e já virou ${turned.times(100).toFixed(1)}% do topo de R$ ${peak.toFixed(2)}: vende na alta`);
+      const room = new D(input.budgetRoom);
+      if (room.gte(input.minOrderValue ?? 0) && room.gt(0)) return buy(`parte do aporte mensal: acumula mais ações (preço médio R$ ${average.toFixed(2)}, agora R$ ${price.toFixed(2)})`);
+      return hold(gain.gte(st.targetPct / 100)
+        ? `lucro de ${gain.times(100).toFixed(1)}%; ainda subindo, segura até virar ${st.turnPct}% do topo.`
+        : `segurando e juntando o aporte; vende só com +${st.targetPct}% sobre o preço médio (R$ ${average.times(1 + st.targetPct / 100).toFixed(2)}) depois de virar ${st.turnPct}% do topo.`);
+    }
+    if (new D(input.budgetRoom).gte(input.minOrderValue ?? 0)) return buy("parte do aporte mensal: começa a acumular");
+    return hold(`juntando o aporte mensal até ter R$ ${(input.minOrderValue ?? 0).toFixed(2)} para comprar.`);
+  }
   if (input.trailing) {
     const t = input.trailing;
     if (input.position.quantity > 0) {

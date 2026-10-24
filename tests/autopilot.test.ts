@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTOPILOT_VERSION, AutopilotError, autopilotDecision, TRAILING_VERSION, type AutopilotInput } from "@/core/autopilot";
+import { AUTOPILOT_VERSION, AutopilotError, autopilotDecision, STEADY_VERSION, TRAILING_VERSION, type AutopilotInput } from "@/core/autopilot";
 import type { MarketHistory, MarketQuote } from "@/providers/types";
 
 const now = "2026-10-22T18:00:00.000Z";
@@ -118,6 +118,19 @@ describe("paper autopilot rule", () => {
     expect(autopilotDecision(input({ trailing: trailing({ everHeld: true }) }, rising, "16.00")).action).toBe("HOLD");
     expect(autopilotDecision(input({ trailing: trailing({ everHeld: true, priorHigh: "15.50" }) }, rising, "16.00")).action).toBe("BUY");
     expect(autopilotDecision(input({ trailing: trailing({}), context: { action: "BLOCK_BUY", summary: "x" } }, rising, "16.00")).action).toBe("HOLD");
+  });
+  it("owner's monthly rule: buys whenever its share reaches R$ 100, holds through falls, sells only high and never at a loss", () => {
+    const steady = (peak: string | null) => ({ steady: { peak, targetPct: 60, turnPct: 8 }, minOrderValue: 100 });
+    const first = autopilotDecision(input({ ...steady(null), budgetRoom: "133.00" }, falling, "10.10"));
+    expect(first.action).toBe("BUY");
+    expect(first.reason).toContain(STEADY_VERSION);
+    expect(autopilotDecision(input({ ...steady(null), budgetRoom: "66.00" }, falling, "10.10")).reason).toContain("juntando");
+    const held = { position: { quantity: 10, averageCost: "10.00" }, budgetRoom: "0.00" };
+    expect(autopilotDecision(input({ ...steady("16.00"), ...held }, falling, "10.10")).action).toBe("HOLD"); // falling: just holds
+    expect(autopilotDecision(input({ ...steady("17.00"), ...held }, rising, "16.50")).reason).toContain("segura"); // +65% but only 3% off the top
+    expect(autopilotDecision(input({ ...steady("18.00"), ...held }, rising, "16.50"))).toMatchObject({ action: "SELL", quantity: 10 });
+    expect(autopilotDecision(input({ ...steady("18.00"), ...held, minSellPrice: "20.00" }, rising, "16.50")).action).toBe("HOLD");
+    expect(autopilotDecision(input({ ...steady("16.00"), position: held.position, budgetRoom: "150.00" }, falling, "10.10")).action).toBe("BUY");
   });
 });
 

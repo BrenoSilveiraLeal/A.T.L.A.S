@@ -4,7 +4,7 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MarketHistory, MarketQuote } from "@/providers/types";
-import { AUTOPILOT_VERSION, autopilotDecision, corporateActionSuspected, TRAILING_VERSION } from "@/core/autopilot";
+import { autopilotDecision, corporateActionSuspected, ruleVersion } from "@/core/autopilot";
 import { paperReferencePrice } from "@/core/paper";
 import { b3Session } from "@/core/b3-calendar";
 import { applyPaperCorporateActions } from "./corporate-actions";
@@ -19,6 +19,8 @@ import type { ContextAction } from "@/core/context";
 const MIN_ORDER_VALUE = 100;
 
 const STOP_LOSS_PCT = 8;
+// Owner's rule: sell only after +60% over the average price and an 8% turn from the top.
+const SELL_TARGET_PCT = 60, SELL_TURN_PCT = 8;
 const accountSchema = z.object({
   cash: z.coerce.string(), reserved_cash: z.coerce.string(), max_order_value: z.coerce.string(),
   max_exposure: z.coerce.string(), fee_bps: z.number(), slippage_bps: z.number(),
@@ -91,6 +93,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   const exposure = rows(allPositions).reduce((sum, p) => sum.plus(new D(p.quantity).times(String(p.average_cost))), new D(0));
   const availableCash = D.min(new D(account.cash).minus(reserved), new D(account.max_exposure).minus(exposure).minus(reserved));
   const trailing = await trailingInputs(db, owner, agentId, assetId, input.ticker, held.quantity, events.stockEvents).catch(() => undefined);
+  const steady = { peak: trailing?.peak ?? null, targetPct: SELL_TARGET_PCT, turnPct: SELL_TURN_PCT };
   const decision = autopilotDecision({
     ticker: input.ticker, quote, history: input.history, now: new Date().toISOString(),
     position: { quantity: held.quantity, averageCost: String(held.average_cost) },
@@ -102,7 +105,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     fixedFee: Number(account.fee_lot ?? 0) + Number(account.fee_fraction ?? 0), minOrderValue: MIN_ORDER_VALUE,
     minSellPrice: held.quantity > 0 ? minimumSellPrice(basis.toNumber(), held.quantity) : undefined,
     context: input.context,
-    trailing,
+    steady,
   });
   if (decision.action === "HOLD") return { filled, corporateActions: events.applied, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };
   const proposal = z.object({ id: z.uuid() }).loose().parse(rows(await db.rpc("paper_create_proposal", {
@@ -110,7 +113,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     p_limit_price: decision.limitPrice, p_reference_price: decision.referencePrice,
     p_quote_source: quote.source, p_quote_timestamp: quote.dataTimestamp,
     p_history_source: input.history.source, p_history_retrieved_at: input.history.retrievedAt,
-    p_strategy_version: trailing ? TRAILING_VERSION : AUTOPILOT_VERSION, p_reasoning: decision.reason, p_indicators: decision.indicators,
+    p_strategy_version: ruleVersion({ steady }), p_reasoning: decision.reason, p_indicators: decision.indicators,
     p_idempotency_key: input.jobId,
   })));
   const review = z.object({ status: z.string() }).loose().parse(rows(

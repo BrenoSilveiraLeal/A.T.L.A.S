@@ -96,7 +96,7 @@ export function PaperPanel({ connected }: { connected: boolean }) {
           <h2>Piloto automático</h2>
           <span className={`status-label ${account.autopilot ? "success" : ""}`}>{account.autopilot ? "LIGADO" : "DESLIGADO"}</span>
         </div>
-        <p>Ligado, cada agente ativo decide sozinho a cada análise com a regra &quot;segurar com stop móvel de 15%&quot; (a melhor no backtest oficial de 2023–2026): compra, segura enquanto sobe e vende se cair 15% a partir do topo desde a compra; volta a comprar quando a ação faz nova máxima de 20 pregões. Toda proposta passa pelos mesmos limites de risco abaixo, e as ordens são conferidas na próxima cotação. É uma regra simples para testar a empresa, <strong>não uma estratégia validada</strong>.</p>
+        <p>Ligado, cada agente ativo decide sozinho a cada análise com a regra do dono, &quot;comprar na baixa, vender na alta&quot;: todo mês compra com a sua parte do aporte assim que junta R$ 100 (o mesmo dinheiro compra mais ações quando o preço cai), segura nas quedas e vende tudo só depois de +60% sobre o preço médio, quando a ação vira 8% do topo; nunca no prejuízo. Foi a única regra que bateu o CDI em 2023–24 e em 2025–26 no histórico oficial da B3. Toda proposta passa pelos limites de risco abaixo. Resultado passado <strong>não garante</strong> resultado futuro.</p>
         <p>Regra de sobrevivência: o agente é <strong>eliminado</strong> quando o prejuízo virtual dele chega à porcentagem do orçamento definida aqui. Eliminado não volta; você contrata outro.</p>
         <form className="form-grid" onSubmit={(event) => {
           event.preventDefault(); const form = new FormData(event.currentTarget);

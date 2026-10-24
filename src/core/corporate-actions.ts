@@ -13,7 +13,7 @@ export interface CorporateEvent {
  * 6 = PNB (ACNPB). Units, BDRs and fractional suffixes are not mapped (null = unknown).
  */
 export function isinPrefix(ticker: string): string | null {
-  const match = /^([A-Z]{4})([3-6])$/.exec(ticker);
+  const match = /^([A-Z][A-Z0-9]{3})([3-6])$/.exec(ticker);
   if (!match) return null;
   const share = { "3": "ACNOR", "4": "ACNPR", "5": "ACNPA", "6": "ACNPB" }[match[2] as "3" | "4" | "5" | "6"];
   return `BR${match[1]}${share}`;

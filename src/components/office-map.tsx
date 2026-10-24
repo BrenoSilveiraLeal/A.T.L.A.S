@@ -225,38 +225,26 @@ export function AgentCard({ agent, agents, now, onSelect }: { agent: OfficeAgent
 }
 
 /**
- * The order the agent keeps inside ATLAS ("ordem planejada"): nothing waits at the broker; ATLAS
- * only sends the order at the moment the price condition is met.
+ * The agent's plan in plain words (owner's rule): every share of the monthly contribution buys
+ * more shares once it reaches R$ 100; it sells everything only after +60% over the average price
+ * and an 8% turn from the top, never below what it paid.
  */
 function AgentPlan({ agent }: { agent: OfficeAgent }) {
-  const [levels, setLevels] = useState<{ ticker: string; ceiling: string | null; last: string | null } | null>(null);
-  useEffect(() => {
-    if (agent.holding > 0) return;
-    const controller = new AbortController();
-    fetch(`/api/atlas/levels?ticker=${encodeURIComponent(agent.ticker)}`, { signal: controller.signal }).then((r) => r.json())
-      .then((b) => !controller.signal.aborted && setLevels({ ticker: agent.ticker, ceiling: b?.plan?.ceiling ?? null, last: b?.lastClose ?? null }))
-      .catch(() => !controller.signal.aborted && setLevels({ ticker: agent.ticker, ceiling: null, last: null }));
-    return () => controller.abort();
-  }, [agent.ticker, agent.holding]);
   if (agent.holding > 0) {
-    const floor = minimumSellPrice(agent.paidTotal, agent.holding);
+    const average = agent.paidTotal / agent.holding;
+    const target = Math.max(average * 1.6, Number(minimumSellPrice(agent.paidTotal, agent.holding)));
     return (
       <div className="agent-plan">
-        <span className="score-kicker">Ordem planejada no ATLAS</span>
-        <p>Tem <b>{agent.holding} ações</b> (pagou {formatBrl(agent.paidTotal.toFixed(2))} com taxas). <b>Vende</b> se a ação cair 15% do ponto mais alto desde a compra,
-          mas <b>nunca abaixo de {formatBrl(floor)}</b> por ação (o que pagou + corretagem + 0,5%). Abaixo disso, segura.</p>
+        <span className="score-kicker">Plano: comprar na baixa, vender na alta</span>
+        <p>Tem <b>{agent.holding} ações</b> a <b>{formatBrl(average.toFixed(2))}</b> em média. Todo mês compra mais com a sua parte do aporte: quando a ação cai, o mesmo dinheiro compra mais ações e o preço médio baixa.
+          <b> Vende tudo</b> só depois de passar de <b>{formatBrl(target.toFixed(2))}</b> (+60%) e começar a cair 8% do topo. Nunca vende no prejuízo.</p>
       </div>
     );
   }
-  const plan = levels?.ticker === agent.ticker ? levels : null;
-  const shares = plan?.ceiling ? Math.floor((agent.budget - 1) / Number(plan.ceiling)) : 0;
   return (
     <div className="agent-plan">
-      <span className="score-kicker">Ordem planejada no ATLAS</span>
-      {!plan ? <p className="muted">Calculando…</p> : plan.ceiling ? (
-        <p><b>Compra</b> cerca de <b>{Math.min(shares, 99)} ações</b> quando o preço passar de <b>{formatBrl(plan.ceiling)}</b> (o maior das últimas 4 semanas) e a tendência for de alta.
-          Hoje fechou em {plan.last ? formatBrl(plan.last) : "—"}. Notícia ruim cancela a compra.</p>
-      ) : <p className="muted">Sem histórico suficiente para planejar.</p>}
+      <span className="score-kicker">Plano: comprar na baixa, vender na alta</span>
+      <p>Recebe a sua parte do aporte todo mês e <b>compra assim que juntar R$ 100</b> (a corretagem fica abaixo de 1%). Depois segura nas quedas e vende só com +60% de lucro. Notícia ruim adia a compra.</p>
     </div>
   );
 }

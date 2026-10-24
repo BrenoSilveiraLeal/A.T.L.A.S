@@ -32,7 +32,7 @@ const payloadSchema = z.array(z.object({
 const iso = (value: string) => `${value.slice(6)}-${value.slice(3, 5)}-${value.slice(0, 2)}`;
 
 export function b3EventsUrl(issuer: string) {
-  if (!/^[A-Z]{4}$/.test(issuer)) throw new ProviderError("b3", "INVALID_INPUT");
+  if (!/^[A-Z][A-Z0-9]{3}$/.test(issuer)) throw new ProviderError("b3", "INVALID_INPUT");
   const body = Buffer.from(JSON.stringify({ issuingCompany: issuer, language: "pt-br" })).toString("base64");
   return `https://sistemaswebb3-listados.b3.com.br/listedCompaniesProxy/CompanyCall/GetListedSupplementCompany/${body}`;
 }
@@ -96,7 +96,7 @@ async function getJson(url: string): Promise<unknown> {
  * no payment date: payment is approximated as 30 days after the "data com" (research only).
  */
 export async function fetchB3CashHistory(ticker: string): Promise<B3Event[]> {
-  const match = /^([A-Z]{4})(\d{1,2})$/.exec(ticker);
+  const match = /^([A-Z][A-Z0-9]{3})(\d{1,2})$/.exec(ticker);
   const typeStock = match ? CLASS_BY_SUFFIX[match[2]] : undefined;
   if (!match || !typeStock) throw new ProviderError("b3", "INVALID_INPUT");
   const companies = z.object({ results: z.array(z.object({ issuingCompany: z.string(), tradingName: z.string() }).loose()) }).loose()
