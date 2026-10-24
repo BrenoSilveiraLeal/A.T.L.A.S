@@ -12,7 +12,7 @@ import { HEALTH_LABELS, type HealthLevel } from "@/core/company-health";
 export interface OfficeAgent {
   id: string; name: string; ticker: string; company: string; zone: OfficeZone; activity: string;
   pnl: number | null; life: number | null; budget: number; holding: number; maxLoss: number;
-  /** What the open simulated position cost, fees included (0 without position). */
+  /** What the real position cost at Genial, fees included (0 without position). */
   paidTotal: number;
   headline: { title: string; url: string; direction: NewsDirection } | null; nextAnalysisAt: string | null;
   /** Daily candles of the stock (oldest first) and the latest price seen by the agent. */
@@ -20,6 +20,8 @@ export interface OfficeAgent {
   /** Company health from the annual statements and the meeting-room committee. */
   health?: { level: HealthLevel; reason: string } | null;
   debate?: { opinions: Opinion[]; verdict: Verdict; summary: string };
+  /** Real history (trades at Genial, orders, decisions), newest first. */
+  events?: { at: string; text: string; tone: "up" | "down" | "info" }[];
 }
 export interface AgentChart { bars: { open: number; high: number; low: number; close: number }[]; last: number | null }
 
@@ -59,10 +61,10 @@ export function Scoreboard({ initial, pnl, cdiPct, marketOpen, marketNote, alive
   return (
     <section className="score" aria-label="Placar da equipe">
       <div className={`score-main ${state}`}>
-        <span className="score-kicker">Placar da equipe · simulação</span>
+        <span className="score-kicker">Resultado real na Genial</span>
         <strong className="score-verdict">{state === "gain" ? "Ganhando dinheiro" : state === "loss" ? "Perdendo dinheiro" : "Empatada"}</strong>
         <span className="score-value">{money(pnl)}</span>
-        <small>{initial !== null ? `Começou com ${formatBrl(initial.toFixed(2))} · agora vale ${formatBrl((initial + pnl).toFixed(2))}` : "Crie a carteira virtual em Simulação."}</small>
+        <small>{initial !== null ? `Você depositou ${formatBrl(initial.toFixed(2))} · agora vale ${formatBrl((initial + pnl).toFixed(2))}` : "Crie a carteira virtual em Simulação."}</small>
       </div>
       <div className="score-side">
         <span className="score-kicker">E se o dinheiro ficasse parado no CDI?</span>
@@ -206,15 +208,17 @@ export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null;
         <ul>{agent.debate.opinions.map((o) => <li key={o.role} className={`vote ${o.vote.toLowerCase()}`}><b>{o.role}</b> {o.text}</li>)}</ul>
         <strong>{agent.debate.summary}</strong>
       </div>}
-      {agent.life !== null && <div className="agent-life">
-        <div className="life-label"><span>Vida</span><span>{agent.life.toFixed(0)}%</span></div>
-        <div className="life-track"><div className={`life-fill ${agent.life < 35 ? "low" : agent.life < 70 ? "mid" : ""}`} style={{ width: `${agent.life}%` }} /></div>
-        <small>Se perder {formatBrl(agent.maxLoss.toFixed(2))} do orçamento de {formatBrl(agent.budget.toFixed(2))}, ela é substituída por outra IA.</small>
-      </div>}
       <dl className="agent-facts">
-        <div><dt>Ações na carteira</dt><dd>{agent.holding}</dd></div>
-        <div><dt>Próxima análise</dt><dd>{agent.zone === "OUT" ? "—" : inMinutes(agent.nextAnalysisAt, now)}</dd></div>
+        <div><dt>Ações na Genial</dt><dd>{agent.holding}{agent.holding > 0 ? ` a ${formatBrl((agent.paidTotal / agent.holding).toFixed(2))}` : ""}</dd></div>
+        <div><dt>Dinheiro dela</dt><dd>{formatBrl(Math.max(0, agent.budget - agent.paidTotal).toFixed(2))}</dd></div>
+        <div><dt>Próxima análise</dt><dd>{inMinutes(agent.nextAnalysisAt, now)}</dd></div>
       </dl>
+      <div className="agent-history">
+        <span className="score-kicker">Histórico real</span>
+        {agent.events?.length ? <ul>{agent.events.map((e, i) => <li key={`${e.at}-${i}`} className={e.tone}>
+          <small>{new Date(e.at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })}</small> {e.text}</li>)}</ul>
+          : <p className="muted">Ainda nada: nenhuma compra, venda ou ordem com dinheiro real.</p>}
+      </div>
       {agent.zone !== "OUT" && <AgentPlan agent={agent} />}
       {agent.headline && <p className="agent-news">
         <span className={`status-label ${agent.headline.direction === "UP" ? "success" : agent.headline.direction === "DOWN" ? "danger" : "warning"}`}>
@@ -241,7 +245,7 @@ function AgentPlan({ agent }: { agent: OfficeAgent }) {
     return (
       <div className="agent-plan">
         <span className="score-kicker">Plano: comprar na baixa, vender na alta</span>
-        <p>Tem <b>{agent.holding} ações</b> a <b>{formatBrl(average.toFixed(2))}</b> em média. Todo mês compra mais com a sua parte do aporte: quando a ação cai, o mesmo dinheiro compra mais ações e o preço médio baixa.
+        <p>Tem <b>{agent.holding} ações</b> a <b>{formatBrl(average.toFixed(2))}</b> em média. Cada depósito novo compra mais: quando a ação cai, o mesmo dinheiro compra mais ações e o preço médio baixa.
           <b> Vende tudo</b> só depois de passar de <b>{formatBrl(target.toFixed(2))}</b> (+60%) e começar a cair 8% do topo. Nunca vende no prejuízo.</p>
       </div>
     );
@@ -249,7 +253,7 @@ function AgentPlan({ agent }: { agent: OfficeAgent }) {
   return (
     <div className="agent-plan">
       <span className="score-kicker">Plano: comprar na baixa, vender na alta</span>
-      <p>Recebe a sua parte do aporte todo mês e <b>compra assim que tiver R$ 40</b> (o preço de 1 ação; a corretagem é R$ 0,99). Depois segura nas quedas e vende só com +60% de lucro. Notícia ruim adia a compra.</p>
+      <p>{agent.budget > 0 ? <>Tem <b>{formatBrl(agent.budget.toFixed(2))}</b> de dinheiro real e <b>compra assim que o preço de 1 ação couber</b> (corretagem R$ 0,99).</> : <>Ainda sem dinheiro: recebe quando você registrar um depósito para ela.</>} Depois segura nas quedas e vende só com +60% de lucro. Notícia ruim adia a compra.</p>
     </div>
   );
 }

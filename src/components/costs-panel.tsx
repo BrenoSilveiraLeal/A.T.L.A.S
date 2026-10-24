@@ -13,7 +13,7 @@ const brl = (v: number) => formatBrl(v.toFixed(2));
 const pct = (fee: number, value: number) => (value > 0 ? `${((fee / value) * 100).toFixed(2)}%` : "—");
 
 /** History of charges: brokerage + B3 fee of every executed order, real and simulated. */
-export function CostsPanel({ connected }: { connected: boolean }) {
+export function CostsPanel({ connected, realOnly = false }: { connected: boolean; realOnly?: boolean }) {
   const [costs, setCosts] = useState<Costs | null>(null);
   const [error, setError] = useState("");
   const [source, setSource] = useState<"REAL" | "SIMULATION">("REAL");
@@ -32,10 +32,10 @@ export function CostsPanel({ connected }: { connected: boolean }) {
     <section className="costs-panel" aria-label="Histórico de cobranças">
       <div className="contribution-head">
         <h2><Receipt size={20} /> Histórico de cobranças</h2>
-        <div className="segmented" role="tablist">
+        {!realOnly && <div className="segmented" role="tablist">
           {(["REAL", "SIMULATION"] as const).map((s) => <button key={s} type="button" role="tab" aria-selected={source === s}
             className={source === s ? "active" : ""} onClick={() => setSource(s)}>{s === "REAL" ? "Dinheiro real" : "Simulação"}</button>)}
-        </div>
+        </div>}
       </div>
       {error && <p className="notice error-text" role="alert">{error}</p>}
       {!costs ? !error && <p className="muted" role="status">Somando as cobranças…</p> : <>

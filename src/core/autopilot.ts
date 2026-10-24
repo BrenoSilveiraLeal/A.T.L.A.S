@@ -106,14 +106,14 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
   const slow = closes.length >= 50 ? sma(closes, 50).at(-1)! : null;
   const indicators = { sma20: fast, sma50: slow, price: price.toFixed(2) };
   const hold = (reason: string): AutopilotDecision => ({ action: "HOLD", reason: `${input.ticker}: ${reason}`, indicators });
-  if (input.hasOpenOrder) return hold("ordem virtual aberta aguardando preenchimento.");
+  if (input.hasOpenOrder) return hold("ordem aberta aguardando execução.");
   const sellAll = (why: string): AutopilotDecision => {
     const limit = D.max(toTick(price.times(1 - (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "down"), tick);
     if (input.minSellPrice && limit.lt(input.minSellPrice))
       return hold(`queria vender (${why}), mas R$ ${limit.toFixed(2)} fica abaixo do que pagou com as taxas (mínimo R$ ${input.minSellPrice}). Segura até subir.`);
     return { action: "SELL", quantity: input.position.quantity, limitPrice: limit.toFixed(2),
       referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
-      reason: `${input.ticker}: venda virtual automática (${why}). Regra ${ruleVersion(input)}, simulação.` };
+      reason: `${input.ticker}: venda automática (${why}). Regra ${ruleVersion(input)}.` };
   };
   if (input.context?.action === "EXIT" && input.position.quantity > 0) return sellAll(`contexto: ${input.context.summary}`);
   const buy = (why: string): AutopilotDecision => {
@@ -127,11 +127,11 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     // Order value is checked against the limit price, which is what the risk review uses.
     const quantity = Math.min(lots * input.lotSize, 1000000);
     if (quantity < input.lotSize || limit.times(quantity).gt(input.maxOrderValue))
-      return hold(`sinal de compra, mas orçamento/caixa virtual não cobre um lote a ${limit.toFixed(2)}.`);
+      return hold(`sinal de compra, mas o dinheiro dela não cobre um lote a ${limit.toFixed(2)}.`);
     if (input.minOrderValue && limit.times(quantity).lt(input.minOrderValue))
       return hold(`sinal de compra, mas a ordem (R$ ${limit.times(quantity).toFixed(2)}) é pequena demais: a corretagem pesaria mais de 1%. Espera juntar pelo menos R$ ${input.minOrderValue.toFixed(2)}.`);
     return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
-      reason: `${input.ticker}: compra virtual automática (${why}${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${ruleVersion(input)}, simulação.` };
+      reason: `${input.ticker}: compra automática (${why}${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${ruleVersion(input)}.` };
   };
   if (input.steady) {
     const st = input.steady;

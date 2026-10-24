@@ -7,12 +7,13 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import type { OfficeZone } from "@/core/office";
 import type { Vote } from "@/core/committee";
 import { lookFor, type PersonLook } from "@/core/people";
+import { companyProfile } from "@/core/context";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
 
 /**
  * 3D office in the style of a modern tech office (bright floor, white walls, colourful sofas,
- * glass meeting rooms). Every agent is a person (look and nickname from core/people) with a
- * label: name, nickname, stock and result. Walls work like The Sims "cutaway": walls between
+ * glass meeting rooms). Every agent is a person (look from core/people) with a
+ * label: name, stock, company, holding and trend. Walls work like The Sims "cutaway": walls between
  * the camera and a room drop to a low stub and come back up as the camera turns; the far walls
  * stay up. One desk per agent with the real daily candles of its stock; three meeting rooms with
  * three specialists (Risco orange, Balanço blue, Estratégia green); news room; café and pool;
@@ -470,9 +471,9 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     // Staff: specialists in every meeting room (shirt colour = speciality), receptionist, a walker.
     const staff: { person: Person; pose: Pose; phase: number }[] = [];
     const STAFF_LOOKS: PersonLook[] = [
-      { presentation: "feminine", nick: "", skin: "#e2b08c", hair: "#2a1b12", hairStyle: "long", shirt: "", pants: "#2b2f3a" },
-      { presentation: "masculine", nick: "", skin: "#a8724f", hair: "#151010", hairStyle: "short", shirt: "", pants: "#30343c" },
-      { presentation: "feminine", nick: "", skin: "#f0c9a8", hair: "#6b3a1e", hairStyle: "bun", shirt: "", pants: "#2b2f3a" },
+      { presentation: "feminine", skin: "#e2b08c", hair: "#2a1b12", hairStyle: "long", shirt: "", pants: "#2b2f3a" },
+      { presentation: "masculine", skin: "#a8724f", hair: "#151010", hairStyle: "short", shirt: "", pants: "#30343c" },
+      { presentation: "feminine", skin: "#f0c9a8", hair: "#6b3a1e", hairStyle: "bun", shirt: "", pants: "#2b2f3a" },
     ];
     MEETING_ROOMS.forEach((_, roomIndex) => SPECIALIST_SHIRTS.forEach((shirt, s) => {
       const person = makePerson({ ...STAFF_LOOKS[(s + roomIndex) % 3], shirt });
@@ -480,11 +481,11 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       person.group.position.set(pos[0], 0, pos[1]); person.group.rotation.y = face; scene.add(person.group);
       staff.push({ person, pose: "talk", phase: roomIndex * 2 + s });
     }));
-    const receptionist = makePerson({ presentation: "feminine", nick: "", skin: "#c68f6a", hair: "#1a120d", hairStyle: "ponytail", shirt: "#ffffff", pants: "#2b2f3a" });
+    const receptionist = makePerson({ presentation: "feminine", skin: "#c68f6a", hair: "#1a120d", hairStyle: "ponytail", shirt: "#ffffff", pants: "#2b2f3a" });
     receptionist.group.position.set(-19.5, 0, 8.3); scene.add(receptionist.group);
     chair(-19.5, 8.3, 0, "#f07b2b");
     staff.push({ person: receptionist, pose: "type", phase: 9 });
-    const walker = makePerson({ presentation: "masculine", nick: "", skin: "#e0b08b", hair: "#3a2a20", hairStyle: "short", shirt: "#9aa3ad", pants: "#2d3142" });
+    const walker = makePerson({ presentation: "masculine", skin: "#e0b08b", hair: "#3a2a20", hairStyle: "short", shirt: "#9aa3ad", pants: "#2d3142" });
     scene.add(walker.group);
     const loop: V2[] = [[-13.5, 6], [6.5, 6], [6.5, -4.4], [-13.5, -4.4]];
     let walkT = 0;
@@ -532,13 +533,18 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
         setTarget(r, slotFor(zone, index, desk), `${zone}:${index}:${desk}`, first);
         // Neighbours alternate label heights so names never cover each other.
         r.label.position.y = 2.05 + (zone === "DESK" ? 0 : (index % 2) * 0.62);
-        // Label: name, nickname, stock and result (green up, red down).
+        // Label: name and stock, the company, whether it bought, and how the stock is doing today.
+        const { change } = quoteOf(agent.chart);
         r.labelEl.className = `agent3d-label person ${tone(agent.pnl)} ${sel === agent.id ? "selected" : ""}`;
         r.labelEl.replaceChildren();
-        const name = document.createElement("b"); name.textContent = agent.name;
-        const nick = document.createElement("i"); nick.textContent = `“${look.nick}”`;
-        const line = document.createElement("span"); line.textContent = `${agent.ticker} · ${money(agent.pnl)}`;
-        r.labelEl.append(name, nick, line);
+        const name = document.createElement("b"); name.textContent = `${agent.name} · ${agent.ticker}`;
+        const company = document.createElement("i"); company.textContent = companyProfile(agent.ticker).name;
+        const line = document.createElement("span");
+        line.textContent = agent.holding > 0 ? `${agent.holding} ${agent.holding === 1 ? "ação" : "ações"} · ${money(agent.pnl)}` : "ainda não comprou";
+        const trend = document.createElement("small");
+        trend.className = change === null || Math.abs(change) < 0.0005 ? "" : change > 0 ? "up" : "down";
+        trend.textContent = change === null ? "" : `${change >= 0 ? "▲ subindo" : "▼ caindo"} ${(Math.abs(change) * 100).toFixed(1)}% hoje`;
+        r.labelEl.append(name, company, line, trend);
         r.labelEl.title = agent.activity;
         drawDesk(desk, agent);
       });

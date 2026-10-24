@@ -38,14 +38,14 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
   const canBuy = i.budgetRoom >= minOrder;
   const strategy: Opinion = gain !== null && gain >= targetPct / 100
     ? { role: "Estratégia", vote: "NEUTRO", text: `Lucro de ${(gain * 100).toFixed(1)}%: passou da meta de +${targetPct}%. Vende tudo quando o preço virar ${i.rule.turnPct}% do topo.` }
-    : canBuy ? { role: "Estratégia", vote: "A_FAVOR", text: `Tem ${brl(i.budgetRoom)} do aporte: hora de acumular mais ações${gain !== null ? ` (preço médio ${brl(i.averageCost!)})` : ""}.` }
-      : { role: "Estratégia", vote: "NEUTRO", text: `Juntando o aporte: tem ${brl(Math.max(0, i.budgetRoom))}, compra a partir de ${brl(minOrder)}.${gain !== null ? ` Segura as ações (${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(1)}%) até +${targetPct}%.` : ""}` };
+    : canBuy ? { role: "Estratégia", vote: "A_FAVOR", text: `Tem ${brl(i.budgetRoom)} de dinheiro: hora de acumular mais ações${gain !== null ? ` (preço médio ${brl(i.averageCost!)})` : ""}.` }
+      : { role: "Estratégia", vote: "NEUTRO", text: `Esperando dinheiro: tem ${brl(Math.max(0, i.budgetRoom))}, compra a partir de ${brl(minOrder)}.${gain !== null ? ` Segura as ações (${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(1)}%) até +${targetPct}%.` : ""}` };
   const vetoes = [risk, balance].filter((o) => o.vote === "CONTRA");
   const verdict: Verdict = gain !== null && gain >= targetPct / 100 ? "VENDER_NA_ALTA"
     : canBuy && !vetoes.length ? "COMPRAR" : i.holding > 0 ? "SEGURAR" : "ESPERAR";
   const summary = verdict === "COMPRAR" ? `Decisão: comprar${risk.vote === "NEUTRO" && i.context?.action === "REDUCE" ? " pela metade" : ""}.`
     : verdict === "VENDER_NA_ALTA" ? "Decisão: preparar a venda na alta."
       : canBuy && vetoes.length ? `Decisão: não comprar agora (${vetoes.map((v) => v.role).join(" e ")} contra).`
-        : verdict === "SEGURAR" ? "Decisão: segurar as ações e juntar o aporte." : "Decisão: esperar juntar o aporte.";
+        : verdict === "SEGURAR" ? "Decisão: segurar as ações e esperar mais dinheiro." : "Decisão: esperar um depósito para ela.";
   return { opinions: [risk, balance, strategy], verdict, summary };
 }

@@ -4,21 +4,22 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Building2,
-  ArrowLeftRight,
+  Wallet,
+  SlidersHorizontal,
   History,
   ShieldCheck,
-  Settings2,
   OctagonX,
   Menu,
   X,
   LogOut,
 } from "lucide-react";
 
-// The owner's three screens; the technical pages stay reachable under "Avançado".
+// The owner's four screens; the technical pages are linked from Ajustes.
 const navigation = [
   { path: "/app", label: "Escritório", icon: Building2 },
-  { path: "/app/trades", label: "Compras e vendas", icon: ArrowLeftRight },
+  { path: "/app/trades", label: "Carteira", icon: Wallet },
   { path: "/app/history", label: "Histórico", icon: History },
+  { path: "/app/controls", label: "Ajustes", icon: SlidersHorizontal },
 ];
 export function Shell({
   children,
@@ -118,9 +119,7 @@ export function Shell({
             </Link>
           ))}
         </nav>
-        <Link href="/app/settings" className="sidebar-advanced" onClick={() => setOpen(false)}>
-          <Settings2 size={15} /> Avançado
-        </Link>
+<div className="sidebar-spacer" />
         <div className="owner-avatar">
           <span>P</span>
           <div>

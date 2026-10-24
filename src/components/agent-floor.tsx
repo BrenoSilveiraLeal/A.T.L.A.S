@@ -19,7 +19,8 @@ import { b3Session } from "@/core/b3-calendar";
 import type { HistoricalBar } from "@/providers/types";
 
 type Row = Record<string, unknown>;
-type Floor = { paper: Record<string, Row[]> | null; decisions: Row[]; health: Record<string, CompanyHealth> | null; error: string; loading: boolean };
+type Live = { genial: { deposited: number; free: number }; agents: { id: string; realBudget: number }[]; positions: Row[]; orders: Row[]; fills: Row[] };
+type Floor = { paper: Record<string, Row[]> | null; decisions: Row[]; health: Record<string, CompanyHealth> | null; live: Live | null; error: string; loading: boolean };
 const text = (v: unknown) => (v == null ? "—" : String(v));
 const ago = (v: unknown) => {
   if (!v) return "sem registro";
@@ -28,7 +29,7 @@ const ago = (v: unknown) => {
 };
 
 function useFloor(connected: boolean, revision: number): Floor {
-  const [state, setState] = useState<Floor>({ paper: null, decisions: [], health: null, error: "", loading: true });
+  const [state, setState] = useState<Floor>({ paper: null, decisions: [], health: null, live: null, error: "", loading: true });
   useEffect(() => {
     if (!connected) return;
     const controller = new AbortController();
@@ -37,13 +38,13 @@ function useFloor(connected: boolean, revision: number): Floor {
       if (!r.ok) throw new Error(body.error ?? "Serviço indisponível.");
       return body;
     });
-    Promise.all([read("paper"), read("decisions"), read("company-health").catch(() => null)])
-      .then(([paper, decisions, health]) => !controller.signal.aborted && setState({ paper, decisions, health, error: "", loading: false }))
-      .catch((e) => !controller.signal.aborted && setState({ paper: null, decisions: [], health: null, loading: false,
+    Promise.all([read("paper"), read("decisions"), read("company-health").catch(() => null), read("live").catch(() => null)])
+      .then(([paper, decisions, health, live]) => !controller.signal.aborted && setState({ paper, decisions, health, live, error: "", loading: false }))
+      .catch((e) => !controller.signal.aborted && setState({ paper: null, decisions: [], health: null, live: null, loading: false,
         error: e instanceof Error ? e.message : "Serviço indisponível." }));
     return () => controller.abort();
   }, [connected, revision]);
-  return connected ? state : { paper: null, decisions: [], health: null, error: "", loading: false };
+  return connected ? state : { paper: null, decisions: [], health: null, live: null, error: "", loading: false };
 }
 
 /** Daily candles of every team stock for the desk monitors (cached server-side; refreshed every 10 min). */
@@ -91,24 +92,23 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     </section>
   );
   const vitalOf = (id: unknown) => vitals.find((v) => v.agent_id === id);
-  const pnlOf = (v: Row | undefined) => v ? Number(v.realized_pnl) + Number(v.unrealized_pnl) : null;
   const alive = agents.filter((a) => !["DEAD", "FIRED"].includes(text(a.status)));
-  const totalPnl = vitals.reduce((sum, v) => sum + (pnlOf(v) ?? 0), 0);
   const session = b3Session(new Date(now));
   const maxLossPct = Number(account?.agent_max_loss_pct ?? 40);
   const office: OfficeAgent[] = alive.map((agent) => {
     const asset = assets.find((a) => a.id === agent.asset_id);
     const ticker = text(asset?.ticker);
-    const paperPosition = (paper.paper_positions ?? []).find((p) => p.agent_id === agent.id);
-    const holding = Number(paperPosition?.quantity ?? 0);
-    const averageCost = holding > 0 ? Number(paperPosition?.average_cost ?? 0) : null;
-    const order = (paper.paper_orders ?? []).find((o) => o.agent_id === agent.id && o.status === "OPEN");
+    // Real money only: shares, cost and orders come from the Genial account (live_*).
+    const position = (floor.live?.positions ?? []).find((p) => p.agent_id === agent.id && p.ticker === ticker);
+    const holding = Number(position?.quantity ?? 0), cost = Number(position?.cost ?? 0), realized = Number(position?.realized_pnl ?? 0);
+    const averageCost = holding > 0 ? cost / holding : null;
+    const order = (floor.live?.orders ?? []).find((o) => o.agent_id === agent.id && ACTIVE_ORDER.includes(String(o.status)));
     const headline = recentHeadline(news.items, ticker);
     const fresh = headline !== null && now - Date.parse(headline.item.published_at) < 3600000;
     const place = placeAgent({ id: text(agent.id), status: text(agent.status), enabled: agent.enabled !== false, autopilot: agent.autopilot !== false,
       holding, openOrder: order ? { side: order.side === "SELL" ? "SELL" : "BUY" } : null,
       lastAnalysisAt: agent.last_analysis_at ? String(agent.last_analysis_at) : null, freshNews: fresh, marketOpen: session.status === "OPEN", now });
-    const budget = Number(agent.budget);
+    const budget = floor.live?.agents.find((a) => a.id === agent.id)?.realBudget ?? 0;
     const vital = vitalOf(agent.id);
     const bars = charts[ticker] ?? [];
     const last = vital?.mark_price != null ? Number(vital.mark_price) : null;
@@ -119,30 +119,32 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const debate = committee({
       context: ctx ? { action: ctx.action, summary: ctx.reasons?.[0]?.text ?? "" } : null, health,
       holding, averageCost, price: last ?? bars.at(-1)?.close ?? null,
-      budgetRoom: budget - (averageCost ?? 0) * holding, rule: STEADY_RULE,
+      budgetRoom: budget - cost + realized, rule: STEADY_RULE,
     });
     return { id: text(agent.id), name: text(agent.name), ticker, company: text(asset?.company_name ?? ticker), ...place,
-      pnl: pnlOf(vital), life: vital ? Number(vital.life_pct) : null, budget, holding,
-      paidTotal: holding > 0 ? holding * (averageCost ?? 0) : 0,
+      pnl: holding > 0 || realized ? realized + holding * (last ?? bars.at(-1)?.close ?? averageCost ?? 0) - cost : null,
+      life: vital ? Number(vital.life_pct) : null, budget, holding, paidTotal: cost,
+      events: agentEvents(text(agent.id), floor.live, paper.paper_proposals ?? [], String(paper.paper_book_restarts?.[0]?.started_at ?? "")),
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
       headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null,
       chart: { bars, last }, health, debate };
   });
   const items = news.items ?? [];
   const top = items.find((i) => readingOf(i).tags.length) ?? items[0] ?? null;
+  const totalPnl = office.reduce((sum, a) => sum + (a.pnl ?? 0), 0);
   const chosen = office.find((a) => a.id === selected) ?? null;
   const band = items.slice(0, 14);
   return (
     <>
       <div className={`office ${view === "tv" ? "office-tv-mode" : ""}`}>
-        <Scoreboard initial={account ? Number(account.initial_cash) : null} pnl={totalPnl} cdiPct={cdiPct}
+        <Scoreboard initial={floor.live ? floor.live.genial.deposited : null} pnl={totalPnl} cdiPct={cdiPct}
           marketOpen={session.status === "OPEN"}
           marketNote={session.status === "OPEN" ? "As IAs podem comprar e vender (10h05 às 16h50)." : `${session.reason} As IAs só operam das 10h05 às 16h50 em dias úteis.`}
           alive={alive.length} total={alive.length} />
         <OfficeLegend />
         <div className="office-stage three">
           <Office3D agents={office} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected}
-            tvLines={[["Equipe (simulação)", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
+            tvLines={[["Resultado real", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
               ["CDI no período", cdiPct === null || !account ? "—" : `+${formatBrl(((Number(account.initial_cash) * cdiPct) / 100).toFixed(2))}`, "#ffc65c"],
               ["Bolsa", session.status === "OPEN" ? "Aberta" : "Fechada", session.status === "OPEN" ? "#3dffa8" : "#a9c0d6"]]} />
           {view !== "tv" && <AgentCard agent={chosen} now={now} onSelect={setSelected} />}
@@ -183,6 +185,26 @@ function TeamStatus({ agents, onSelect }: { agents: OfficeAgent[]; onSelect: (id
       <p className="muted">Toque numa IA para ver a reunião dela com os especialistas (Risco, Balanço e Estratégia), o plano e a última notícia.</p>
     </section>
   );
+}
+
+const ACTIVE_ORDER = ["PENDING", "DISPATCHED", "OPEN", "PARTIALLY_FILLED", "UNKNOWN"];
+const ORDER_STATUS: Record<string, string> = { PENDING: "preparando", DISPATCHED: "enviada à Genial", OPEN: "aberta na Genial",
+  PARTIALLY_FILLED: "executada em parte", FILLED: "executada", CANCELLED: "cancelada", REJECTED: "recusada", EXPIRED: "expirou", UNKNOWN: "sem confirmação da Genial" };
+const brl = (v: number) => formatBrl(v.toFixed(2));
+
+/** The agent's real history, newest first: executed trades, orders sent to Genial and decisions. */
+function agentEvents(agentId: string, live: Live | null, proposals: Row[], since: string) {
+  const events: { at: string; text: string; tone: "up" | "down" | "info" }[] = [];
+  for (const f of live?.fills ?? []) if (f.agent_id === agentId)
+    events.push({ at: String(f.executed_at), tone: f.side === "BUY" ? "up" : "down",
+      text: `${f.side === "BUY" ? "Comprou" : "Vendeu"} ${f.quantity} ${f.ticker} a ${brl(Number(f.price))} (taxa ${brl(Number(f.fee))})` });
+  for (const o of live?.orders ?? []) if (o.agent_id === agentId && o.status !== "FILLED")
+    events.push({ at: String(o.created_at), tone: "info",
+      text: `Ordem de ${o.side === "BUY" ? "compra" : "venda"} de ${o.quantity} ${o.ticker} a ${brl(Number(o.limit_price))}: ${ORDER_STATUS[String(o.status)] ?? String(o.status)}${o.error ? ` (${o.error})` : ""}` });
+  for (const p of proposals) if (p.agent_id === agentId && String(p.created_at) > since)
+    events.push({ at: String(p.created_at), tone: "info",
+      text: `Decidiu ${p.side === "BUY" ? "comprar" : "vender"}: ${String(p.reasoning_summary ?? "").replace(/^[A-Z0-9]+: /, "").replace(/ Regra [^,]+, simulação\.$/, "")}` });
+  return events.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
 }
 
 /** Latest headline about this stock from the last 3 hours (market-wide news excluded). */

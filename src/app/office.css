@@ -386,3 +386,16 @@ p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
 .genial-balance.compact { padding-top: 14px; padding-bottom: 14px; }
 .genial-balance.compact .genial-main > div { padding: 8px 12px; }
 .genial-balance.compact .genial-main > div:first-child strong { font-size: 22px; }
+
+/* Real history in the agent card. */
+.agent-history { display: grid; gap: 6px; }
+.agent-history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+.agent-history li { font-size: 13px; line-height: 1.45; padding: 6px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); border-left: 3px solid #5ee7ff; }
+.agent-history li.up { border-left-color: #3dffa8; }
+.agent-history li.down { border-left-color: #ff5d7d; }
+.agent-history small { color: #8ea4ba; margin-right: 4px; }
+.agent3d-label.person i { color: #c7d0ca; }
+.agent3d-label.person small { font-size: 10px; font-weight: 700; color: #8ea4ba; }
+.agent3d-label.person small.up { color: #3dffa8; }
+.agent3d-label.person small.down { color: #ff5d7d; }
+.sidebar-spacer { flex: 1; }

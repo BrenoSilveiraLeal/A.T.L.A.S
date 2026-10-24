@@ -83,7 +83,7 @@ export function LivePanel({ connected }: { connected: boolean }) {
         </div>
         {!s!.panel ? (
           <form className="live-switch" onSubmit={(e) => { e.preventDefault(); void send({ action: "settings", enabled: true, maxOrder: String(live.settings.maxOrder), dailyOrders: live.settings.dailyOrders, confirm }); }}>
-            <p><ShieldAlert size={16} /> Ao ligar, as IAs com dinheiro real passam a comprar e vender sozinhas na sua conta Genial, seguindo a mesma regra da simulação, até R$ {live.settings.maxOrder} por ordem e {live.settings.dailyOrders} ordens por dia. Pode haver perda. Para confirmar, digite <b>LIGAR DINHEIRO REAL</b>:</p>
+            <p><ShieldAlert size={16} /> Ao ligar, as IAs com dinheiro real passam a comprar e vender sozinhas na sua conta Genial, seguindo a regra de comprar na baixa e vender na alta, até R$ {live.settings.maxOrder} por ordem e {live.settings.dailyOrders} ordens por dia. Pode haver perda. Para confirmar, digite <b>LIGAR DINHEIRO REAL</b>:</p>
             <input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="LIGAR DINHEIRO REAL" aria-label="Confirmação" />
             <button disabled={busy || confirm !== "LIGAR DINHEIRO REAL"}>Ligar dinheiro real</button>
           </form>
@@ -103,7 +103,7 @@ export function LivePanel({ connected }: { connected: boolean }) {
             <td>{when(o.created_at)}</td><td>{nameOf(o.agent_id)}</td>
             <td>{o.side === "BUY" ? "Compra" : "Venda"} {o.filled_quantity}/{o.quantity} {o.symbol} até {brl(o.limit_price)}</td>
             <td>{STATUS[o.status] ?? o.status}{o.error ? ` (${o.error})` : ""}</td><td>{o.reason}</td></tr>)}</tbody>
-        </table></div> : <p className="muted">Nenhuma ordem real ainda. Quando a regra mandar comprar na simulação e houver dinheiro real para a IA, a ordem aparece aqui.</p>}
+        </table></div> : <p className="muted">Nenhuma ordem real ainda. Quando uma IA decidir comprar e tiver dinheiro, a ordem aparece aqui.</p>}
         <p className="muted">O saldo da Genial não aparece no MetaTrader: o ATLAS controla quanto cada IA pode gastar. Corretagem: R$ 0,99 por ordem fracionada e R$ 2,99 por lote de 100, mais ~0,03% da B3. Ordens executam na hora (IOC) ou são canceladas. O computador com o MetaTrader precisa estar ligado durante o pregão (10h às 17h).</p>
       </>}
     </section>

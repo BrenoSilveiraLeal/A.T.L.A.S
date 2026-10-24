@@ -5,7 +5,6 @@ import { Tv, Wallet as WalletIcon } from "lucide-react";
 import { formatBrl } from "@/core/format";
 import { AgentFloor } from "./agent-floor";
 import { LivePanel } from "./live-panel";
-import { ContributionPanel } from "./contribution-panel";
 import { CostsPanel } from "./costs-panel";
 
 /**
@@ -134,97 +133,171 @@ export function OfficePage({ connected }: { connected: boolean }) {
   </>;
 }
 
-/** Each agent's shares (simulation) and its open orders, in plain words. */
-function Wallet({ connected, revision }: { connected: boolean; revision: number }) {
-  const { paper, error } = usePaper(connected, revision);
+type LiveView = {
+  agents: { id: string; name: string; ticker: string; realBudget: number }[];
+  positions: Row[]; orders: Row[]; fills: Row[];
+};
+const ORDER_STATUS: Record<string, string> = { PENDING: "preparando", DISPATCHED: "enviada", OPEN: "aberta na Genial", PARTIALLY_FILLED: "executada em parte",
+  FILLED: "executada", CANCELLED: "cancelada", REJECTED: "recusada", EXPIRED: "expirou", UNKNOWN: "sem confirmação da Genial" };
+const ACTIVE = ["PENDING", "DISPATCHED", "OPEN", "PARTIALLY_FILLED", "UNKNOWN"];
+
+function useLive(connected: boolean) {
+  const [state, setState] = useState<{ live: LiveView | null; error: string }>({ live: null, error: "" });
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!connected) return;
+    const timer = setInterval(() => setTick((n) => n + 1), 20000);
+    return () => clearInterval(timer);
+  }, [connected]);
+  useEffect(() => {
+    if (!connected) return;
+    const controller = new AbortController();
+    fetch("/api/atlas/live", { signal: controller.signal }).then(async (r) => {
+      const body = await r.json(); if (!r.ok) throw new Error(body.error ?? "Indisponível.");
+      if (!controller.signal.aborted) setState({ live: body, error: "" });
+    }).catch((e) => !controller.signal.aborted && setState({ live: null, error: e instanceof Error ? e.message : "Indisponível." }));
+    return () => controller.abort();
+  }, [connected, tick]);
+  return state;
+}
+
+/** Each agent's real shares at Genial, its money and any order in progress. */
+function RealWallet({ connected }: { connected: boolean }) {
+  const { live, error } = useLive(connected);
+  const { paper } = usePaper(connected);
   if (!connected) return null;
   if (error) return <p className="notice error-text" role="alert">{error}</p>;
-  if (!paper) return <p className="muted" role="status">Abrindo a carteira…</p>;
-  const account = paper.paper_accounts?.[0];
-  const ticker = (id: unknown) => String(paper.assets?.find((a) => a.id === id)?.ticker ?? "");
-  const rows = (paper.agents ?? []).map((agent) => {
-    const position = paper.paper_positions?.find((p) => p.agent_id === agent.id);
-    const vital = paper.paper_agent_vitals?.find((v) => v.agent_id === agent.id);
-    const quantity = Number(position?.quantity ?? 0), average = Number(position?.average_cost ?? 0);
-    const price = vital?.mark_price != null ? Number(vital.mark_price) : null;
-    const order = paper.paper_orders?.find((o) => o.agent_id === agent.id && o.status === "OPEN");
-    const budget = Number(agent.budget), invested = quantity * average;
-    return { id: String(agent.id), name: String(agent.name), ticker: ticker(agent.asset_id), quantity, average, price, invested,
-      value: price !== null ? quantity * price : invested, saved: Math.max(0, budget - invested), order };
+  if (!live) return <p className="muted" role="status">Abrindo a carteira…</p>;
+  const priceOf = (agentId: string) => {
+    const vital = paper?.paper_agent_vitals?.find((v) => v.agent_id === agentId);
+    return vital?.mark_price != null ? Number(vital.mark_price) : null;
+  };
+  const rows = live.agents.map((a) => {
+    const position = live.positions.find((p) => p.agent_id === a.id && p.ticker === a.ticker);
+    const quantity = Number(position?.quantity ?? 0), cost = Number(position?.cost ?? 0), realized = Number(position?.realized_pnl ?? 0);
+    const price = priceOf(a.id);
+    const order = live.orders.find((o) => o.agent_id === a.id && ACTIVE.includes(String(o.status)));
+    return { ...a, quantity, cost, price, value: price !== null ? quantity * price : cost, free: Math.max(0, a.realBudget - cost + realized), order };
   });
-  const total = rows.reduce((s, r) => s + r.value, 0);
   return (
     <section className="panel wallet">
-      <div className="section-heading"><h2>Carteira das IAs</h2><span className="muted">simulação · espelho do plano real</span></div>
-      <div className="live-money">
-        <div><span>Em ações</span><strong>{brl(total)}</strong></div>
-        <div><span>Dinheiro guardado</span><strong>{account ? brl(Number(account.cash)) : "—"}</strong></div>
-        <div><span>Total depositado</span><strong>{account ? brl(Number(account.initial_cash)) : "—"}</strong></div>
-      </div>
+      <div className="section-heading"><h2>Ações de cada IA na Genial</h2><span className="muted">dinheiro real · atualiza a cada 20 s</span></div>
       <div className="table-scroll"><table>
-        <thead><tr><th>IA</th><th>Ações</th><th>Preço médio</th><th>Preço agora</th><th>Ganho</th><th>Juntando</th><th>Pedido aberto</th></tr></thead>
+        <thead><tr><th>IA</th><th>Ações</th><th>Preço médio</th><th>Preço agora</th><th>Ganho</th><th>Dinheiro dela</th><th>Ordem em andamento</th></tr></thead>
         <tbody>{rows.map((r) => {
-          const gain = r.quantity && r.price !== null ? r.value - r.invested : null;
+          const gain = r.quantity && r.price !== null ? r.value - r.cost : null;
           return <tr key={r.id}>
             <td><b>{r.name}</b> {r.ticker}</td>
             <td>{r.quantity || "—"}</td>
-            <td>{r.quantity ? brl(r.average) : "—"}</td>
+            <td>{r.quantity ? brl(r.cost / r.quantity) : "—"}</td>
             <td>{r.price !== null ? brl(r.price) : "—"}</td>
             <td className={gain === null || Math.abs(gain) < 0.005 ? "" : gain > 0 ? "up" : "down"}>{gain === null ? "—" : `${gain >= 0 ? "+" : "−"}${brl(Math.abs(gain))}`}</td>
-            <td>{brl(r.saved)}</td>
-            <td>{r.order ? `${r.order.side === "BUY" ? "Compra" : "Venda"} de ${r.order.quantity} a ${brl(Number(r.order.limit_price))}` : "—"}</td>
+            <td>{brl(r.free)}</td>
+            <td>{r.order ? `${r.order.side === "BUY" ? "Compra" : "Venda"} de ${r.order.quantity} a ${brl(Number(r.order.limit_price))} (${ORDER_STATUS[String(r.order.status)] ?? r.order.status})` : "—"}</td>
           </tr>;
         })}</tbody>
       </table></div>
-      <p className="muted">Juntando = parte do aporte que a IA ainda não usou; ela compra quando tem R$ 40 ou mais. Vende só com +60% sobre o preço médio, nunca no prejuízo.</p>
+      <p className="muted">Dinheiro dela = o que você depositou para essa IA e ela ainda não usou. Ela compra quando o preço de 1 ação couber; vende só com +60% sobre o preço médio, nunca no prejuízo.</p>
     </section>
   );
 }
 
 export function TradesPage({ connected }: { connected: boolean }) {
-  const [revision, setRevision] = useState(0);
   return <>
-    <Heading title="Compras e vendas" note="Carteira, pedidos, dinheiro real e o aporte mensal." />
+    <Heading title="Carteira" note="O dinheiro real na Genial, os depósitos e as ações de cada IA." />
     <Offline connected={connected} />
     <GenialBalance connected={connected} />
-    <Wallet connected={connected} revision={revision} />
-    <LivePanel connected={connected} />
-    <ContributionPanel connected={connected} onApplied={() => setRevision((n) => n + 1)} />
+    <RealWallet connected={connected} />
   </>;
 }
 
-/** Every buy or sell the agents decided, with the reason in plain words. */
+/** What the agents decided, with the reason in plain words (orders follow these decisions). */
 function Decisions({ connected }: { connected: boolean }) {
   const { paper, error } = usePaper(connected);
   if (!connected) return null;
   if (error) return <p className="notice error-text" role="alert">{error}</p>;
   if (!paper) return <p className="muted" role="status">Lendo as decisões…</p>;
   const name = (id: unknown) => String(paper.agents?.find((a) => a.id === id)?.name ?? "IA");
-  // Only the current book: a restart closed the old simulation (its rows stay in the database).
+  // Only decisions made since the agents started working with real money.
   const since = String(paper.paper_book_restarts?.[0]?.started_at ?? "");
   const proposals = [...(paper.paper_proposals ?? [])].filter((p) => String(p.created_at) > since).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 100);
-  const STATUS: Record<string, string> = { APPROVED: "aprovada", REJECTED: "recusada pelo controle de risco", PENDING: "aguardando", EXPIRED: "expirou" };
+  const STATUS: Record<string, string> = { APPROVED: "aprovada pelo controle de risco", REJECTED: "recusada pelo controle de risco", PENDING: "aguardando", EXPIRED: "expirou" };
   return (
     <section className="panel decisions-log">
-      <div className="section-heading"><h2>Decisões das IAs</h2><span className="muted">compras e vendas propostas</span></div>
+      <div className="section-heading"><h2>Decisões das IAs</h2><span className="muted">o que decidiram e por quê</span></div>
       {proposals.length ? <ul>{proposals.map((p) => (
         <li key={String(p.id)}>
           <span className="muted">{when(p.created_at)}</span>
           <b className={p.side === "BUY" ? "up" : "down"}>{name(p.agent_id)}: {p.side === "BUY" ? "comprar" : "vender"} {String(p.quantity)} a {brl(Number(p.limit_price))}</b>
-          <span>{String(p.reasoning_summary ?? "").replace(/ Regra [^,]+, simulação\.$/, "")}</span>
+          <span>{String(p.reasoning_summary ?? "").replace(/ Regra [^,]+, simulação\.$/, "").replace(/ virtual/g, "")}</span>
           <small>{STATUS[String(p.status)] ?? String(p.status).toLowerCase()}</small>
         </li>))}</ul>
-        : <p className="muted">Nenhuma compra ou venda ainda. Com R$ 33 por mês, cada IA faz a primeira compra quando juntar R$ 80.</p>}
-      {since && <p className="muted">A simulação recomeçou do zero em {when(since)}, igual ao plano real de R$ 200 por mês.</p>}
+        : <p className="muted">Nenhuma decisão de compra ou venda ainda. As IAs só operam com a bolsa aberta (10h05 às 16h50).</p>}
+    </section>
+  );
+}
+
+/** Orders actually sent to Genial and what happened to them. */
+function RealOrders({ connected }: { connected: boolean }) {
+  const { live, error } = useLive(connected);
+  if (!connected) return null;
+  if (error) return <p className="notice error-text" role="alert">{error}</p>;
+  if (!live) return null;
+  const name = (id: unknown) => live.agents.find((a) => a.id === id)?.name ?? "IA";
+  return (
+    <section className="panel decisions-log">
+      <div className="section-heading"><h2>Ordens na Genial</h2><span className="muted">dinheiro real</span></div>
+      {live.orders.length ? <ul>{live.orders.map((o) => (
+        <li key={String(o.id)}>
+          <span className="muted">{when(o.created_at)}</span>
+          <b className={o.side === "BUY" ? "up" : "down"}>{name(o.agent_id)}: {o.side === "BUY" ? "compra" : "venda"} de {String(o.quantity)} {String(o.ticker)} a {brl(Number(o.limit_price))}</b>
+          <small>{ORDER_STATUS[String(o.status)] ?? String(o.status)}{Number(o.filled_quantity) ? ` · ${o.filled_quantity} executada(s)` : ""}{o.error ? ` · ${o.error}` : ""}</small>
+        </li>))}</ul>
+        : <p className="muted">Nenhuma ordem enviada à Genial ainda.</p>}
     </section>
   );
 }
 
 export function HistoryPage({ connected }: { connected: boolean }) {
   return <>
-    <Heading title="Histórico" note="Tudo o que as IAs decidiram, compraram, venderam e pagaram de taxa." />
+    <Heading title="Histórico" note="O que as IAs decidiram, as ordens enviadas à Genial e as taxas pagas." />
     <Offline connected={connected} />
     <Decisions connected={connected} />
-    <CostsPanel connected={connected} />
+    <RealOrders connected={connected} />
+    <CostsPanel connected={connected} realOnly />
+  </>;
+}
+
+/** Bridge to Genial: connected, allowed to send orders, MetaTrader open. */
+function BridgeStatus({ connected }: { connected: boolean }) {
+  const [state, setState] = useState<{ available: boolean; reason?: string; executionEnabled?: boolean; health?: { healthy: boolean } } | null>(null);
+  useEffect(() => {
+    if (!connected) return;
+    const controller = new AbortController();
+    fetch("/api/atlas/broker-live", { signal: controller.signal }).then((r) => r.json()).then((b) => !controller.signal.aborted && setState(b)).catch(() => undefined);
+    return () => controller.abort();
+  }, [connected]);
+  if (!connected || !state) return null;
+  return (
+    <section className="panel">
+      <div className="section-heading"><h2>Ponte com a Genial</h2><span className="muted">MetaTrader neste computador</span></div>
+      {state.available
+        ? <p><span className="status-label success">Conectada</span> {state.executionEnabled ? "Pode enviar ordens." : "Só leitura: não envia ordens."} {state.health?.healthy ? "" : "Com problema: confira o MetaTrader."}</p>
+        : <p><span className="status-label warning">Fora do ar</span> {state.reason}</p>}
+      <p className="muted">As ordens reais só saem deste computador, com o MetaTrader aberto, durante o pregão.</p>
+    </section>
+  );
+}
+
+export function ControlsPage({ connected }: { connected: boolean }) {
+  return <>
+    <Heading title="Ajustes" note="Ligar ou desligar o dinheiro real, limites e o dinheiro de cada IA." />
+    <Offline connected={connected} />
+    <LivePanel connected={connected} />
+    <BridgeStatus connected={connected} />
+    <section className="panel">
+      <div className="section-heading"><h2>Páginas técnicas</h2></div>
+      <p className="muted">Para conferências mais detalhadas: <Link href="/app/settings">Configuração</Link> · <Link href="/app/treasury">Tesouraria</Link> · <Link href="/app/risk">Risco e limites</Link> · <Link href="/app/health">Saúde do sistema</Link> · <Link href="/app/audit">Auditoria</Link> · <Link href="/app/news">Notícias</Link></p>
+    </section>
   </>;
 }

@@ -40,7 +40,7 @@ describe("paper autopilot rule", () => {
     expect(Number(decision.limitPrice) * decision.quantity).toBeLessThanOrEqual(500);
     expect(decision.quantity).toBe(31);
     expect(decision.reason).toContain(AUTOPILOT_VERSION);
-    expect(decision.reason).toContain("simulação");
+    expect(decision.reason).not.toContain("simulação");
   });
 
   it("respects lot size and holds when one lot does not fit", () => {
