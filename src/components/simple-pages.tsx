@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Tv } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Tv, Wallet as WalletIcon } from "lucide-react";
 import { formatBrl } from "@/core/format";
 import { AgentFloor } from "./agent-floor";
 import { LivePanel } from "./live-panel";
@@ -39,12 +39,87 @@ function usePaper(connected: boolean, revision = 0) {
   return state;
 }
 
+type Genial = { deposited: number; spent: number; received: number; fees: number; free: number };
+type Bridge = { available: boolean; reason?: string; balance?: { balance: string; equity: string; observedAt: string } | null };
+
+/**
+ * Money at Genial for the AIs, refreshed every 15 s. The MT5 Swing account does not report the
+ * cash balance, so ATLAS counts it (deposits − purchases + sales − fees); when the bridge does
+ * report a balance it is shown too. "Depositei mais" raises the deposited total.
+ */
+export function GenialBalance({ connected, compact = false }: { connected: boolean; compact?: boolean }) {
+  const [genial, setGenial] = useState<Genial | null>(null);
+  const [bridge, setBridge] = useState<Bridge | null>(null);
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
+  const [tick, setTick] = useState(0);
+  const load = useCallback((signal?: AbortSignal) => {
+    fetch("/api/atlas/live", { signal }).then(async (r) => {
+      const body = await r.json(); if (!r.ok) throw new Error(body.error ?? "Indisponível.");
+      setGenial(body.genial); setError("");
+    }).catch((e) => { if (!signal?.aborted) setError(e instanceof Error ? e.message : "Indisponível."); });
+    fetch("/api/atlas/broker-live", { signal }).then((r) => r.json()).then((b: Bridge) => setBridge(b)).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!connected) return;
+    const controller = new AbortController();
+    load(controller.signal);
+    const timer = setInterval(() => setTick((n) => n + 1), 15000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [connected, load]);
+  useEffect(() => { if (tick) load(); }, [tick, load]);
+  if (!connected) return null;
+  const reported = bridge?.available && bridge.balance && Number(bridge.balance.balance) > 0 ? Number(bridge.balance.balance) : null;
+  async function deposit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = Number(String(new FormData(event.currentTarget).get("amount") ?? "").replace(",", "."));
+    if (!genial || !(amount > 0)) return;
+    setBusy(true); setMessage("");
+    try {
+      const r = await fetch("/api/atlas/controls", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "capital", ceiling: (genial.deposited + amount).toFixed(2) }) });
+      const body = await r.json(); if (!r.ok) throw new Error(body.error ?? "Recusado.");
+      setMessage(`Anotado: +${brl(amount)}. As IAs já podem usar.`); load();
+      (event.target as HTMLFormElement).reset();
+    } catch (e) { setMessage(e instanceof Error ? e.message : "Falha de conexão."); }
+    finally { setBusy(false); }
+  }
+  return (
+    <section className={`panel genial-balance ${compact ? "compact" : ""}`} aria-live="polite">
+      <div className="section-heading"><h2><WalletIcon size={18} /> Dinheiro na Genial</h2>
+        <span className="muted"><span className="pulse on" aria-hidden="true" /> atualiza a cada 15 s</span></div>
+      {error ? <p className="notice error-text" role="alert">{error}</p> : !genial ? <p className="muted" role="status">Somando…</p> : <>
+        <div className="genial-main">
+          <div><span>Livre para as IAs gastarem</span><strong className={genial.free > 0 ? "up" : ""}>{brl(genial.free)}</strong></div>
+          {!compact && <>
+            <div><span>Você depositou</span><strong>{brl(genial.deposited)}</strong></div>
+            <div><span>Gasto em compras</span><strong>{brl(genial.spent)}</strong></div>
+            <div><span>Recebido de vendas</span><strong>{brl(genial.received)}</strong></div>
+            <div><span>Taxas pagas</span><strong className="down">{brl(genial.fees)}</strong></div>
+          </>}
+        </div>
+        {reported !== null && <p className="muted">Saldo informado pelo MetaTrader agora: <b>{brl(reported)}</b>.</p>}
+        {!compact && <>
+          <form className="genial-deposit" onSubmit={(e) => void deposit(e)}>
+            <label>Depositei mais na Genial (R$)
+              <input name="amount" inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" placeholder="200" required />
+            </label>
+            <button disabled={busy}>{busy ? "Anotando…" : "Adicionar"}</button>
+          </form>
+          {message && <p className="muted" role="status">{message}</p>}
+          <p className="muted">A Genial não mostra o saldo pelo MetaTrader Swing, então o ATLAS conta: o que você depositou, menos cada compra das IAs, mais cada venda, menos as taxas. Sempre que transferir dinheiro para a Genial, anote aqui o valor.{bridge && !bridge.available ? ` Ponte com a Genial: ${bridge.reason}` : ""}</p>
+        </>}
+      </>}
+    </section>
+  );
+}
+
 export function OfficePage({ connected }: { connected: boolean }) {
   return <>
     <Heading title="Escritório" note="O que cada IA está fazendo agora, ao vivo.">
       <Link className="button secondary" href="/tv"><Tv size={16} /> Modo TV</Link>
     </Heading>
     <Offline connected={connected} />
+    <GenialBalance connected={connected} compact />
     <AgentFloor connected={connected} revision={0} mode="full" />
   </>;
 }
@@ -101,6 +176,7 @@ export function TradesPage({ connected }: { connected: boolean }) {
   return <>
     <Heading title="Compras e vendas" note="Carteira, pedidos, dinheiro real e o aporte mensal." />
     <Offline connected={connected} />
+    <GenialBalance connected={connected} />
     <Wallet connected={connected} revision={revision} />
     <LivePanel connected={connected} />
     <ContributionPanel connected={connected} onApplied={() => setRevision((n) => n + 1)} />
