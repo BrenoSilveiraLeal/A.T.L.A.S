@@ -47,3 +47,17 @@ describe("the boss compares the six stocks", () => {
     expect(opportunityScore(41, 40, 60, true)).toBeCloseTo(0.2);
   });
 });
+
+describe("only really cheap, and only at the top", () => {
+  const closes = [...flat(60, 50), ...flat(30, 40), ...flat(35, 60), 58]; // low 40, high 60, last close 58
+  it("does not buy near the low when past visits to the low were not followed by rises (Vale today)", () => {
+    const vale = { samples: 6, upShare: 0.33, average: -0.01 };
+    const d = rangeDecision({ closes, price: 40.5, quantity: 0, cost: 0, cash: 100, minOrder: 40, history: vale });
+    expect([d.action, d.reason]).toEqual(["HOLD", expect.stringContaining("não vale a pena")]);
+    expect(rangeDecision({ closes, price: 40.5, quantity: 0, cost: 0, cash: 100, minOrder: 40, history: { samples: 4, upShare: 0.75, average: 0.03 } }).action).toBe("BUY");
+  });
+  it("holds near the high while the price is still rising, sells when the rise stops", () => {
+    expect(rangeDecision({ closes, price: 59.5, quantity: 1, cost: 41.5, cash: 0, minOrder: 40 }).action).toBe("HOLD"); // 59,50 > 58
+    expect(rangeDecision({ closes: [...closes, 59.8], price: 59, quantity: 1, cost: 41.5, cash: 0, minOrder: 40 }).action).toBe("SELL");
+  });
+});

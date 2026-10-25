@@ -5,6 +5,7 @@ import { agentLevels } from "./levels";
 import { cachedCompanyHealth } from "./company-health";
 import { consensusFor } from "./forecast";
 import { forecastOpinion, type ConsensusView } from "@/core/forecast";
+import { historyAgrees } from "@/core/range";
 
 /**
  * The boss's view of the team: which agents' stocks are in their buy zone now (price within 2% of
@@ -31,7 +32,8 @@ async function watchList(db: SupabaseClient, owner: string): Promise<Watch[]> {
     const levels = ticker ? await agentLevels(db, ticker).catch(() => null) : null;
     if (!ticker || !levels?.available || !levels.range) continue;
     const level = health?.[ticker]?.level;
-    if (level === "PERIGO") continue;
+    // A company in danger, or a stock whose past visits to the low were not followed by rises.
+    if (level === "PERIGO" || !historyAgrees(levels.history)) continue;
     const mark = vitals.data.find((v) => v.agent_id === agent.id)?.mark_price;
     rows.push({ agentId: agent.id, ticker, price: Number(mark ?? levels.lastClose), low: levels.range.low, high: levels.range.high,
       buyBelow: levels.range.buyBelow, attention: level === "ATENCAO", consensus: await consensusFor(ticker).catch(() => null) });

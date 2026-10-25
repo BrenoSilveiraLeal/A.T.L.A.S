@@ -14,7 +14,8 @@ import { saoPauloClock } from "@/core/b3-calendar";
 import { minimumSellPrice } from "@/core/live";
 import { bossRelease } from "./boss";
 import { consensusFor } from "./forecast";
-import { forecastOpinion } from "@/core/forecast";
+import { forecastOpinion, nearLowHistory } from "@/core/forecast";
+import { RANGE_DEFAULTS } from "@/core/range";
 import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
@@ -119,7 +120,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     minSellPrice: held.quantity > 0 ? minimumSellPrice(basis.toNumber(), held.quantity) : undefined,
     context,
     // Owner's rule: buy near the 6-month low, sell near the 6-month high (never at a loss).
-    range: trailing ? { closes: trailing.closes } : undefined,
+    range: trailing ? { closes: trailing.closes, history: nearLowHistory(trailing.closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) } : undefined,
     steady: trailing ? undefined : steady,
   });
   if (decision.action === "HOLD") return { filled, corporateActions: events.applied, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };

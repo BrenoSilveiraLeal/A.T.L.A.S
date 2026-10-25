@@ -14,6 +14,7 @@ import { placeAgent } from "@/core/office";
 import { committee } from "@/core/committee";
 import { allocatePot, opportunityScore } from "@/core/boss";
 import { forecastOpinion, type ConsensusView } from "@/core/forecast";
+import { historyAgrees } from "@/core/range";
 import { RANGE_DEFAULTS } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
@@ -158,7 +159,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const ticker = text(assets.find((a) => a.id === agent.asset_id)?.ticker);
     const r = ranges[ticker]?.range, price = priceNow(agent), level = floor.health?.[ticker]?.level;
     const fo = forecastOpinion(price, ranges[ticker]?.consensus ?? null);
-    return r && price !== null && price <= r.buyBelow && level !== "PERIGO" && fo.vote !== "CONTRA"
+    return r && price !== null && price <= r.buyBelow && level !== "PERIGO" && fo.vote !== "CONTRA" && historyAgrees(ranges[ticker]?.history)
       ? [{ agentId: text(agent.id), price, fee: 0.99, score: opportunityScore(price, r.low, r.high, level === "ATENCAO", fo.upside) }] : [];
   }));
   const office: OfficeAgent[] = alive.map((agent) => {
@@ -195,7 +196,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const debate = committee({
       context: ctx ? { action: ctx.action, summary: ctx.reasons?.[0]?.text ?? "" } : null, health,
       holding, averageCost, price: last ?? bars.at(-1)?.close ?? null,
-      budgetRoom: budget, range, minGainPct: RANGE_DEFAULTS.minGainPct, forecast,
+      budgetRoom: budget, range, minGainPct: RANGE_DEFAULTS.minGainPct, forecast, history,
     });
     return { id: text(agent.id), name: text(agent.name), ticker, company: text(asset?.company_name ?? ticker), ...place,
       pnl: holding > 0 || realized ? realized + holding * (last ?? bars.at(-1)?.close ?? averageCost ?? 0) - cost : null,

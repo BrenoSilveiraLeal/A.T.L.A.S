@@ -1,6 +1,7 @@
 import type { ContextAction } from "./context";
 import type { HealthLevel } from "./company-health";
 import { forecastOpinion, type ConsensusView } from "./forecast";
+import { historyAgrees } from "./range";
 
 /**
  * The council (owner, 24–25/10/2026: "debater com outras IAs sobre o risco, sobre valores, sobre
@@ -28,6 +29,8 @@ export interface CommitteeInput {
   minGainPct: number;
   /** Analysts' consensus (Yahoo Finance), null when unavailable. */
   forecast?: ConsensusView | null;
+  /** What followed past visits to the 6-month low (null when unknown). */
+  history?: { samples: number; upShare: number; average: number } | null;
 }
 
 const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -44,10 +47,13 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
   const r = i.range, price = i.price;
   const floor = i.holding > 0 && i.averageCost ? i.averageCost * (1 + i.minGainPct / 100) : null;
   const sellNow = r !== null && price !== null && i.holding > 0 && price >= r.sellAbove && floor !== null && price >= floor;
-  const nearLow = r !== null && price !== null && price <= r.buyBelow;
+  const zone = r !== null && price !== null && price <= r.buyBelow;
+  const badHistory = zone && !historyAgrees(i.history);
+  const nearLow = zone && !badHistory;
   const canBuy = i.budgetRoom > 0;
   const strategy: Opinion = !r || price === null ? { role: "Estratégia", vote: "NEUTRO", text: "Ainda calculando a mínima e a máxima de 6 meses." }
     : sellNow ? { role: "Estratégia", vote: "NEUTRO", text: `${brl(price)} chegou perto da máxima de 6 meses (${brl(r.high)}) e acima do que pagou: hora de vender na alta.` }
+      : badHistory ? { role: "Estratégia", vote: "NEUTRO", text: `Perto da mínima, mas nas ${i.history!.samples} vezes anteriores subiu só em ${Math.round(i.history!.upShare * 100)}% (média ${(i.history!.average * 100).toFixed(0)}%): não vale a pena.` }
       : nearLow ? (canBuy
         ? { role: "Estratégia", vote: "A_FAVOR", text: `${brl(price)} está perto da mínima de 6 meses (${brl(r.low)}): hora de comprar na baixa.` }
         : { role: "Estratégia", vote: "NEUTRO", text: `Preço bom (perto da mínima de ${brl(r.low)}), mas o Chefe não tem dinheiro livre para 1 ação.` })

@@ -68,7 +68,7 @@ export interface AutopilotInput {
   /** Owner's monthly rule: highest close since the position was opened and the sell trigger. */
   steady?: { peak: string | null; targetPct: number; turnPct: number };
   /** Owner's rule since 25/10/2026: buy near the 6-month low, sell near the 6-month high. */
-  range?: { closes: readonly number[]; options?: RangeOptions };
+  range?: { closes: readonly number[]; options?: RangeOptions; history?: { samples: number; upShare: number; average: number } | null };
 }
 
 export function ruleVersion(input: Pick<AutopilotInput, "steady" | "trailing" | "range">) {
@@ -139,7 +139,7 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
   if (input.range) {
     const decision = rangeDecision({ closes: input.range.closes, price: price.toNumber(), quantity: input.position.quantity,
       cost: new D(input.position.averageCost).times(input.position.quantity).toNumber(), cash: Number(input.budgetRoom),
-      minOrder: input.minOrderValue ?? 0 }, input.range.options ?? RANGE_DEFAULTS);
+      minOrder: input.minOrderValue ?? 0, history: input.range.history ?? null }, input.range.options ?? RANGE_DEFAULTS);
     if (decision.action === "SELL" && input.position.quantity > 0) return sellAll(decision.reason);
     if (decision.action === "BUY") return buy(decision.reason);
     return hold(decision.reason);

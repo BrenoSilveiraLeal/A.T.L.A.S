@@ -1,5 +1,6 @@
 import { accumulateDecision, type AccumulateOptions } from "./accumulate";
-import { rangeDecision, type RangeOptions } from "./range";
+import { rangeDecision, rangeLevels, type RangeOptions } from "./range";
+import { nearLowHistory } from "./forecast";
 
 /**
  * Research simulation of a monthly-contribution plan on one stock: money arrives on the first
@@ -39,7 +40,11 @@ export function simulatePlan(bars: readonly SimBar[], dividends: readonly SimDiv
     bestValue = Math.max(bestValue, value - deposited);
     if (shares > 0 && cost > 0) worstDrop = Math.max(worstDrop, 1 - (shares * bar.close) / cost);
     if (rule.kind === "range") {
-      const decision = rangeDecision({ closes: [...closes, bar.close], price: bar.close, quantity: shares, cost, cash, minOrder }, rule.options);
+      // Decide at the close: previous closes vs today's; history only matters near the low.
+      const levels = rangeLevels(closes, rule.options);
+      const history = levels && bar.close <= levels.buyBelow && rule.options.minUpShare > 0
+        ? nearLowHistory(closes, rule.options.window, rule.options.nearPct, 63) : null;
+      const decision = rangeDecision({ closes, price: bar.close, quantity: shares, cost, cash, minOrder, history }, rule.options);
       if (decision.action === "BUY") pending = { side: "BUY", spend: cash };
       if (decision.action === "SELL") pending = { side: "SELL" };
     } else if (rule.kind === "monthly") {

@@ -24,8 +24,13 @@ const variants: [string, SimRule][] = [
     .map(([name, averageDownPct, targetPct]): [string, SimRule] => [name, { kind: "accumulate", options: { ...ACCUMULATE_DEFAULTS, dipPct: 0, averageDownPct, targetPct, confirm: false } }]),
   ...[63, 126, 252].flatMap((window) => [2, 5, 10].map((nearPct): [string, SimRule] => [
     `Faixa: compra perto da mínima de ${Math.round(window / 21)} meses, vende perto da máxima (±${nearPct}%)`,
-    { kind: "range", options: { window, nearPct, minGainPct: 3 } },
+    { kind: "range", options: { window, nearPct, minGainPct: 3, confirmBuy: false, confirmSell: false, minUpShare: 0 } },
   ])),
+  ...([[false, false, 0.6], [true, false, 0.6], [false, true, 0.6], [true, true, 0.6]] as [boolean, boolean, number][])
+    .map(([confirmBuy, confirmSell, minUpShare]): [string, SimRule] => [
+      `Faixa 6 meses ±2% + histórico a favor${confirmBuy ? " + espera a queda parar" : ""}${confirmSell ? " + espera a alta parar" : ""}`,
+      { kind: "range", options: { window: 126, nearPct: 2, minGainPct: 3, confirmBuy, confirmSell, minUpShare } },
+    ]),
   ...[10, 15, 20, 25].flatMap((dip) => [20, 40, 60].map((target): [string, SimRule] => [
     `Acumular: compra ${dip}% abaixo da máxima, vende com +${target}%`,
     { kind: "accumulate", options: { ...ACCUMULATE_DEFAULTS, dipPct: dip, targetPct: target } as AccumulateOptions },
