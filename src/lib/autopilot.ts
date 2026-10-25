@@ -13,6 +13,8 @@ import { adjustStoredBars } from "@/core/strategies";
 import { saoPauloClock } from "@/core/b3-calendar";
 import { minimumSellPrice } from "@/core/live";
 import { bossRelease } from "./boss";
+import { consensusFor } from "./forecast";
+import { forecastOpinion } from "@/core/forecast";
 import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
@@ -96,8 +98,11 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   const trailing = await trailingInputs(db, owner, agentId, assetId, input.ticker, held.quantity, events.stockEvents).catch(() => undefined);
   // A company in danger (court protection, negative equity, repeated losses) gets no new money.
   const health = (await cachedCompanyHealth(db, owner).catch(() => null))?.[input.ticker];
-  const context = health?.level === "PERIGO" && input.context?.action !== "EXIT"
-    ? { action: "BLOCK_BUY" as const, summary: `saúde da empresa em perigo: ${health.reasons[0]}` } : input.context;
+  // Analysts' consensus: no new purchase when they recommend selling or see the price falling.
+  const forecast = forecastOpinion(Number(quote.price), await consensusFor(input.ticker).catch(() => null));
+  const context = input.context?.action === "EXIT" ? input.context
+    : health?.level === "PERIGO" ? { action: "BLOCK_BUY" as const, summary: `saúde da empresa em perigo: ${health.reasons[0]}` }
+      : forecast.vote === "CONTRA" ? { action: "BLOCK_BUY" as const, summary: `previsão dos analistas contra: ${forecast.text}` } : input.context;
   const steady = { peak: trailing?.peak ?? null, targetPct: SELL_TARGET_PCT, turnPct: SELL_TURN_PCT };
   const decision = autopilotDecision({
     ticker: input.ticker, quote, history: input.history, now: new Date().toISOString(),

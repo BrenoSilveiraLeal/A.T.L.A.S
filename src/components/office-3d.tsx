@@ -42,7 +42,7 @@ const CORRIDOR_Z = -5;
 const REST_ZONES: OfficeZone[] = ["COFFEE", "POOL", "OUT"];
 const DESKS: V2[] = [[-11, -1.6], [-5.5, -1.6], [0, -1.6], [-11, 3.4], [-5.5, 3.4], [0, 3.4]];
 const COUNCILS = [[-24, -16], [-16, -8], [-8, 0]].map(([x1, x2]) => ({ x1, x2, table: [(x1 + x2) / 2, -10.4] as V2, door: x2 - 1.4 }));
-const SPECIALIST_SHIRTS = ["#f28c28", "#2f6fd6", "#22a06b"]; // Risco, Balanço, Estratégia
+const SPECIALIST_SHIRTS = ["#f28c28", "#2f6fd6", "#22a06b", "#9b6bff"]; // Risco, Balanço, Estratégia, Previsão
 const KITCHEN_TABLES: V2[] = [[12.6, -9.6], [19.2, -9.6]];
 const TV_SEATS: [V2, number][] = [[[-6.1, 10.6], Math.PI], [[-3.9, 10.6], Math.PI], [[0.1, 10.6], Math.PI], [[2.3, 10.6], Math.PI],
   [[-8.6, 9.4], Math.PI * 0.78], [[4.8, 9.4], -Math.PI * 0.78]];
@@ -51,9 +51,10 @@ const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigi
 const signed = (v: number | null) => (v === null ? "—" : `${v >= 0 ? "+" : "−"}${brl(Math.abs(v))}`);
 const tone = (v: number | null) => (v === null || Math.abs(v) < 0.005 ? "flat" : v > 0 ? "gain" : "loss");
 
-/** Chairs around a council table: 0–2 far side (specialists), 3–5 near side (agents). */
+/** Chairs around a council table: 0–2 far side (specialists), 3–5 near side (agents), 6 at the head (Previsão). */
 function councilSeat(room: number, seat: number): { pos: V2; face: number } {
   const [tx, tz] = COUNCILS[room].table;
+  if (seat === 6) return { pos: [tx + 2.4, tz], face: -Math.PI / 2 };
   return { pos: [tx + [-1.3, 0, 1.3][seat % 3], tz + (seat < 3 ? -1.35 : 1.35)], face: seat < 3 ? 0 : Math.PI };
 }
 
@@ -339,7 +340,7 @@ export function Office3D({ agents, boss, tvHeadline, tvLines, selected, onSelect
     glassWall(8.1, -6, 15.1, -6); glassWall(16.7, -6, 23.9, -6);
 
     const sign = (title: string, subtitle: string, x: number, z: number, y = 3.7) => { const p = plaque(title, subtitle); p.position.set(x, y, z); scene.add(p); };
-    COUNCILS.forEach((r, i) => sign(`Conselho ${i + 1}`, "Risco · Balanço · Estratégia", r.table[0], -13.6));
+    COUNCILS.forEach((r, i) => sign(`Conselho ${i + 1}`, "Risco · Balanço · Previsão · Estratégia", r.table[0], -13.6));
     sign("Sala do Chefe", "cuida do dinheiro", 4, -13.6);
     sign("Copa", "café e conversa", 16, -13.6);
     sign("Recepção", "", -19.5, 12.6, 2.6);
@@ -423,7 +424,7 @@ export function Office3D({ agents, boss, tvHeadline, tvLines, selected, onSelect
       const table = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.07, 48), wood); table.scale.set(2.0, 1, 0.95); table.position.set(tx, 0.95, tz);
       table.castShadow = true; table.receiveShadow = true; scene.add(table);
       cyl(0.18, 0.3, 0.92, tx, 0.46, tz, metal);
-      for (let s = 0; s < 6; s++) { const { pos, face } = councilSeat(roomIndex, s); chair(pos[0], pos[1], face, s < 3 ? "#3b3f47" : "#f07b2b"); }
+      for (let s = 0; s < 7; s++) { const { pos, face } = councilSeat(roomIndex, s); chair(pos[0], pos[1], face, s < 3 || s === 6 ? "#3b3f47" : "#f07b2b"); }
       const screen = canvasTexture(900, 380);
       const frame = box(3.9, 1.75, 0.08, tx, 2.25, -13.85, metal);
       const tv = new THREE.Mesh(new THREE.PlaneGeometry(3.75, 1.6), new THREE.MeshBasicMaterial({ map: screen.texture, toneMapped: false }));
@@ -550,7 +551,7 @@ export function Office3D({ agents, boss, tvHeadline, tvLines, selected, onSelect
     ];
     COUNCILS.forEach((_, roomIndex) => SPECIALIST_SHIRTS.forEach((shirt, s) => {
       const person = makePerson({ ...STAFF_LOOKS[(s + roomIndex) % 3], shirt });
-      const { pos, face } = councilSeat(roomIndex, s);
+      const { pos, face } = councilSeat(roomIndex, s < 3 ? s : 6);
       person.group.position.set(pos[0], 0, pos[1]); person.group.rotation.y = face; scene.add(person.group);
       staff.push({ person, pose: "talk", phase: roomIndex * 2 + s });
     }));
@@ -561,6 +562,12 @@ export function Office3D({ agents, boss, tvHeadline, tvLines, selected, onSelect
     bossPerson.group.position.set(4, 0, -11.6); scene.add(bossPerson.group);
     const bossTag = tagged(bossPerson, "Chefe", "cuida do dinheiro");
     staff.push({ person: bossPerson, pose: "type", phase: 7 });
+    // The boss's assistant watches stocks outside the team (the list under the office).
+    box(1.3, 0.06, 0.7, 6.6, 0.95, -8.4, white); box(0.6, 0.4, 0.04, 6.6, 1.25, -8.7, metal);
+    const assistant = makePerson({ presentation: "masculine", skin: "#c68863", hair: "#2b1a12", hairStyle: "curly", shirt: "#5c6bc0", pants: "#2d3142" });
+    assistant.group.position.set(6.6, 0, -7.6); assistant.group.rotation.y = Math.PI; scene.add(assistant.group);
+    chair(6.6, -7.6, Math.PI, "#5c6bc0"); tagged(assistant, "Assistente", "vigia outras ações");
+    staff.push({ person: assistant, pose: "type", phase: 11 });
     const receptionist = makePerson({ presentation: "feminine", skin: "#c68f6a", hair: "#1a120d", hairStyle: "ponytail", shirt: "#ffffff", pants: "#2b2f3a" });
     receptionist.group.position.set(-19.5, 0, 8.3); scene.add(receptionist.group);
     chair(-19.5, 8.3, 0, "#f07b2b"); tagged(receptionist, "Recepção");

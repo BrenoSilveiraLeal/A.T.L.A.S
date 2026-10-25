@@ -9,7 +9,7 @@ describe("council: buy near the 6-month low, sell near the 6-month high", () => 
   it("waits while the stock is expensive, even with money", () => {
     const c = committee(base);
     expect(c.verdict).toBe("ESPERAR");
-    expect(c.opinions[2].text).toContain("40,80");
+    expect(c.opinions.find((o) => o.role === "Estratégia")?.text).toContain("40,80");
   });
 
   it("buys near the low when the boss has money and nobody objects", () => {
@@ -22,5 +22,13 @@ describe("council: buy near the 6-month low, sell near the 6-month high", () => 
   it("sells near the high only above what it paid", () => {
     expect(committee({ ...base, holding: 1, averageCost: 41, price: 59 }).verdict).toBe("VENDER_NA_ALTA");
     expect(committee({ ...base, holding: 1, averageCost: 58.5, price: 59 }).verdict).toBe("SEGURAR");
+  });
+});
+
+describe("council: the forecast specialist", () => {
+  it("vetoes a purchase when analysts recommend selling", () => {
+    const forecast = { targetMean: 35, targetLow: 30, targetHigh: 40, recommendation: "sell", analysts: 8 };
+    const c = committee({ ...base, price: 40.5, forecast });
+    expect([c.verdict, c.summary]).toEqual(["ESPERAR", expect.stringContaining("Previsão contra")]);
   });
 });

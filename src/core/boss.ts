@@ -38,9 +38,10 @@ export function bossGrant(i: GrantInput): number {
  */
 export interface Candidate { agentId: string; price: number; fee: number; score: number }
 
-export function opportunityScore(price: number, low: number, high: number, attention: boolean) {
+export function opportunityScore(price: number, low: number, high: number, attention: boolean, upside: number | null = null) {
   const position = high > low ? (price - low) / (high - low) : 0;
-  return Math.max(0, position) + (attention ? 0.15 : 0);
+  // More upside to the analysts' mean target ranks a stock higher (capped both ways).
+  return Math.max(0, position) + (attention ? 0.15 : 0) - 0.3 * Math.max(-0.3, Math.min(0.5, upside ?? 0));
 }
 
 export function allocatePot(pool: number, candidates: readonly Candidate[]): Record<string, number> {

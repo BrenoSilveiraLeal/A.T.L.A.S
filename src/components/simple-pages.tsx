@@ -121,6 +121,7 @@ export function OfficePage({ connected }: { connected: boolean }) {
     <Offline connected={connected} />
     <GenialBalance connected={connected} compact />
     <AgentFloor connected={connected} revision={0} mode="full" />
+    <ScoutPanel connected={connected} />
   </>;
 }
 
@@ -291,4 +292,39 @@ export function ControlsPage({ connected }: { connected: boolean }) {
       <p className="muted">Para conferências mais detalhadas: <Link href="/app/settings">Configuração</Link> · <Link href="/app/treasury">Tesouraria</Link> · <Link href="/app/risk">Risco e limites</Link> · <Link href="/app/health">Saúde do sistema</Link> · <Link href="/app/audit">Auditoria</Link> · <Link href="/app/news">Notícias</Link></p>
     </section>
   </>;
+}
+
+type ScoutRow = { ticker: string; company: string; price: number; low: number; high: number; position: number; upside: number | null;
+  recommendation: string | null; analysts: number | null; good: boolean; reasons: string[]; warnings: string[] };
+
+/** The boss's assistant: large B3 stocks outside the team, best opportunities first (daily). */
+export function ScoutPanel({ connected }: { connected: boolean }) {
+  const [state, setState] = useState<{ at: string | null; rows: ScoutRow[] } | null>(null);
+  useEffect(() => {
+    if (!connected) return;
+    const controller = new AbortController();
+    fetch("/api/atlas/scout", { signal: controller.signal }).then((r) => (r.ok ? r.json() : null)).then((b) => !controller.signal.aborted && setState(b)).catch(() => undefined);
+    return () => controller.abort();
+  }, [connected]);
+  if (!connected || !state) return null;
+  const rows = state.rows.slice(0, 12);
+  const pct = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(0)}%`;
+  return (
+    <section className="panel scout">
+      <div className="section-heading"><h2>Assistente do Chefe: ações boas para o time</h2>
+        <span className="muted">{state.at ? `atualizado ${when(state.at)} · 1 vez por dia` : "primeira lista sai hoje"}</span></div>
+      {rows.length ? <div className="table-scroll"><table>
+        <thead><tr><th>Ação</th><th>Preço</th><th>Na faixa de 6 meses</th><th>Analistas</th><th>Por quê</th></tr></thead>
+        <tbody>{rows.map((r) => <tr key={r.ticker} className={r.good ? "good" : ""}>
+          <td><b>{r.ticker}</b> <small>{r.company}</small>{r.good && <span className="status-label success">boa para o time</span>}</td>
+          <td>{brl(r.price)}</td>
+          <td><span className="range-bar" title={`mínima ${brl(r.low)} · máxima ${brl(r.high)}`}><span style={{ left: `${Math.min(100, Math.max(0, r.position * 100))}%` }} /></span>
+            <small>{r.position <= 0.25 ? "perto da mínima" : r.position >= 0.75 ? "perto da máxima" : "no meio"}</small></td>
+          <td>{r.upside === null ? "—" : <span className={r.upside >= 0 ? "up" : "down"}>{pct(r.upside)}</span>} <small>{r.analysts ? `${r.analysts} analistas` : ""}</small></td>
+          <td><small>{[...r.reasons, ...r.warnings.map((w) => `⚠ ${w}`)].join(" · ") || "—"}</small></td>
+        </tr>)}</tbody>
+      </table></div> : <p className="muted">O assistente monta a lista uma vez por dia, no computador com o ATLAS ligado.</p>}
+      <p className="muted">Ele olha {state.rows.length || "umas 30"} ações grandes da B3 fora do time: quanto estão perto da mínima de 6 meses, o que os analistas esperam e se a empresa dá lucro. Quando quiser uma IA nova para uma delas, é só pedir.</p>
+    </section>
+  );
 }

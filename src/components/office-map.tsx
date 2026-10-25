@@ -7,6 +7,7 @@ import type { OfficeZone } from "@/core/office";
 import type { NewsDirection } from "@/core/news";
 import type { Opinion, Verdict } from "@/core/committee";
 import { HEALTH_LABELS, type HealthLevel } from "@/core/company-health";
+import { RECOMMENDATION_PT, upsideOf, type ConsensusView } from "@/core/forecast";
 
 export interface OfficeAgent {
   id: string; name: string; ticker: string; company: string; zone: OfficeZone; activity: string;
@@ -21,6 +22,9 @@ export interface OfficeAgent {
   debate?: { opinions: Opinion[]; verdict: Verdict; summary: string };
   /** 6-month low/high and the buy/sell triggers (owner's rule). */
   range?: { low: number; high: number; buyBelow: number; sellAbove: number; months: number; lowDate: string | null; highDate: string | null } | null;
+  /** Analysts' consensus and what followed past visits to the 6-month low. */
+  forecast?: ConsensusView | null;
+  history?: { samples: number; average: number; upShare: number } | null;
   /** Where the price now comes from: "MT5" (live, every 5 s) or "brapi" (every 30 min). */
   priceSource?: string;
   /** Real history (trades at Genial, orders, decisions), newest first. */
@@ -90,7 +94,7 @@ export function OfficeLegend() {
       <li><Monitor size={15} /> <b>Computador</b> = trabalhando</li>
       <li><Users size={15} /> <b>Reunião</b> = debatendo com os especialistas</li>
       <li><Coffee size={15} /> <b>Copa</b> e <CircleDot size={15} /> <b>Sala de TV</b> = descansando</li>
-      <li>Camisa <span className="dot risk" /> Risco · <span className="dot balance" /> Balanço · <span className="dot strategy" /> Estratégia</li>
+      <li>Camisa <span className="dot risk" /> Risco · <span className="dot balance" /> Balanço · <span className="dot forecast" /> Previsão · <span className="dot strategy" /> Estratégia</li>
       <li><span className="dot gain" /> verde sobe · <span className="dot loss" /> vermelho cai</li>
     </ul>
   );
@@ -217,6 +221,7 @@ export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null;
         <div><dt>Próxima análise</dt><dd>{inMinutes(agent.nextAnalysisAt, now)}</dd></div>
       </dl>
       {agent.range && <AgentRange agent={agent} range={agent.range} />}
+      <AgentForecast agent={agent} />
       <div className="agent-history">
         <span className="score-kicker">Histórico real</span>
         {agent.events?.length ? <ul>{agent.events.map((e, i) => <li key={`${e.at}-${i}`} className={e.tone}>
@@ -233,6 +238,27 @@ export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null;
         <button type="button" className="secondary" onClick={() => onSelect("")}>Ver equipe</button>
       </div>
     </aside>
+  );
+}
+
+/** Forecasts: analysts' consensus and the stock's own history near its 6-month low. */
+function AgentForecast({ agent }: { agent: OfficeAgent }) {
+  const c = agent.forecast, h = agent.history;
+  if (!c && !h) return null;
+  const price = agent.chart?.last ?? agent.chart?.bars.at(-1)?.close ?? null;
+  const upside = upsideOf(price, c ?? null);
+  const pct = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(0)}%`;
+  return (
+    <div className="agent-forecast">
+      <span className="score-kicker">Previsão</span>
+      {c && (c.targetMean || c.recommendation) ? <p>
+        <b>{c.analysts ?? "?"} analistas</b>: {c.recommendation ? RECOMMENDATION_PT[c.recommendation] ?? c.recommendation : "sem recomendação"}
+        {c.targetMean ? <> · alvo médio <b>{formatBrl(c.targetMean.toFixed(2))}</b>{upside !== null && <span className={upside >= 0 ? "up" : "down"}> ({pct(upside)})</span>}</> : null}
+        {c.targetLow && c.targetHigh ? <small> · entre {formatBrl(c.targetLow.toFixed(2))} e {formatBrl(c.targetHigh.toFixed(2))}</small> : null}
+      </p> : <p className="muted">Sem previsão de analistas para esta ação.</p>}
+      {h && <p>Nas {h.samples} vezes em que chegou perto da mínima de 6 meses, nos 3 meses seguintes <b>subiu em {Math.round(h.upShare * 100)}%</b> delas (média <span className={h.average >= 0 ? "up" : "down"}>{pct(h.average)}</span>).</p>}
+      <small className="muted">Analistas: consenso do Yahoo Finance, atualizado 1 vez por dia. Previsão não é garantia.</small>
+    </div>
   );
 }
 

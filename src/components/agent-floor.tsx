@@ -13,6 +13,7 @@ const Office3D = dynamic(() => import("./office-3d").then((m) => m.Office3D), {
 import { placeAgent } from "@/core/office";
 import { committee } from "@/core/committee";
 import { allocatePot, opportunityScore } from "@/core/boss";
+import { forecastOpinion, type ConsensusView } from "@/core/forecast";
 import { RANGE_DEFAULTS } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
@@ -49,6 +50,7 @@ function useFloor(connected: boolean, revision: number): Floor {
 }
 
 type Range = { low: number; high: number; buyBelow: number; sellAbove: number; months: number; lowDate: string | null; highDate: string | null };
+type Forecast = { consensus: ConsensusView | null; history: { samples: number; average: number; upShare: number } | null };
 
 /**
  * Price now for every stock: from the Genial MetaTrader every 5 s on the owner's computer, from
@@ -80,15 +82,16 @@ function usePrices(connected: boolean) {
 
 /** 6-month low/high and the buy/sell triggers for each stock (owner's rule). */
 function useRanges(tickers: string[]) {
-  const [ranges, setRanges] = useState<Record<string, Range | null>>({});
+  const [ranges, setRanges] = useState<Record<string, { range: Range | null } & Forecast>>({});
   const key = [...tickers].sort().join(",");
   const tick = Math.floor(useNow(600000) / 600000);
   useEffect(() => {
     if (!key) return;
     const controller = new AbortController();
     Promise.all(key.split(",").map((ticker) => fetch(`/api/atlas/levels?ticker=${encodeURIComponent(ticker)}`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : null)).then((b: { range?: Range | null } | null) => [ticker, b?.range ?? null] as const)
-      .catch(() => [ticker, null] as const)))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: ({ range?: Range | null } & Partial<Forecast>) | null) => [ticker, { range: b?.range ?? null, consensus: b?.consensus ?? null, history: b?.history ?? null }] as const)
+      .catch(() => [ticker, { range: null, consensus: null, history: null }] as const)))
       .then((rows) => { if (!controller.signal.aborted) setRanges(Object.fromEntries(rows)); });
     return () => controller.abort();
   }, [key, tick]);
@@ -153,9 +156,10 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   };
   const potShares = allocatePot(floor.live?.genial.free ?? 0, alive.flatMap((agent) => {
     const ticker = text(assets.find((a) => a.id === agent.asset_id)?.ticker);
-    const r = ranges[ticker], price = priceNow(agent), level = floor.health?.[ticker]?.level;
-    return r && price !== null && price <= r.buyBelow && level !== "PERIGO"
-      ? [{ agentId: text(agent.id), price, fee: 0.99, score: opportunityScore(price, r.low, r.high, level === "ATENCAO") }] : [];
+    const r = ranges[ticker]?.range, price = priceNow(agent), level = floor.health?.[ticker]?.level;
+    const fo = forecastOpinion(price, ranges[ticker]?.consensus ?? null);
+    return r && price !== null && price <= r.buyBelow && level !== "PERIGO" && fo.vote !== "CONTRA"
+      ? [{ agentId: text(agent.id), price, fee: 0.99, score: opportunityScore(price, r.low, r.high, level === "ATENCAO", fo.upside) }] : [];
   }));
   const office: OfficeAgent[] = alive.map((agent) => {
     const asset = assets.find((a) => a.id === agent.asset_id);
@@ -182,7 +186,8 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       : daily;
     // What the boss would release to this agent now (0 when its stock is not in its buy zone).
     const budget = potShares[text(agent.id)] ?? 0;
-    const range = ranges[ticker] ?? null;
+    const range = ranges[ticker]?.range ?? null;
+    const forecast = ranges[ticker]?.consensus ?? null, history = ranges[ticker]?.history ?? null;
     const h = floor.health?.[ticker];
     const health = h ? { level: h.level, reason: h.reasons[0] ?? "" } : null;
     const decision = floor.decisions.find((d) => d.agent_id === agent.id);
@@ -190,7 +195,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const debate = committee({
       context: ctx ? { action: ctx.action, summary: ctx.reasons?.[0]?.text ?? "" } : null, health,
       holding, averageCost, price: last ?? bars.at(-1)?.close ?? null,
-      budgetRoom: budget, range, minGainPct: RANGE_DEFAULTS.minGainPct,
+      budgetRoom: budget, range, minGainPct: RANGE_DEFAULTS.minGainPct, forecast,
     });
     return { id: text(agent.id), name: text(agent.name), ticker, company: text(asset?.company_name ?? ticker), ...place,
       pnl: holding > 0 || realized ? realized + holding * (last ?? bars.at(-1)?.close ?? averageCost ?? 0) - cost : null,
@@ -198,7 +203,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       events: agentEvents(text(agent.id), floor.live, paper.paper_proposals ?? [], String(paper.paper_book_restarts?.[0]?.started_at ?? "")),
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
       headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null,
-      chart: { bars, last }, health, debate, range, priceSource: live.source };
+      chart: { bars, last }, health, debate, range, priceSource: live.source, forecast, history };
   });
   const items = news.items ?? [];
   const top = items.find((i) => readingOf(i).tags.length) ?? items[0] ?? null;
@@ -253,7 +258,7 @@ function TeamStatus({ agents, onSelect }: { agents: OfficeAgent[]; onSelect: (id
           </li>
         );
       })}</ul>
-      <p className="muted">Toque numa IA para ver a reunião dela com os especialistas (Risco, Balanço e Estratégia), o plano e a última notícia.</p>
+      <p className="muted">Toque numa IA para ver a reunião dela com os especialistas (Risco, Balanço, Previsão e Estratégia), o plano e a última notícia.</p>
     </section>
   );
 }

@@ -10,6 +10,7 @@ import { runPaperAutopilot } from "./autopilot";
 import { sendAlert } from "./alerts";
 import { loadNews } from "./news";
 import { refreshCompanyHealth } from "./company-health";
+import { scoutList } from "./forecast";
 import { contextFor, contextSummary, loadContextSources, type ContextSources } from "./context";
 import { storeBars } from "./market-bars";
 
@@ -33,6 +34,8 @@ export async function runScheduler() {
     // idempotent extras still run here: they are each rate-limited or once per month.
     await loadNews(db, owner).catch(() => undefined);
     await refreshCompanyHealth(db, owner).catch(() => undefined);
+    // The assistant's daily scan (~60 light requests): only on the owner's computer, never inside Vercel's 60 s.
+    if (!process.env.VERCEL) await scoutList(db, owner).catch(() => undefined);
     return { skipped: "RECENT_TICK", jobs: [] };
   }
   // Housekeeping is bounded and never deletes decisions, orders or financial evidence.

@@ -5,11 +5,13 @@ import { isinPrefix, type CorporateEvent } from "@/core/corporate-actions";
 import { fetchB3Events, b3EventsUrl } from "@/providers/b3-events";
 import { loadBars } from "./market-bars";
 import { RANGE_DEFAULTS, rangeLevels } from "@/core/range";
+import { nearLowHistory } from "@/core/forecast";
+import { consensusFor } from "./forecast";
 import { softCached } from "./context";
 
 /** The agent's price plan from the long official history, adjusted by official stock events. */
 export async function agentLevels(db: SupabaseClient, ticker: string) {
-  const bars = await loadBars(db, ticker, 320);
+  const bars = await loadBars(db, ticker, 1000);
   if (bars.length < 21) return { ticker, available: false as const, bars: bars.length, reason: "Histórico insuficiente para calcular os níveis." };
   const prefix = isinPrefix(ticker);
   const events = prefix ? await softCached<CorporateEvent[]>("b3", `EVENTS:${ticker.slice(0, 4)}`, 12 * 3600000, 7 * 86400000, 100,
@@ -24,5 +26,7 @@ export async function agentLevels(db: SupabaseClient, ticker: string) {
   const range = levels ? { ...levels, window: RANGE_DEFAULTS.window, nearPct: RANGE_DEFAULTS.nearPct, months: Math.round(RANGE_DEFAULTS.window / 21),
     lowDate: dateOf(levels.low), highDate: dateOf(levels.high) } : null;
   return { ticker, available: true as const, bars: bars.length, from: bars[0].trade_date, to: bars[bars.length - 1].trade_date,
-    lastClose: Number(adjusted[adjusted.length - 1].close).toFixed(2), eventsVerified: events !== null, plan, range };
+    lastClose: Number(adjusted[adjusted.length - 1].close).toFixed(2), eventsVerified: events !== null, plan, range,
+    // Forecasts: analysts' consensus (daily) and what followed past visits to the 6-month low.
+    consensus: await consensusFor(ticker).catch(() => null), history: nearLowHistory(closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) };
 }

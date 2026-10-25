@@ -1,5 +1,6 @@
 import type { ContextAction } from "./context";
 import type { HealthLevel } from "./company-health";
+import { forecastOpinion, type ConsensusView } from "./forecast";
 
 /**
  * The council (owner, 24–25/10/2026: "debater com outras IAs sobre o risco, sobre valores, sobre
@@ -9,10 +10,11 @@ import type { HealthLevel } from "./company-health";
  * - Balanço: the company's health from its annual statements;
  * - Estratégia: the owner's rule — buy only near the 6-month low, sell only near the 6-month
  *   high and never below what was paid; the boss must have money free for one share.
- * A "contra" from Risco or Balanço vetoes a purchase.
+ * - Previsão: the analysts' consensus (target price and recommendation).
+ * A "contra" from Risco, Balanço or Previsão vetoes a purchase.
  */
 export type Vote = "A_FAVOR" | "CONTRA" | "NEUTRO";
-export interface Opinion { role: "Risco" | "Balanço" | "Estratégia"; vote: Vote; text: string }
+export interface Opinion { role: "Risco" | "Balanço" | "Estratégia" | "Previsão"; vote: Vote; text: string }
 export type Verdict = "COMPRAR" | "SEGURAR" | "ESPERAR" | "VENDER_NA_ALTA";
 export interface CommitteeInput {
   context: { action: ContextAction; summary: string } | null;
@@ -24,6 +26,8 @@ export interface CommitteeInput {
   range: { low: number; high: number; buyBelow: number; sellAbove: number } | null;
   /** Minimum gain over the average price before selling (fees included), in %. */
   minGainPct: number;
+  /** Analysts' consensus (Yahoo Finance), null when unavailable. */
+  forecast?: ConsensusView | null;
 }
 
 const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -50,11 +54,13 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
         : i.holding > 0
           ? { role: "Estratégia", vote: "NEUTRO", text: `Segurando: vende perto da máxima, a partir de ${brl(Math.max(r.sellAbove, floor ?? 0))}.` }
           : { role: "Estratégia", vote: "NEUTRO", text: `Caro agora (${brl(price)}). Compra só se cair até ${brl(r.buyBelow)}, perto da mínima de 6 meses (${brl(r.low)}).` };
-  const vetoes = [risk, balance].filter((o) => o.vote === "CONTRA");
+  const forecast = forecastOpinion(price, i.forecast ?? null);
+  const prediction: Opinion = { role: forecast.role, vote: forecast.vote, text: forecast.text };
+  const vetoes = [risk, balance, prediction].filter((o) => o.vote === "CONTRA");
   const verdict: Verdict = sellNow ? "VENDER_NA_ALTA" : nearLow && canBuy && !vetoes.length ? "COMPRAR" : i.holding > 0 ? "SEGURAR" : "ESPERAR";
   const summary = verdict === "COMPRAR" ? "Decisão: comprar na baixa."
     : verdict === "VENDER_NA_ALTA" ? "Decisão: vender na alta."
       : nearLow && canBuy && vetoes.length ? `Decisão: não comprar agora (${vetoes.map((v) => v.role).join(" e ")} contra).`
         : verdict === "SEGURAR" ? "Decisão: segurar até chegar perto da máxima." : "Decisão: esperar o preço cair.";
-  return { opinions: [risk, balance, strategy], verdict, summary };
+  return { opinions: [risk, balance, prediction, strategy], verdict, summary };
 }

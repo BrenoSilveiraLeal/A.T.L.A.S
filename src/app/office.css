@@ -425,3 +425,12 @@ p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
 .agent-range dd { margin: 0; font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; display: grid; }
 .agent-range dd small { font-size: 10px; font-weight: 400; color: #8ea4ba; }
 .agent-range p { margin: 0; font-size: 13px; line-height: 1.5; }
+.office-legend .dot.forecast { background: #b07cff; }
+.agent-forecast { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(176, 124, 255, 0.4); background: rgba(176, 124, 255, 0.06); }
+.agent-forecast p { margin: 0; font-size: 13px; line-height: 1.5; }
+.agent-forecast small { font-size: 11px; }
+.scout tr.good td:first-child { border-left: 3px solid #3dffa8; }
+.scout .status-label { margin-left: 6px; }
+.range-bar { position: relative; display: inline-block; width: 90px; height: 6px; border-radius: 3px; margin-right: 6px; vertical-align: middle;
+  background: linear-gradient(90deg, #3dffa8, #ffc65c 50%, #ff5d7d); }
+.range-bar span { position: absolute; top: -3px; width: 4px; height: 12px; margin-left: -2px; border-radius: 2px; background: #fff; box-shadow: 0 0 4px rgba(0, 0, 0, 0.6); }
