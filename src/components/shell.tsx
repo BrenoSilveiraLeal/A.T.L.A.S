@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { NotificationBell } from "./notification-bell";
 import { useState } from "react";
 import {
   Building2,
@@ -153,6 +154,7 @@ export function Shell({
               {navigation.find((n) => n.path === pathname)?.label ?? "Avançado"}
             </strong>
           </div>
+          <div className="topbar-actions"><NotificationBell connected={configured} /></div>
 
         </header>
         <div className="safety-strip">

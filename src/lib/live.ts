@@ -7,7 +7,7 @@ import { mergeFractionalPositions } from "@/core/lots";
 import { custodyShortfalls, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
 import { adminClient } from "./supabase";
 import { required } from "./env";
-import { sendAlert } from "./alerts";
+import { notify } from "./notify";
 
 /**
  * Real-money executor for Genial (runs on the owner's PC, next to MetaTrader). Each tick:
@@ -20,9 +20,8 @@ import { sendAlert } from "./alerts";
 const ACTIVE = ["PENDING", "DISPATCHED", "OPEN", "PARTIALLY_FILLED", "UNKNOWN"];
 const clientId = (orderId: string) => `atlas-${orderId}`;
 
-async function alertOnce(db: SupabaseClient, kind: string, text: string, windowSeconds = 3600) {
-  const allowed = await db.rpc("consume_rate_limit", { p_key: `alert:live:${kind}`.slice(0, 200), p_limit: 1, p_window_seconds: windowSeconds });
-  if (!allowed.error && allowed.data) await sendAlert([text]);
+async function alertOnce(_db: SupabaseClient, kind: string, text: string, windowSeconds = 3600) {
+  await notify({ level: "warning", title: text, dedupeKey: `live:${kind}`, windowSeconds });
 }
 
 type Row = Record<string, unknown> & { id: string };
@@ -78,9 +77,17 @@ export async function runLive(now = new Date()) {
     let cursor: string | null = sync.data?.cursor ?? null;
     for (let page = 0; page < 3; page++) {
       const batch = await gateway.getExecutions(cursor);
-      for (const deal of batch.executions)
-        ok(await db.rpc("live_record_fill", { p_owner_id: owner, p_fill: { executionId: deal.executionId, brokerOrderId: deal.brokerOrderId, side: deal.side,
+      for (const deal of batch.executions) {
+        const recorded = ok(await db.rpc("live_record_fill", { p_owner_id: owner, p_fill: { executionId: deal.executionId, brokerOrderId: deal.brokerOrderId, side: deal.side,
           quantity: deal.quantity, price: deal.price, executedAt: deal.executedAt } }));
+        if (recorded === "RECORDED") {
+          const placed = await db.from("live_orders").select("agent_id,ticker").eq("owner_id", owner).eq("broker_order_id", deal.brokerOrderId).maybeSingle();
+          const who = placed.data ? (await db.from("agents").select("name").eq("id", placed.data.agent_id).maybeSingle()).data?.name ?? "IA" : "IA";
+          const value = Number(deal.quantity) * Number(deal.price);
+          await notify({ level: "success", title: `${deal.side === "BUY" ? "Compra" : "Venda"} executada na Genial: ${who} ${deal.side === "BUY" ? "comprou" : "vendeu"} ${deal.quantity} ${placed.data?.ticker ?? ""}`,
+            lines: [`Preço: R$ ${Number(deal.price).toFixed(2).replace(".", ",")} por ação · total R$ ${value.toFixed(2).replace(".", ",")}`, `Quando: ${new Date(deal.executedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`] });
+        }
+      }
       cursor = batch.nextCursor;
       if (!cursor) break;
     }
@@ -101,7 +108,7 @@ export async function runLive(now = new Date()) {
       if (short.length) {
         const text = short.map((s) => `${s.ticker}: ATLAS ${s.atlas}, Genial ${s.broker}`).join("; ");
         await db.rpc("live_halt", { p_owner_id: owner, p_reason: `Genial mostra menos ações que o ATLAS (${text}).` });
-        await sendAlert([`Dinheiro real PARADO: a Genial mostra menos ações do que o ATLAS registrou (${text}). Confira no MetaTrader antes de religar.`]);
+        await notify({ level: "error", title: "Dinheiro real PARADO: a Genial mostra menos ações do que o ATLAS registrou", lines: [text, "Confira no MetaTrader antes de religar."] });
         return { status: "HALTED" as const, events };
       }
     } catch (error) { events.push(`custódia: ${error instanceof Error ? error.message : "erro"}`); }
@@ -124,9 +131,14 @@ export async function runLive(now = new Date()) {
   const mirrored = await db.from("live_orders").select("paper_order_id").eq("owner_id", owner).not("paper_order_id", "is", null)
     .in("paper_order_id", (paperOrders.data ?? []).map((o) => o.id));
   const done = new Set((mirrored.data ?? []).map((m) => m.paper_order_id));
+  const today = new Date(now).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+  const refused = await db.from("live_orders").select("agent_id").eq("owner_id", owner).eq("status", "REJECTED").eq("side", "BUY")
+    .gte("created_at", new Date(`${today}T00:00:00-03:00`).toISOString());
+  const refusedToday = new Set((refused.data ?? []).map((o) => o.agent_id));
 
   for (const agent of agents.data ?? []) {
     if (busy.has(agent.id) || ["DEAD", "FIRED"].includes(agent.status) || agent.autopilot === false) continue;
+    if (refusedToday.has(agent.id)) continue;
     const ticker = assets.data?.find((a) => a.id === agent.asset_id)?.ticker;
     // The agent's latest autopilot intent decides: enter on a fresh BUY, leave on any SELL.
     const latest = (paperOrders.data ?? []).filter((o) => o.agent_id === agent.id).sort((a, b) => String(b.placed_at).localeCompare(String(a.placed_at)))[0];
@@ -173,18 +185,18 @@ export async function runLive(now = new Date()) {
         side, quantity, kind: "LIMIT", limitPrice: limit, stopPrice: null, timeInForce: "DAY" });
       const status = result.status === "PENDING" ? "OPEN" : result.status;
       ok(await db.rpc("live_mark_order", { p_owner_id: owner, p_order_id: order.id, p_status: status, p_broker_order_id: result.brokerOrderId, p_broker_filled: result.filledQuantity, p_error: null }));
-      await sendAlert([`Dinheiro real: ${side === "BUY" ? "COMPRA" : "VENDA"} de ${quantity} ${order.symbol} a até R$ ${limit} (${reason.slice(0, 160)}).`]);
+      await notify({ level: "info", title: `Ordem enviada à Genial: ${side === "BUY" ? "compra" : "venda"} de ${quantity} ${order.symbol} a até R$ ${limit.replace(".", ",")}`, lines: [reason.slice(0, 300)] });
     } catch (error) {
       const code = error instanceof GatewayError ? error.code : "AMBIGUOUS";
       if (sendOutcome(code) === "REJECTED") {
         ok(await db.rpc("live_mark_order", { p_owner_id: owner, p_order_id: order.id, p_status: "REJECTED", p_broker_order_id: null, p_broker_filled: null, p_error: code }));
-        if (code === "ORDER_REJECTED" && side === "BUY") {
-          await db.rpc("live_halt", { p_owner_id: owner, p_reason: "Compra recusada pela Genial (pode ser falta de saldo)." });
-          await sendAlert(["Dinheiro real PARADO: a Genial recusou uma compra (pode ser falta de saldo). Confira o saldo no app da Genial e religue no painel."]);
-        }
+        // A refused purchase (often money missing at Genial) pauses only this agent for the day.
+        await notify({ level: "warning", title: `A Genial recusou a ${side === "BUY" ? "compra" : "venda"} de ${quantity} ${order.symbol}`,
+          lines: [side === "BUY" ? "Pode ser falta de saldo na Genial. Se você depositou, registre o depósito em Carteira → Depositei mais." : `Motivo informado: ${code}.`,
+            "Esta IA não tenta de novo hoje; as outras continuam."] });
       } else {
         ok(await db.rpc("live_mark_order", { p_owner_id: owner, p_order_id: order.id, p_status: "UNKNOWN", p_broker_order_id: null, p_broker_filled: null, p_error: code.slice(0, 300) }));
-        await sendAlert([`Dinheiro real: resposta incerta da Genial para ${quantity} ${order.symbol}. Nada será reenviado; o ATLAS vai conferir sozinho em seguida.`]);
+        await notify({ level: "warning", title: `Resposta incerta da Genial para ${quantity} ${order.symbol}`, lines: ["Nada será reenviado; o ATLAS confere sozinho em seguida."] });
       }
     }
   }

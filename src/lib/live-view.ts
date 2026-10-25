@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApiError } from "./auth";
+import { notify } from "./notify";
 
 const amount = z.string().regex(/^\d{1,9}(?:\.\d{1,2})?$/);
 export const liveSchema = z.discriminatedUnion("action", [
@@ -80,8 +81,12 @@ export async function loadLive(db: SupabaseClient, ownerId: string) {
 export async function mutateLive(db: SupabaseClient, ownerId: string, raw: unknown) {
   const input = liveSchema.parse(raw);
   // Deposits go to the boss's pot; the boss releases money to an agent when it is time to buy.
-  if (input.action === "deposit")
-    return checked(await db.rpc("register_deposit", { p_owner_id: ownerId, p_amount: input.amount, p_allocation: [] }));
+  if (input.action === "deposit") {
+    const result = checked(await db.rpc("register_deposit", { p_owner_id: ownerId, p_amount: input.amount, p_allocation: [] }));
+    await notify({ level: "success", title: `Depósito registrado: R$ ${Number(input.amount).toFixed(2).replace(".", ",")} no caixa do Chefe`,
+      lines: ["O Chefe libera esse dinheiro para a IA que chegar no momento certo de comprar."] });
+    return result;
+  }
   if (input.action === "budget")
     return checked(await db.rpc("set_agent_real_budget", { p_owner_id: ownerId, p_agent_id: input.agentId, p_amount: input.amount }));
   return checked(await db.rpc("set_live_settings", { p_owner_id: ownerId, p_enabled: input.enabled, p_max_order: input.maxOrder,

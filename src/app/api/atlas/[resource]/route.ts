@@ -22,6 +22,7 @@ import {
 import { CvmProviderError } from "@/providers/cvm";
 import { cachedCompanyHealth } from "@/lib/company-health";
 import { loadPrices } from "@/lib/prices";
+import { notify } from "@/lib/notify";
 import { readScout } from "@/lib/forecast";
 import {
   readQuote,
@@ -74,6 +75,12 @@ export async function GET(request: Request, context: RouteContext) {
     if (resource === "contribution") return json(await loadContribution(adminClient(), user.id));
     if (resource === "live") return json(await loadLive(adminClient(), user.id));
     if (resource === "costs") return json(await loadCosts(adminClient(), user.id));
+    if (resource === "notifications") {
+      const rows = await adminClient().from("notifications").select("id,level,title,body,read_at,created_at").eq("owner_id", user.id)
+        .order("created_at", { ascending: false }).limit(30);
+      if (rows.error) throw new Error("NOTIFICATIONS_UNAVAILABLE");
+      return json({ rows: rows.data, unread: rows.data.filter((r) => !r.read_at).length });
+    }
     if (resource === "scout") return json(await readScout(adminClient(), user.id) ?? { at: null, rows: [] });
     if (resource === "prices") return json(await loadPrices(adminClient(), user.id));
     if (resource === "company-health") return json(await cachedCompanyHealth(adminClient(), user.id) ?? {});
@@ -282,6 +289,15 @@ export async function POST(request: Request, context: RouteContext) {
     if (resource === "controls") return json(await mutateControls(admin, user.id, body));
     if (resource === "contribution") return json(await mutateContribution(admin, user.id, body));
     if (resource === "live") return json(await mutateLive(admin, user.id, body));
+    if (resource === "notifications" && (body as { action?: string } | null)?.action === "test") {
+      await notify({ level: "info", title: "Teste de aviso do ATLAS", lines: ["Se você recebeu este e-mail, os avisos estão funcionando."] });
+      return json({ ok: true, email: Boolean(process.env.RESEND_API_KEY) });
+    }
+    if (resource === "notifications") {
+      const done = await admin.from("notifications").update({ read_at: new Date().toISOString() }).eq("owner_id", user.id).is("read_at", null);
+      if (done.error) throw new Error("NOTIFICATIONS_UNAVAILABLE");
+      return json({ ok: true });
+    }
     if (resource === "agent-state") {
       const input = z
         .object({ id: z.uuid(), enabled: z.boolean() })

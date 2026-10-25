@@ -7,7 +7,7 @@ import { readQuote, readHistory, readNews, readMacro } from "./data";
 import { analyzeAsset } from "@/core/analysis";
 import { loadAgentObservationConfiguration } from "./agent-config";
 import { runPaperAutopilot } from "./autopilot";
-import { sendAlert } from "./alerts";
+import { notify } from "./notify";
 import { loadNews } from "./news";
 import { refreshCompanyHealth } from "./company-health";
 import { scoutList } from "./forecast";
@@ -210,7 +210,7 @@ export async function runScheduler() {
     if (paper.status === "FAILED") alerts.push(`Piloto automático falhou para ${r.label}.`);
     if (paper.status === "CORPORATE_ACTION_SUSPECTED") alerts.push(`${r.label} PAUSADO: ${paper.reason} Confira e ajuste a posição virtual antes de retomar.`);
   }
-  if (alerts.length) await sendAlert(alerts);
+  if (alerts.length) await notify({ level: "error", title: "Problema nas análises das IAs", lines: alerts, dedupeKey: `scheduler:${alerts.join("|").slice(0, 120)}`, windowSeconds: 3600 });
   // Keeps the office TV filled even with the panel closed (refresh at most every 5 min).
   await loadNews(db, owner).catch(() => undefined);
   // No simulated contribution: the agents' money comes only from real deposits (register_deposit).

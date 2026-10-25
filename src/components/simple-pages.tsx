@@ -280,12 +280,30 @@ function BridgeStatus({ connected }: { connected: boolean }) {
   );
 }
 
+/** Sends a test notification (bell + e-mail) so the owner can check the e-mail set-up. */
+function TestNotice({ connected }: { connected: boolean }) {
+  const [message, setMessage] = useState("");
+  if (!connected) return null;
+  const send = () => fetch("/api/atlas/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test" }) })
+    .then((r) => r.json()).then((b) => setMessage(b.email ? "Aviso enviado: confira o sino e o seu e-mail." : "Aviso enviado ao sino. O e-mail ainda não está configurado (falta a chave do Resend)."))
+    .catch(() => setMessage("Falha de conexão."));
+  return (
+    <section className="panel">
+      <div className="section-heading"><h2>Avisos por e-mail</h2></div>
+      <p className="muted">Ordens, compras e vendas executadas, recusas da Genial, falta de dinheiro, erros e depósitos chegam no sino e no e-mail brenosilveiraleal@gmail.com.</p>
+      <button type="button" className="secondary" onClick={() => void send()}>Enviar aviso de teste</button>
+      {message && <p className="muted" role="status">{message}</p>}
+    </section>
+  );
+}
+
 export function ControlsPage({ connected }: { connected: boolean }) {
   return <>
     <Heading title="Ajustes" note="Ligar ou desligar o dinheiro real, limites e o dinheiro de cada IA." />
     <Offline connected={connected} />
     <LivePanel connected={connected} />
     <BridgeStatus connected={connected} />
+    <TestNotice connected={connected} />
     <section className="panel">
       <div className="section-heading"><h2>Páginas técnicas</h2></div>
       <p className="muted">Para conferências mais detalhadas: <Link href="/app/settings">Configuração</Link> · <Link href="/app/treasury">Tesouraria</Link> · <Link href="/app/risk">Risco e limites</Link> · <Link href="/app/health">Saúde do sistema</Link> · <Link href="/app/audit">Auditoria</Link> · <Link href="/app/news">Notícias</Link></p>

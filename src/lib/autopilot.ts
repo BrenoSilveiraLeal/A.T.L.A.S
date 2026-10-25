@@ -13,6 +13,7 @@ import { adjustStoredBars } from "@/core/strategies";
 import { saoPauloClock } from "@/core/b3-calendar";
 import { minimumSellPrice } from "@/core/live";
 import { bossRelease } from "./boss";
+import { notify } from "./notify";
 import { consensusFor } from "./forecast";
 import { forecastOpinion, nearLowHistory } from "@/core/forecast";
 import { RANGE_DEFAULTS } from "@/core/range";
@@ -123,6 +124,14 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     range: trailing ? { closes: trailing.closes, history: nearLowHistory(trailing.closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) } : undefined,
     steady: trailing ? undefined : steady,
   });
+  // Money missing for a purchase the rule wants: tell the owner (once a day per agent).
+  if (decision.action === "HOLD" && decision.reason.includes("falta dinheiro")) {
+    const name = (maybe(await db.from("agents").select("name").eq("id", agentId).maybeSingle()) as { name?: string } | null)?.name ?? "Uma IA";
+    await notify({ level: "warning", title: `${name} quer comprar ${input.ticker}, mas falta dinheiro no caixa`,
+      lines: [decision.reason, `Livre no caixa do Chefe: R$ ${availableCash.toFixed(2).replace(".", ",")}.`,
+        "Se você já depositou na Genial, registre o valor em Carteira → Depositei mais."],
+      dedupeKey: `nomoney:${agentId}:${new Date().toISOString().slice(0, 10)}`, windowSeconds: 86400 });
+  }
   if (decision.action === "HOLD") return { filled, corporateActions: events.applied, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };
   const proposal = z.object({ id: z.uuid() }).loose().parse(rows(await db.rpc("paper_create_proposal", {
     p_owner_id: owner, p_agent_id: agentId, p_side: decision.action, p_quantity: decision.quantity,
