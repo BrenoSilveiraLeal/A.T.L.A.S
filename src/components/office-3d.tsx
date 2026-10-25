@@ -619,7 +619,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       wallCanvas.texture.needsUpdate = true;
     };
 
-    // Decoration: murals, bookshelves, planters between the desk rows, floor lamps, coffee bar.
+    // Decoration: murals, bookshelves, floor lamps, coffee bar.
     const PALETTE = ["#f07b2b", "#2f6fd6", "#f2b33d", "#d6336c", "#1fa3b8", "#22a06b"];
     const mural = (w: number, h: number, x: number, y: number, z: number, turn: number, seed: number, onWall: { items: THREE.Object3D[] }) => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: muralTexture(seed, PALETTE), roughness: 0.9 }));
@@ -641,14 +641,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       g.position.set(x, 0, z); g.rotation.y = turn; scene.add(g);
     };
     bookshelf(-23.4, -4.2, Math.PI / 2); bookshelf(-23.4, 3.4, Math.PI / 2); bookshelf(23.4, -0.5, -Math.PI / 2);
-    // Planters between the two rows of desks (gaps left for the walkways).
-    for (const [x1, x2] of [[-12.6, -8.9], [-7.6, -3.4], [-2.1, 1.6]]) {
-      box(x2 - x1, 0.45, 0.5, (x1 + x2) / 2, 0.225, 0.9, darkWood);
-      for (let x = x1 + 0.3; x < x2 - 0.2; x += 0.55) {
-        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), matte("#3f8f4a", 0.85));
-        bush.position.set(x, 0.62, 0.9); bush.scale.set(1, 0.8, 1); bush.castShadow = true; scene.add(bush);
-      }
-    }
     const floorLamp = (x: number, z: number) => {
       cyl(0.03, 0.03, 1.9, x, 0.95, z, metal); cyl(0.22, 0.22, 0.04, x, 0.02, z, metal);
       const shade = cyl(0.28, 0.36, 0.4, x, 2.0, z, matte("#fff6e5", 0.6));
@@ -855,6 +847,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     };
     labels.domElement.addEventListener("pointerdown", onDown);
     labels.domElement.addEventListener("pointerup", onUp);
+    // The middle button turns the office: stop the browser's auto-scroll from moving the page.
+    const noAutoScroll = (e: MouseEvent) => { if (e.button === 1) e.preventDefault(); };
+    labels.domElement.addEventListener("mousedown", noAutoScroll);
+    labels.domElement.addEventListener("auxclick", noAutoScroll);
 
     const resize = () => {
       const w = el.clientWidth, h = el.clientHeight;
@@ -1044,6 +1040,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       observer.disconnect();
       labels.domElement.removeEventListener("pointerdown", onDown);
       labels.domElement.removeEventListener("pointerup", onUp);
+      labels.domElement.removeEventListener("mousedown", noAutoScroll);
+      labels.domElement.removeEventListener("auxclick", noAutoScroll);
       controls.dispose(); pmrem.dispose();
       void audio?.close();
       scene.traverse((o) => {
