@@ -399,3 +399,21 @@ p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
 .agent3d-label.person small.up { color: #3dffa8; }
 .agent3d-label.person small.down { color: #ff5d7d; }
 .sidebar-spacer { flex: 1; }
+
+/* Speech bubbles: supervisor comments and the agents' "bip!". */
+.speech-bubble { padding: 5px 10px; border-radius: 12px; background: #fff; color: #1b1e24; font-size: 12px; font-weight: 700; white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); pointer-events: none; position: relative; }
+.speech-bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #fff; border-bottom: 0; }
+.speech-bubble.beep { background: #ffc65c; animation: beep-pop 0.6s ease-in-out infinite alternate; }
+.speech-bubble.beep::after { border-top-color: #ffc65c; }
+@keyframes beep-pop { from { transform: scale(1); } to { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .speech-bubble.beep { animation: none; } }
+.staff-plate strong { font-size: 12px; }
+
+/* Council bubble on one line. */
+.debate-bubble { display: flex; align-items: center; gap: 5px; max-width: none; white-space: nowrap; padding: 4px 10px; pointer-events: auto; }
+.debate-bubble em { margin-left: 4px; }
+.vote-dot { width: 9px; height: 9px; border-radius: 50%; background: #8ea4ba; display: inline-block; }
+.vote-dot.a_favor { background: #3dffa8; }
+.vote-dot.contra { background: #ff5d7d; }
+@media (max-width: 640px) { .debate-bubble em { display: none; } }

@@ -11,38 +11,50 @@ import { companyProfile } from "@/core/context";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
 
 /**
- * 3D office in the style of a modern tech office (bright floor, white walls, colourful sofas,
- * glass meeting rooms). Every agent is a person (look from core/people) with a
- * label: name, stock, company, holding and trend. Walls work like The Sims "cutaway": walls between
- * the camera and a room drop to a low stub and come back up as the camera turns; the far walls
- * stay up. One desk per agent with the real daily candles of its stock; three meeting rooms with
- * three specialists (Risco orange, Balanço blue, Estratégia green); news room; café and pool;
- * reception; market room. Falls back to the 2D map without WebGL.
+ * 3D office in the style of a modern tech office. Every agent is a person (look from
+ * core/people) labelled with name, stock, company, holding and today's trend.
+ * - Work: one desk per agent with the real candles of its stock and the price now.
+ * - Three council rooms with three specialists each (Risco orange, Balanço blue, Estratégia
+ *   green): an analysing agent walks in and the room shows the debate and the chart.
+ * - The boss's office: the boss keeps the money and passes it to the agents; the wall shows the
+ *   money at Genial and what each agent received.
+ * - A supervisor walks the floor checking the desks and calls whoever has to go back to work.
+ * - Rest: the kitchen (coffee and chat around high tables) and the TV lounge (news TV).
+ * - When an agent goes back to work its computer beeps and flashes and it walks to the desk.
+ * Walls work like The Sims "cutaway". Falls back to the 2D map without WebGL.
  */
 type V2 = [number, number];
-type Pose = "sit" | "stand" | "type" | "cue" | "talk";
+type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch";
 interface Slot { pos: V2; face: number; pose: Pose; route: V2[] }
 interface Person {
-  group: THREE.Group; rig: THREE.Group; hips: THREE.Group[]; knees: THREE.Group[]; shoulders: THREE.Group[]; elbows: THREE.Group[]; cue: THREE.Mesh;
+  group: THREE.Group; rig: THREE.Group; head: THREE.Group; hips: THREE.Group[]; knees: THREE.Group[];
+  shoulders: THREE.Group[]; elbows: THREE.Group[]; mug: THREE.Group;
 }
-interface Walker extends Person { label: CSS2DObject; labelEl: HTMLDivElement; path: V2[]; slot: Slot | null; key: string; phase: number }
+interface Walker extends Person {
+  label: CSS2DObject; labelEl: HTMLDivElement; bubble: CSS2DObject; bubbleEl: HTMLDivElement;
+  path: V2[]; slot: Slot | null; key: string; phase: number; zone: OfficeZone | null;
+}
+type Money = { deposited: number; free: number } | null;
 
 const S = 1.25; // people are drawn a little larger than life so they read well from above
 const SEAT_Y = 0.6;
 const CORRIDOR_Z = -5;
+const REST_ZONES: OfficeZone[] = ["COFFEE", "POOL", "OUT"];
 const DESKS: V2[] = [[-11, -1.6], [-5.5, -1.6], [0, -1.6], [-11, 3.4], [-5.5, 3.4], [0, 3.4]];
-const MEETING_ROOMS = [[-24, -16], [-16, -8], [-8, 0]].map(([x1, x2]) => ({ x1, x2, table: [(x1 + x2) / 2, -10.4] as V2, door: x2 - 1.4 }));
+const COUNCILS = [[-24, -16], [-16, -8], [-8, 0]].map(([x1, x2]) => ({ x1, x2, table: [(x1 + x2) / 2, -10.4] as V2, door: x2 - 1.4 }));
 const SPECIALIST_SHIRTS = ["#f28c28", "#2f6fd6", "#22a06b"]; // Risco, Balanço, Estratégia
+const KITCHEN_TABLES: V2[] = [[12.6, -9.6], [19.2, -9.6]];
+const TV_SEATS: [V2, number][] = [[[-6.1, 10.6], Math.PI], [[-3.9, 10.6], Math.PI], [[0.1, 10.6], Math.PI], [[2.3, 10.6], Math.PI],
+  [[-8.6, 9.4], Math.PI * 0.78], [[4.8, 9.4], -Math.PI * 0.78]];
 const VOTE_LABEL: Record<Vote, string> = { A_FAVOR: "a favor", CONTRA: "contra", NEUTRO: "neutro" };
 const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const money = (v: number | null) => (v === null ? "—" : `${v >= 0 ? "+" : "−"}${brl(Math.abs(v))}`);
+const signed = (v: number | null) => (v === null ? "—" : `${v >= 0 ? "+" : "−"}${brl(Math.abs(v))}`);
 const tone = (v: number | null) => (v === null || Math.abs(v) < 0.005 ? "flat" : v > 0 ? "gain" : "loss");
 
-/** Chairs around a meeting table: 0–2 far side (specialists), 3–5 near side (agents). */
-function meetingSeat(room: number, seat: number): { pos: V2; face: number } {
-  const [tx, tz] = MEETING_ROOMS[room].table;
-  const pos: V2 = [tx + [-1.3, 0, 1.3][seat % 3], tz + (seat < 3 ? -1.35 : 1.35)];
-  return { pos, face: seat < 3 ? 0 : Math.PI };
+/** Chairs around a council table: 0–2 far side (specialists), 3–5 near side (agents). */
+function councilSeat(room: number, seat: number): { pos: V2; face: number } {
+  const [tx, tz] = COUNCILS[room].table;
+  return { pos: [tx + [-1.3, 0, 1.3][seat % 3], tz + (seat < 3 ? -1.35 : 1.35)], face: seat < 3 ? 0 : Math.PI };
 }
 
 function slotFor(zone: OfficeZone, index: number, desk: number): Slot {
@@ -51,19 +63,20 @@ function slotFor(zone: OfficeZone, index: number, desk: number): Slot {
     return { pos: [x, z + 1.05], face: Math.PI, pose: "type", route: [[x + 2.75, CORRIDOR_Z], [x + 2.75, z + 1.9], [x, z + 1.9]] };
   }
   if (zone === "MEETING") {
-    const room = index % 3, { pos, face } = meetingSeat(room, 3 + (Math.floor(index / 3) % 3));
-    const door = MEETING_ROOMS[room].door;
+    const room = index % 3, { pos, face } = councilSeat(room, 3 + (Math.floor(index / 3) % 3));
+    const door = COUNCILS[room].door;
     return { pos, face, pose: "talk", route: [[door, CORRIDOR_Z], [door, -7.2], [pos[0], -8.4]] };
   }
   if (zone === "POOL") {
-    const spots: [V2, number][] = [[[17.1, -10], Math.PI / 2], [[20.9, -10], -Math.PI / 2], [[19, -8.6], Math.PI], [[19, -11.4], 0]];
-    const [[x, z], face] = spots[index % spots.length];
-    return { pos: [x, z], face, pose: "cue", route: [[15.5, CORRIDOR_Z], [15.5, -7.2], [x, -7.6]] };
+    // TV lounge: sofas facing the news TV.
+    const [[x, z], face] = TV_SEATS[index % TV_SEATS.length];
+    return { pos: [x, z], face, pose: "watch", route: [[-13.4, CORRIDOR_Z], [-13.4, 8.6], [x, 8.6]] };
   }
-  // COFFEE and any other rest: the colourful lounge sofas at the front, facing the camera.
-  const seats: [V2, number][] = [[[-7.4, 9.5], 0], [[-5.6, 9.5], 0], [[2.9, 9.5], 0], [[4.7, 9.5], 0], [[-9.1, 10.4], Math.PI / 2], [[6.3, 10.4], -Math.PI / 2]];
-  const [[x, z], face] = seats[index % seats.length];
-  return { pos: [x, z], face, pose: "sit", route: [[-13.4, CORRIDOR_Z], [-13.4, 7.4], [x, 7.4]] };
+  // Kitchen: standing around the high tables with a coffee, chatting.
+  const [tx, tz] = KITCHEN_TABLES[Math.floor(index / 4) % KITCHEN_TABLES.length];
+  const angle = (index % 4) * (Math.PI / 2) + Math.PI / 4;
+  const pos: V2 = [tx + Math.sin(angle) * 0.95, tz + Math.cos(angle) * 0.95];
+  return { pos, face: Math.atan2(tx - pos[0], tz - pos[1]), pose: "chat", route: [[15.9, CORRIDOR_Z], [15.9, -7.2], [pos[0], -7.6]] };
 }
 
 const hex = (c: string | number) => new THREE.Color(c);
@@ -74,7 +87,7 @@ function makePerson(look: PersonLook): Person {
   const group = new THREE.Group(), rig = new THREE.Group();
   group.add(rig);
   const skin = matte(look.skin, 0.6), hair = matte(look.hair, 0.85), shirt = matte(look.shirt, 0.8), pants = matte(look.pants, 0.85);
-  const shoe = matte("#22252b", 0.5), eye = matte("#16181d", 0.3);
+  const shoe = matte("#22252b", 0.5), dark = matte("#16181d", 0.3), lips = matte("#a2574b", 0.6);
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = rig) => {
     const mesh = new THREE.Mesh(geometry, material); mesh.position.set(x, y, z); mesh.castShadow = true; parent.add(mesh); return mesh;
   };
@@ -91,15 +104,20 @@ function makePerson(look: PersonLook): Person {
   if (look.skirt) add(new THREE.CylinderGeometry(0.19, 0.27, 0.36, 18), shirt, 0, 0.8, 0);
   add(new THREE.CapsuleGeometry(0.17, 0.3, 6, 16), shirt, 0, 1.25, 0).scale.set(feminine ? 1.0 : 1.18, 1, 0.72);
   add(new THREE.CylinderGeometry(0.05, 0.055, 0.1, 10), skin, 0, 1.5, 0);
-  add(new THREE.SphereGeometry(0.13, 24, 18), skin, 0, 1.66, 0).scale.set(0.95, 1.08, 1);
-  for (const side of [-1, 1]) add(new THREE.SphereGeometry(0.018, 8, 6), eye, side * 0.045, 1.68, 0.12);
-  // Hair.
-  const cap = (r: number) => add(new THREE.SphereGeometry(r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 1.9), hair, 0, 1.68, -0.012);
+  // Head on its own pivot (the neck) so it can turn to whoever is talking.
+  const head = new THREE.Group(); head.position.y = 1.52; rig.add(head);
+  add(new THREE.SphereGeometry(0.13, 24, 18), skin, 0, 0.14, 0, head).scale.set(0.95, 1.08, 1);
+  for (const side of [-1, 1]) {
+    add(new THREE.SphereGeometry(0.018, 8, 6), dark, side * 0.045, 0.16, 0.12, head);
+    add(new THREE.BoxGeometry(0.045, 0.01, 0.01), dark, side * 0.045, 0.195, 0.12, head);
+  }
+  add(new THREE.BoxGeometry(0.05, 0.012, 0.01), lips, 0, 0.09, 0.125, head);
+  const cap = (r: number) => add(new THREE.SphereGeometry(r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 1.9), hair, 0, 0.16, -0.012, head);
   if (look.hairStyle === "curly") cap(0.16).scale.set(1, 0.85, 1);
   else cap(look.hairStyle === "buzz" ? 0.134 : 0.14);
-  if (look.hairStyle === "long") add(new THREE.CapsuleGeometry(0.12, 0.2, 4, 12), hair, 0, 1.5, -0.075).scale.set(1.05, 1, 0.45);
-  if (look.hairStyle === "bun") add(new THREE.SphereGeometry(0.065, 12, 10), hair, 0, 1.82, -0.09);
-  if (look.hairStyle === "ponytail") add(new THREE.CapsuleGeometry(0.045, 0.2, 4, 8), hair, 0, 1.57, -0.17).rotation.x = 0.35;
+  if (look.hairStyle === "long") add(new THREE.CapsuleGeometry(0.12, 0.2, 4, 12), hair, 0, -0.02, -0.075, head).scale.set(1.05, 1, 0.45);
+  if (look.hairStyle === "bun") add(new THREE.SphereGeometry(0.065, 12, 10), hair, 0, 0.3, -0.09, head);
+  if (look.hairStyle === "ponytail") add(new THREE.CapsuleGeometry(0.045, 0.2, 4, 8), hair, 0, 0.05, -0.17, head).rotation.x = 0.35;
   for (const side of [-1, 1]) {
     const shoulder = new THREE.Group(); shoulder.position.set(side * (feminine ? 0.22 : 0.25), 1.4, 0); rig.add(shoulder); shoulders.push(shoulder);
     add(new THREE.CapsuleGeometry(0.056, 0.2, 4, 10), shirt, 0, -0.14, 0, shoulder);
@@ -107,12 +125,14 @@ function makePerson(look: PersonLook): Person {
     add(new THREE.CapsuleGeometry(0.047, 0.18, 4, 10), skin, 0, -0.12, 0, elbow);
     add(new THREE.SphereGeometry(0.05, 10, 8), skin, 0, -0.26, 0, elbow);
   }
-  const cue = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 1.4, 8), matte("#c89b62", 0.5));
-  cue.rotation.x = Math.PI / 2.2; cue.position.set(0, -0.26, 0.5); cue.visible = false; elbows[1].add(cue);
+  // Coffee mug in the right hand (shown in the kitchen).
+  const mug = new THREE.Group(); mug.position.set(0, -0.3, 0.04); elbows[1].add(mug);
+  add(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 14), matte("#f4f1ec", 0.4), 0, 0, 0, mug);
+  mug.visible = false;
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.32, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.012; group.add(shadow);
   group.scale.setScalar(S);
-  return { group, rig, hips, knees, shoulders, elbows, cue };
+  return { group, rig, head, hips, knees, shoulders, elbows, mug };
 }
 
 /** Price now and change against the previous close (green rising, red falling). */
@@ -194,14 +214,30 @@ function plaque(title: string, subtitle: string, className = "plaque") {
   return new CSS2DObject(el);
 }
 
-export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
-  agents: OfficeAgent[]; tvHeadline: { title: string; source: string } | null; tvLines: [string, string, string][];
+/** Two short tones, like a computer notification. Browsers allow sound only after a click. */
+function beep(ctx: AudioContext | null) {
+  if (!ctx || ctx.state !== "running") return;
+  [0, 0.18].forEach((at) => {
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = "square"; osc.frequency.value = 1320;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime + at);
+    gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + at + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + 0.12);
+    osc.connect(gain).connect(ctx.destination); osc.start(ctx.currentTime + at); osc.stop(ctx.currentTime + at + 0.14);
+  });
+}
+
+export function Office3D({ agents, boss, tvHeadline, tvLines, selected, onSelect }: {
+  agents: OfficeAgent[]; boss: Money;
+  tvHeadline: { title: string; source: string } | null; tvLines: [string, string, string][];
   selected: string | null; onSelect: (id: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const api = useRef<{ sync: (agents: OfficeAgent[], selected: string | null) => void; tv: (h: typeof tvHeadline, l: typeof tvLines) => void; reset: () => void } | null>(null);
+  const api = useRef<{ sync: (agents: OfficeAgent[], selected: string | null, boss: Money) => void;
+    tv: (h: typeof tvHeadline, l: typeof tvLines) => void; reset: () => void; sound: (on: boolean) => void } | null>(null);
   const select = useRef(onSelect);
   const [failed, setFailed] = useState(false);
+  const [sound, setSound] = useState(() => { try { return localStorage.getItem("atlas-office-sound") !== "off"; } catch { return true; } });
   useEffect(() => { select.current = onSelect; }, [onSelect]);
 
   useEffect(() => {
@@ -221,6 +257,8 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     const labels = new CSS2DRenderer();
     labels.domElement.className = "office3d-labels";
     el.appendChild(labels.domElement);
+    let audio: AudioContext | null = null, soundOn = true;
+    const unlockAudio = () => { try { audio ??= new AudioContext(); void audio.resume(); } catch { audio = null; } };
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1b1e24);
@@ -255,19 +293,21 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     };
     const white = matte("#eceae6", 0.85), wood = matte("#b98a5a", 0.6), darkWood = matte("#6f4b32", 0.6);
     const metal = new THREE.MeshStandardMaterial({ color: 0x2b2e34, roughness: 0.35, metalness: 0.6 });
+    const steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.25, metalness: 0.8 });
     const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.18, roughness: 0.05, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
     const fabric = (c: string) => matte(c, 0.95);
 
-    // Floor: light concrete, grey carpet under the desks, rugs in the lounges.
+    // Floor: light concrete, carpet under the desks, rugs in the lounges, tiles in the kitchen.
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(48, 28), matte("#d9d5ce", 0.8));
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
     const rug = (w: number, d: number, x: number, z: number, c: string) => box(w, 0.02, d, x, 0.011, z, matte(c, 1), false);
     rug(17.5, 9.6, -5.5, 0.9, "#8b9097");
-    rug(15, 5.4, -1, 10.4, "#5f6b7a");
-    rug(9.6, 6.2, 17.6, 10.3, "#7a6f86");
+    rug(16, 5.8, -2, 10.4, "#5f6b7a");
+    rug(15.8, 7.8, 16, -10, "#efe7da");
+    rug(12, 7.6, 16.5, 0.6, "#7a6f86");
 
     // Walls with The Sims cutaway: `outer` walls drop when the camera is outside them and they
-    // face it; interior walls drop whenever they face the camera. `keep` walls never drop.
+    // face it; interior walls drop whenever they face the camera.
     interface Wall { mesh: THREE.Mesh; center: THREE.Vector3; normal: THREE.Vector3; outer: boolean; full: number; items: THREE.Object3D[] }
     const walls: Wall[] = [];
     const wall = (x1: number, z1: number, x2: number, z2: number, h: number, m: THREE.Material, outer: boolean, normal?: V2) => {
@@ -287,26 +327,24 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       frame.position.set(pane.position.x, h, pane.position.z); frame.rotation.y = pane.rotation.y; scene.add(frame);
     };
     const H = 3.4, Hi = 3.0;
-    // Outer shell (normals point outside). Entrance gap at the reception.
     const backWall = wall(-24, -14, 24, -14, H, white, true, [0, -1]);
     wall(-24, -14, -24, 14, H, white, true, [-1, 0]);
     wall(24, -14, 24, 14, H, white, true, [1, 0]);
     wall(-24, 14, -21.5, 14, H, white, true, [0, 1]);
     wall(-17, 14, 24, 14, H, white, true, [0, 1]);
-    // Back rooms: colourful partitions, glass fronts with doors.
     const accents = ["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"];
-    [-16, -8, 0, 7].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i], 0.8), false));
-    for (const r of MEETING_ROOMS) { glassWall(r.x1 + 0.1, -6, r.door - 0.8, -6); glassWall(r.door + 0.8, -6, r.x2 - 0.1, -6); }
-    glassWall(0.1, -6, 2.6, -6); glassWall(4.2, -6, 6.9, -6);
-    glassWall(7.1, -6, 14.7, -6); glassWall(16.3, -6, 23.9, -6);
+    [-16, -8, 0, 8].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i], 0.8), false));
+    for (const r of COUNCILS) { glassWall(r.x1 + 0.1, -6, r.door - 0.8, -6); glassWall(r.door + 0.8, -6, r.x2 - 0.1, -6); }
+    glassWall(0.1, -6, 4.6, -6); glassWall(6.2, -6, 7.9, -6);
+    glassWall(8.1, -6, 15.1, -6); glassWall(16.7, -6, 23.9, -6);
 
-    // Room signs (kept low and short).
-    const sign = (title: string, subtitle: string, x: number, z: number, y = 3.3) => { const p = plaque(title, subtitle); p.position.set(x, y, z); scene.add(p); };
-    MEETING_ROOMS.forEach((r, i) => sign(`Reunião ${i + 1}`, "Risco · Balanço · Estratégia", r.table[0], -13.6, 3.7));
-    sign("Notícias", "IA lendo o mercado", 3.5, -13.6, 3.7);
-    sign("Café e sinuca", "descanso", 15.5, -13.6, 3.7);
+    const sign = (title: string, subtitle: string, x: number, z: number, y = 3.7) => { const p = plaque(title, subtitle); p.position.set(x, y, z); scene.add(p); };
+    COUNCILS.forEach((r, i) => sign(`Conselho ${i + 1}`, "Risco · Balanço · Estratégia", r.table[0], -13.6));
+    sign("Sala do Chefe", "cuida do dinheiro", 4, -13.6);
+    sign("Copa", "café e conversa", 16, -13.6);
     sign("Recepção", "", -19.5, 12.6, 2.6);
-    sign("Sala do Mercado", "ações da equipe ao vivo", 17.6, 6.9, 5.4);
+    sign("Sala de TV", "notícias ao vivo", -2, 13.2, 2.6);
+    sign("Sala do Mercado", "ações da equipe", 16.5, -3.4, 5.1);
 
     const chair = (x: number, z: number, face: number, color = "#2b2e34") => {
       const g = new THREE.Group();
@@ -335,7 +373,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     };
     const pouf = (x: number, z: number, color: string, r = 0.42) => cyl(r, r, 0.45, x, 0.225, z, fabric(color));
 
-    // Desks (one per agent): white top, two monitors (candles + price now).
+    // Desks (one per agent): left monitor = candles, right monitor = price now / beep alert.
     const desks = DESKS.map(([x, z], i) => {
       box(2.4, 0.06, 1.1, x, 0.95, z, white);
       for (const dx of [-1.1, 1.1]) box(0.06, 0.92, 1.0, x + dx, 0.46, z, metal);
@@ -350,36 +388,42 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       box(0.6, 0.02, 0.2, x, 0.99, z + 0.15, metal);
       chair(x, z + 1.05, Math.PI, ["#f07b2b", "#2f6fd6", "#22a06b"][i % 3]);
       if (i === 2 || i === 5) plant(x + 2.2, z - 0.2, 0.8);
-      return { screens, key: "" };
+      return { screens, key: "", alertUntil: 0, agent: null as OfficeAgent | null };
     });
-    const drawDesk = (i: number, agent: OfficeAgent | null) => {
+    const drawDesk = (i: number, agent: OfficeAgent | null, force = false) => {
       const d = desks[i], [left, right] = d.screens;
-      const key = agent ? `${agent.id}:${agent.chart?.last}:${agent.chart?.bars.length}:${agent.debate?.summary}:${agent.holding}` : "free";
-      if (d.key === key) return;
+      const alert = d.alertUntil > performance.now();
+      const key = agent ? `${agent.id}:${agent.chart?.last}:${agent.chart?.bars.length}:${agent.debate?.summary}:${agent.holding}:${alert}` : "free";
+      d.agent = agent;
+      if (d.key === key && !force) return;
       d.key = key;
       drawChart(left.g, 0, 0, 640, 400, agent ? agent.ticker : "Mesa livre", agent?.chart, 0.9);
       left.texture.needsUpdate = true;
       const g = right.g;
-      g.fillStyle = "#06121d"; g.fillRect(0, 0, 640, 400); g.textBaseline = "top"; g.textAlign = "left";
-      if (agent) {
+      g.fillStyle = alert ? "#ffc65c" : "#06121d"; g.fillRect(0, 0, 640, 400); g.textBaseline = "top"; g.textAlign = "left";
+      if (alert) {
+        g.fillStyle = "#1b1206"; g.font = "bold 92px sans-serif"; g.fillText("BIP!", 24, 40);
+        g.font = "bold 44px sans-serif"; g.fillText("Hora de trabalhar", 24, 160);
+        g.font = "32px sans-serif"; g.fillText(agent ? `${agent.name}, volte ao computador` : "", 24, 230);
+      } else if (agent) {
         const { price, change, color } = quoteOf(agent.chart);
         g.fillStyle = "#a9c0d6"; g.font = "26px sans-serif"; g.fillText(`${agent.ticker} agora`, 24, 22);
         g.fillStyle = color; g.font = "bold 84px sans-serif"; g.fillText(price === null ? "—" : brl(price), 24, 58);
         g.font = "bold 40px sans-serif"; g.fillText(change === null ? "" : `${change >= 0 ? "▲ subindo" : "▼ caindo"} ${(Math.abs(change) * 100).toFixed(1)}% hoje`, 24, 156);
         g.fillStyle = "#e8f6ff"; g.font = "bold 30px sans-serif";
-        g.fillText(agent.holding > 0 ? `${agent.holding} ações na carteira` : "Ainda sem ações", 24, 236);
+        g.fillText(agent.holding > 0 ? `${agent.holding} ações na Genial` : "Ainda sem ações", 24, 236);
         if (agent.debate) { g.fillStyle = "#ffc65c"; g.font = "28px sans-serif"; g.fillText(agent.debate.summary.slice(0, 40), 24, 290); }
       }
       right.texture.needsUpdate = true;
     };
 
-    // Meeting rooms: oval table, six chairs, specialists, screen with the chart under discussion.
-    const rooms = MEETING_ROOMS.map((r, roomIndex) => {
+    // Council rooms: oval table, six chairs, specialists, screen with the chart under discussion.
+    const rooms = COUNCILS.map((r, roomIndex) => {
       const [tx, tz] = r.table;
       const table = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.07, 48), wood); table.scale.set(2.0, 1, 0.95); table.position.set(tx, 0.95, tz);
       table.castShadow = true; table.receiveShadow = true; scene.add(table);
       cyl(0.18, 0.3, 0.92, tx, 0.46, tz, metal);
-      for (let s = 0; s < 6; s++) { const { pos, face } = meetingSeat(roomIndex, s); chair(pos[0], pos[1], face, s < 3 ? "#3b3f47" : "#f07b2b"); }
+      for (let s = 0; s < 6; s++) { const { pos, face } = councilSeat(roomIndex, s); chair(pos[0], pos[1], face, s < 3 ? "#3b3f47" : "#f07b2b"); }
       const screen = canvasTexture(900, 380);
       const frame = box(3.9, 1.75, 0.08, tx, 2.25, -13.85, metal);
       const tv = new THREE.Mesh(new THREE.PlaneGeometry(3.75, 1.6), new THREE.MeshBasicMaterial({ map: screen.texture, toneMapped: false }));
@@ -387,7 +431,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       backWall.items.push(frame, tv);
       plant(r.x1 + 0.7, -13.2, 0.7);
       const bubbleEl = document.createElement("div"); bubbleEl.className = "debate-bubble"; bubbleEl.hidden = true;
-      const bubble = new CSS2DObject(bubbleEl); bubble.position.set(tx, 3.2, tz + 1.8); scene.add(bubble);
+      const bubble = new CSS2DObject(bubbleEl); bubble.position.set(tx, 2.2, tz + 2.6); scene.add(bubble);
       return { screen, bubbleEl, key: "" };
     });
     const drawRoom = (i: number, agent: OfficeAgent | null) => {
@@ -404,40 +448,57 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       room.bubbleEl.replaceChildren();
       room.bubbleEl.hidden = !agent?.debate;
       if (!agent?.debate) return;
-      const head = document.createElement("b"); head.textContent = `${agent.name} · ${agent.ticker}`;
+      // One line: who, the three votes as coloured dots, the decision (details on hover).
+      const head = document.createElement("b"); head.textContent = agent.name;
       room.bubbleEl.append(head);
       for (const o of agent.debate.opinions) {
-        const row = document.createElement("span"); row.className = `vote ${o.vote.toLowerCase()}`;
-        row.textContent = `${o.role}: ${VOTE_LABEL[o.vote]}`; row.title = o.text; room.bubbleEl.append(row);
+        const dot = document.createElement("span"); dot.className = `vote-dot ${o.vote.toLowerCase()}`; dot.setAttribute("aria-label", `${o.role}: ${VOTE_LABEL[o.vote]}`);
+        room.bubbleEl.append(dot);
       }
-      const verdict = document.createElement("em"); verdict.textContent = agent.debate.summary; room.bubbleEl.append(verdict);
+      const verdict = document.createElement("em"); verdict.textContent = agent.debate.summary.replace(/^Decisão: /, "").replace(/\.$/, ""); room.bubbleEl.append(verdict);
+      room.bubbleEl.title = agent.debate.opinions.map((o) => `${o.role} (${VOTE_LABEL[o.vote]}): ${o.text}`).join("\n");
     };
 
-    // News room: big TV, sofa, small "IA" hologram.
-    const tvCanvas = document.createElement("canvas"); tvCanvas.width = 1280; tvCanvas.height = 380;
-    const tvTexture = new THREE.CanvasTexture(tvCanvas); tvTexture.colorSpace = THREE.SRGBColorSpace;
-    const newsFrame = box(5.4, 1.75, 0.08, 3.5, 2.2, -13.85, metal);
-    const newsTv = new THREE.Mesh(new THREE.PlaneGeometry(5.25, 1.6), new THREE.MeshBasicMaterial({ map: tvTexture, toneMapped: false }));
-    newsTv.position.set(3.5, 2.2, -13.8); scene.add(newsTv);
-    backWall.items.push(newsFrame, newsTv);
-    sofa(3.2, 3.5, -9.4, Math.PI, "#2f6fd6");
-    const holo = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 1), new THREE.MeshBasicMaterial({ color: 0x4fb6ff, wireframe: true }));
-    holo.position.set(6, 1.35, -12.6); scene.add(holo);
-    cyl(0.3, 0.35, 0.9, 6, 0.45, -12.6, white);
+    // The boss's office: desk facing the room, dashboard of the money on the wall behind.
+    box(2.6, 0.06, 1.2, 4, 0.95, -10.6, darkWood);
+    for (const dx of [-1.2, 1.2]) box(0.06, 0.92, 1.1, 4 + dx, 0.46, -10.6, metal);
+    box(0.9, 0.55, 0.04, 4, 1.35, -10.2, metal);
+    chair(4, -11.6, 0, "#2b2e34");
+    sofa(2.4, 4, -7.4, Math.PI, "#8c8274"); plant(7.2, -13.2, 0.8);
+    const bossScreen = canvasTexture(1000, 560);
+    const bossFrame = box(4.6, 2.6, 0.08, 4, 2.2, -13.85, metal);
+    const bossTv = new THREE.Mesh(new THREE.PlaneGeometry(4.45, 2.45), new THREE.MeshBasicMaterial({ map: bossScreen.texture, toneMapped: false }));
+    bossTv.position.set(4, 2.2, -13.8); scene.add(bossTv);
+    backWall.items.push(bossFrame, bossTv);
+    let bossKey = "";
+    const drawBoss = (list: OfficeAgent[], cash: Money) => {
+      const key = JSON.stringify([cash, list.map((a) => [a.name, a.budget, a.holding, a.pnl])]);
+      if (key === bossKey) return;
+      bossKey = key;
+      const g = bossScreen.g;
+      g.fillStyle = "#06121d"; g.fillRect(0, 0, 1000, 560); g.textBaseline = "top"; g.textAlign = "left";
+      g.fillStyle = "#ffc65c"; g.font = "bold 40px sans-serif"; g.fillText("Painel do Chefe", 30, 22);
+      g.fillStyle = "#e8f6ff"; g.font = "30px sans-serif";
+      g.fillText(cash ? `Na Genial: ${brl(cash.deposited)} depositados · ${brl(cash.free)} livres` : "Dinheiro na Genial: —", 30, 82);
+      g.fillStyle = "#a9c0d6"; g.font = "26px sans-serif"; g.fillText("Repassado para cada IA", 30, 140);
+      list.slice(0, 6).forEach((a, i) => {
+        const y = 186 + i * 58;
+        g.fillStyle = "#e8f6ff"; g.font = "bold 30px sans-serif"; g.fillText(`${a.name} · ${a.ticker}`, 30, y);
+        g.font = "30px sans-serif"; g.fillText(brl(a.budget), 430, y);
+        g.fillStyle = a.holding > 0 ? "#3dffa8" : "#8ea4ba";
+        g.fillText(a.holding > 0 ? `${a.holding} ações · ${signed(a.pnl)}` : "sem ações", 640, y);
+      });
+      bossScreen.texture.needsUpdate = true;
+    };
 
-    // Café and pool: counter with stools, coffee machine, pool table, bean bags.
-    box(5.6, 1.05, 0.8, 10.9, 0.52, -12.9, matte("#f07b2b", 0.7));
-    box(5.8, 0.06, 0.95, 10.9, 1.07, -12.85, darkWood);
-    box(0.6, 0.7, 0.5, 8.6, 1.45, -13.2, metal);
-    for (const x of [8.8, 10.2, 11.6, 13]) cyl(0.24, 0.2, SEAT_Y, x, SEAT_Y / 2, -11.9, fabric("#2b2e34"));
-    box(3.2, 0.2, 1.7, 19, 0.82, -10, darkWood);
-    box(2.9, 0.04, 1.4, 19, 0.93, -10, matte("#0f6b4e", 0.95));
-    for (const [dx, dz] of [[-1.4, -0.7], [1.4, -0.7], [-1.4, 0.7], [1.4, 0.7]]) box(0.16, 0.74, 0.16, 19 + dx, 0.37, -10 + dz, darkWood);
-    [0xffd55c, 0xff5d7d, 0xffffff, 0x4fb6ff].forEach((c, i) => {
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), new THREE.MeshStandardMaterial({ color: c, roughness: 0.2 }));
-      ball.position.set(18.5 + i * 0.3, 1.0, -10.1 + (i % 2) * 0.25); scene.add(ball);
-    });
-    pouf(22.6, -12.8, "#d6336c", 0.5); pouf(22.6, -7.4, "#f2b33d", 0.5); plant(14.3, -13.2, 0.8);
+    // Kitchen: counter with coffee machine, sink and fridge; high tables for a coffee and a chat.
+    box(7.4, 1.0, 0.8, 12.4, 0.5, -13.2, white);
+    box(7.6, 0.06, 0.95, 12.4, 1.03, -13.15, darkWood);
+    box(0.6, 0.7, 0.5, 9.6, 1.4, -13.3, metal); box(0.35, 0.2, 0.05, 9.6, 1.55, -13.03, matte("#ffb24a", 0.4));
+    box(0.7, 0.05, 0.45, 13, 1.07, -13.2, steel);
+    box(1.0, 2.2, 0.8, 17.2, 1.1, -13.2, steel);
+    for (const [x, z] of KITCHEN_TABLES) { cyl(0.55, 0.55, 0.05, x, 1.1, z, wood); cyl(0.05, 0.05, 1.08, x, 0.54, z, metal); cyl(0.3, 0.3, 0.03, x, 0.015, z, metal); }
+    box(2.4, 0.9, 0.7, 22, 0.45, -12.9, matte("#f07b2b", 0.7)); plant(23, -7, 0.8);
 
     // Reception: logo wall, desk with the receptionist, waiting poufs.
     box(7.4, 3, 0.25, -19.5, 1.5, 6.2, matte("#f07b2b", 0.75));
@@ -446,18 +507,30 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     pouf(-21.8, 12.2, "#1fa3b8"); pouf(-20.6, 12.4, "#f2b33d"); pouf(-17.4, 12.2, "#d6336c");
     plant(-23, 7, 0.9); plant(-16, 7, 0.8);
 
-    // Lounge (the "Google" sofas) and the market room.
-    sofa(3.6, -6.5, 9.4, 0, "#f07b2b"); sofa(2.6, -9.2, 11, Math.PI / 2, "#1fa3b8"); sofa(3.6, 3.8, 9.4, 0, "#d6336c");
-    sofa(2.6, 6.4, 11, -Math.PI / 2, "#2f6fd6");
-    cyl(0.85, 0.85, 0.06, -1.3, 0.5, 11, white); cyl(0.12, 0.2, 0.5, -1.3, 0.25, 11, metal);
-    pouf(-2.9, 12.6, "#f2b33d"); pouf(0.4, 12.7, "#22a06b"); pouf(-4.2, 11.5, "#7c4dcc", 0.36);
-    plant(-12.8, 12.6); plant(9.2, 12.6, 0.9); plant(-13, -4.2, 0.8); plant(8.6, -4.2, 0.8);
+    // TV lounge: the news TV between the work area and the sofas, with a screen on both sides.
+    const tvCanvas = document.createElement("canvas"); tvCanvas.width = 1280; tvCanvas.height = 380;
+    const tvTexture = new THREE.CanvasTexture(tvCanvas); tvTexture.colorSpace = THREE.SRGBColorSpace;
+    box(5.8, 0.5, 0.6, -2, 0.25, 7.6, darkWood);
+    box(5.4, 1.75, 0.08, -2, 1.55, 7.6, metal);
+    for (const [z, turn] of [[7.66, 0], [7.54, Math.PI]] as [number, number][]) {
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(5.25, 1.6), new THREE.MeshBasicMaterial({ map: tvTexture, toneMapped: false }));
+      screen.position.set(-2, 1.55, z); screen.rotation.y = turn; scene.add(screen);
+    }
+    sofa(4.6, -5, 10.6, Math.PI, "#f07b2b"); sofa(4.6, 1.2, 10.6, Math.PI, "#d6336c");
+    sofa(2.4, -8.6, 9.4, Math.PI * 0.78, "#1fa3b8"); sofa(2.4, 4.8, 9.4, -Math.PI * 0.78, "#2f6fd6");
+    cyl(0.6, 0.6, 0.06, -2, 0.45, 9.0, white);
+    pouf(-2.9, 12.8, "#f2b33d"); pouf(0.4, 12.8, "#22a06b"); plant(-12.8, 12.6); plant(8.8, 12.6, 0.9);
 
+    // Market room and game corner.
     const wallCanvas = canvasTexture(1800, 1000);
-    box(8.4, 4.8, 0.2, 17.6, 2.7, 7.1, metal);
+    box(8.4, 4.8, 0.2, 16.5, 2.7, -3.6, metal);
     const wallScreen = new THREE.Mesh(new THREE.PlaneGeometry(8.1, 4.5), new THREE.MeshBasicMaterial({ map: wallCanvas.texture, toneMapped: false }));
-    wallScreen.position.set(17.6, 2.7, 7.21); scene.add(wallScreen);
-    sofa(4.2, 17.6, 11.6, Math.PI, "#2f6fd6"); pouf(14.4, 11, "#f07b2b"); pouf(20.8, 11, "#f2b33d");
+    wallScreen.position.set(16.5, 2.7, -3.49); scene.add(wallScreen);
+    sofa(4.2, 16.5, 2.4, Math.PI, "#2f6fd6");
+    box(3.2, 0.2, 1.7, 17.5, 0.82, 10.4, darkWood);
+    box(2.9, 0.04, 1.4, 17.5, 0.93, 10.4, matte("#0f6b4e", 0.95));
+    for (const [dx, dz] of [[-1.4, -0.7], [1.4, -0.7], [-1.4, 0.7], [1.4, 0.7]]) box(0.16, 0.74, 0.16, 17.5 + dx, 0.37, 10.4 + dz, darkWood);
+    pouf(22.4, 12.6, "#d6336c", 0.5); pouf(12.8, 12.4, "#f2b33d", 0.5); plant(-13, -4.2, 0.8); plant(8.6, -4.2, 0.8);
     let wallKey = "";
     const drawWall = (list: OfficeAgent[]) => {
       const key = list.map((a) => `${a.ticker}:${a.chart?.last}:${a.chart?.bars.length}`).join("|");
@@ -468,27 +541,45 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       wallCanvas.texture.needsUpdate = true;
     };
 
-    // Staff: specialists in every meeting room (shirt colour = speciality), receptionist, a walker.
+    // Staff: specialists in every council room, the boss, the receptionist, the supervisor.
     const staff: { person: Person; pose: Pose; phase: number }[] = [];
     const STAFF_LOOKS: PersonLook[] = [
       { presentation: "feminine", skin: "#e2b08c", hair: "#2a1b12", hairStyle: "long", shirt: "", pants: "#2b2f3a" },
       { presentation: "masculine", skin: "#a8724f", hair: "#151010", hairStyle: "short", shirt: "", pants: "#30343c" },
       { presentation: "feminine", skin: "#f0c9a8", hair: "#6b3a1e", hairStyle: "bun", shirt: "", pants: "#2b2f3a" },
     ];
-    MEETING_ROOMS.forEach((_, roomIndex) => SPECIALIST_SHIRTS.forEach((shirt, s) => {
+    COUNCILS.forEach((_, roomIndex) => SPECIALIST_SHIRTS.forEach((shirt, s) => {
       const person = makePerson({ ...STAFF_LOOKS[(s + roomIndex) % 3], shirt });
-      const { pos, face } = meetingSeat(roomIndex, s);
+      const { pos, face } = councilSeat(roomIndex, s);
       person.group.position.set(pos[0], 0, pos[1]); person.group.rotation.y = face; scene.add(person.group);
       staff.push({ person, pose: "talk", phase: roomIndex * 2 + s });
     }));
+    const tagged = (person: Person, title: string, subtitle = "") => {
+      const tag = plaque(title, subtitle, "plaque staff-plate"); tag.position.set(0, 2.05, 0); person.rig.add(tag); return tag;
+    };
+    const bossPerson = makePerson({ presentation: "masculine", skin: "#d9a07a", hair: "#9a9a9a", hairStyle: "short", shirt: "#1f2a44", pants: "#1b1e24" });
+    bossPerson.group.position.set(4, 0, -11.6); scene.add(bossPerson.group);
+    const bossTag = tagged(bossPerson, "Chefe", "cuida do dinheiro");
+    staff.push({ person: bossPerson, pose: "type", phase: 7 });
     const receptionist = makePerson({ presentation: "feminine", skin: "#c68f6a", hair: "#1a120d", hairStyle: "ponytail", shirt: "#ffffff", pants: "#2b2f3a" });
     receptionist.group.position.set(-19.5, 0, 8.3); scene.add(receptionist.group);
-    chair(-19.5, 8.3, 0, "#f07b2b");
+    chair(-19.5, 8.3, 0, "#f07b2b"); tagged(receptionist, "Recepção");
     staff.push({ person: receptionist, pose: "type", phase: 9 });
-    const walker = makePerson({ presentation: "masculine", skin: "#e0b08b", hair: "#3a2a20", hairStyle: "short", shirt: "#9aa3ad", pants: "#2d3142" });
-    scene.add(walker.group);
-    const loop: V2[] = [[-13.5, 6], [6.5, 6], [6.5, -4.4], [-13.5, -4.4]];
-    let walkT = 0;
+    const supervisor = makePerson({ presentation: "feminine", skin: "#8d5a3b", hair: "#120c08", hairStyle: "bun", shirt: "#ffc65c", pants: "#2d3142" });
+    scene.add(supervisor.group);
+    tagged(supervisor, "Supervisora", "acompanha a equipe");
+    const supBubbleEl = document.createElement("div"); supBubbleEl.className = "speech-bubble"; supBubbleEl.hidden = true;
+    const supBubble = new CSS2DObject(supBubbleEl); supBubble.position.set(0, 2.75, 0); supervisor.rig.add(supBubble);
+    // Patrol: past every desk (stopping to check), the council corridor and the lounges.
+    const patrol: { at: V2; face?: number; wait?: number; desk?: number }[] = [
+      { at: [-13.4, -4.2] }, ...DESKS.slice(0, 3).map(([x, z], i) => ({ at: [x, z + 2.3] as V2, face: Math.PI, wait: 3, desk: i })),
+      { at: [6.2, 1.2] }, ...DESKS.slice(3).reverse().map(([x, z], i) => ({ at: [x, z + 2.3] as V2, face: Math.PI, wait: 3, desk: 5 - i })),
+      { at: [-13.4, 6.4] }, { at: [-13.4, -4.6] }, { at: [8.6, -4.6] }, { at: [8.6, -4.2], wait: 2 },
+    ];
+    let patrolIndex = 0, patrolWait = 0, supTalkUntil = 0;
+    const supPath: V2[] = [];
+    supervisor.group.position.set(-13.4, 0, -4.2);
+    const say = (text: string, seconds = 4) => { supBubbleEl.textContent = text; supBubbleEl.hidden = false; supTalkUntil = performance.now() + seconds * 1000; };
 
     // Agents.
     const people = new Map<string, Walker>();
@@ -507,31 +598,45 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       r.slot = slot;
     };
 
-    const sync = (list: OfficeAgent[], sel: string | null) => {
+    const callToWork = (r: Walker, agent: OfficeAgent, desk: number) => {
+      // The computer beeps and flashes, a bubble over the agent, and the supervisor calls them.
+      desks[desk].alertUntil = performance.now() + 5000;
+      drawDesk(desk, agent, true);
+      window.setTimeout(() => drawDesk(desk, desks[desk].agent, true), 5200);
+      r.bubbleEl.textContent = agent.zone === "MEETING" ? "bip! reunião do conselho" : "bip! hora de trabalhar";
+      r.bubbleEl.hidden = false;
+      window.setTimeout(() => { r.bubbleEl.hidden = true; }, 5000);
+      say(`${agent.name}, sua vez: ${agent.zone === "MEETING" ? "conselho" : "computador"}!`);
+      if (soundOn) beep(audio);
+    };
+
+    const sync = (list: OfficeAgent[], sel: string | null, cash: Money) => {
       const counters: Partial<Record<OfficeZone, number>> = {};
       const inRoom: (OfficeAgent | null)[] = [null, null, null];
       for (const id of [...deskOf.keys()]) if (!list.some((a) => a.id === id)) deskOf.delete(id);
       list.forEach((agent, i) => {
         if (!deskOf.has(agent.id)) { const used = new Set(deskOf.values()); deskOf.set(agent.id, DESKS.findIndex((_, d) => !used.has(d))); }
         const desk = Math.max(0, deskOf.get(agent.id)!);
-        const look = lookFor(agent.name, agent.id);
         let r = people.get(agent.id);
         const first = !r;
         if (!r) {
-          const made = makePerson(look);
+          const made = makePerson(lookFor(agent.name, agent.id));
           const labelEl = document.createElement("div");
           labelEl.addEventListener("pointerdown", (e) => { e.stopPropagation(); select.current(agent.id); });
           const label = new CSS2DObject(labelEl); label.position.set(0, 2.05, 0); made.rig.add(label);
+          const bubbleEl = document.createElement("div"); bubbleEl.className = "speech-bubble beep"; bubbleEl.hidden = true;
+          const bubble = new CSS2DObject(bubbleEl); bubble.position.set(0, 3.0, 0); made.rig.add(bubble);
           made.group.traverse((o) => { o.userData.agentId = agent.id; });
           scene.add(made.group); pickables.push(made.group);
-          r = { ...made, label, labelEl, path: [], slot: null, key: "", phase: i * 1.7 };
+          r = { ...made, label, labelEl, bubble, bubbleEl, path: [], slot: null, key: "", phase: i * 1.7, zone: null };
           people.set(agent.id, r);
         }
         const zone: OfficeZone = agent.zone === "OUT" ? "COFFEE" : agent.zone;
         const index = counters[zone] ?? 0; counters[zone] = index + 1;
         if (zone === "MEETING" && !inRoom[index % 3]) inRoom[index % 3] = agent;
+        if (!first && r.zone && REST_ZONES.includes(r.zone) && !REST_ZONES.includes(zone)) callToWork(r, agent, desk);
+        r.zone = zone;
         setTarget(r, slotFor(zone, index, desk), `${zone}:${index}:${desk}`, first);
-        // Neighbours alternate label heights so names never cover each other.
         r.label.position.y = 2.05 + (zone === "DESK" ? 0 : (index % 2) * 0.62);
         // Label: name and stock, the company, whether it bought, and how the stock is doing today.
         const { change } = quoteOf(agent.chart);
@@ -540,7 +645,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
         const name = document.createElement("b"); name.textContent = `${agent.name} · ${agent.ticker}`;
         const company = document.createElement("i"); company.textContent = companyProfile(agent.ticker).name;
         const line = document.createElement("span");
-        line.textContent = agent.holding > 0 ? `${agent.holding} ${agent.holding === 1 ? "ação" : "ações"} · ${money(agent.pnl)}` : "ainda não comprou";
+        line.textContent = agent.holding > 0 ? `${agent.holding} ${agent.holding === 1 ? "ação" : "ações"} · ${signed(agent.pnl)}` : "ainda não comprou";
         const trend = document.createElement("small");
         trend.className = change === null || Math.abs(change) < 0.0005 ? "" : change > 0 ? "up" : "down";
         trend.textContent = change === null ? "" : `${change >= 0 ? "▲ subindo" : "▼ caindo"} ${(Math.abs(change) * 100).toFixed(1)}% hoje`;
@@ -552,6 +657,9 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       DESKS.forEach((_, d) => { if (!used.has(d)) drawDesk(d, null); });
       inRoom.forEach((agent, i) => drawRoom(i, agent));
       drawWall(list);
+      drawBoss(list, cash);
+      const bossNote = bossTag.element.querySelector("span");
+      if (bossNote) bossNote.textContent = cash ? `guarda ${brl(cash.free)} na Genial` : "cuida do dinheiro";
       for (const [id, r] of people) if (!list.some((a) => a.id === id)) {
         scene.remove(r.group); people.delete(id);
         pickables.splice(pickables.indexOf(r.group), 1);
@@ -560,10 +668,10 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
 
     const updateTv = (h: typeof tvHeadline, l: typeof tvLines) => { drawTv(tvCanvas, { headline: h, lines: l }); tvTexture.needsUpdate = true; };
 
-    // Picking.
+    // Picking (the first click also unlocks the beep sound).
     const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
     let down: [number, number] | null = null;
-    const onDown = (e: PointerEvent) => { down = [e.clientX, e.clientY]; };
+    const onDown = (e: PointerEvent) => { down = [e.clientX, e.clientY]; unlockAudio(); };
     const onUp = (e: PointerEvent) => {
       if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
       const rect = labels.domElement.getBoundingClientRect();
@@ -579,7 +687,6 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       const w = el.clientWidth, h = el.clientHeight;
       renderer.setSize(w, h); labels.setSize(w, h);
       camera.aspect = w / h;
-      // Narrow screens need more distance to fit the whole floor.
       camera.position.copy(home).multiplyScalar(w / h < 1.2 ? 1.45 : 1);
       camera.updateProjectionMatrix();
     };
@@ -587,9 +694,10 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
 
     const pose = (p: Person, kind: Pose | "walk", t: number, phase: number) => {
       const swing = reduced ? 0 : Math.sin(t * 7 + phase);
-      p.cue.visible = kind === "cue";
-      const seated = kind === "sit" || kind === "type" || kind === "talk";
+      p.mug.visible = kind === "chat";
+      const seated = kind === "sit" || kind === "type" || kind === "talk" || kind === "watch";
       p.rig.position.y = seated ? SEAT_Y / S - 0.92 : kind === "walk" ? Math.abs(swing) * 0.02 : 0;
+      p.head.rotation.set(0, 0, 0);
       if (kind === "walk") {
         p.hips[0].rotation.x = swing * 0.5; p.hips[1].rotation.x = -swing * 0.5;
         p.knees[0].rotation.x = Math.max(0, -swing) * 0.6; p.knees[1].rotation.x = Math.max(0, swing) * 0.6;
@@ -602,14 +710,23 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       if (kind === "type") {
         p.shoulders.forEach((s, i) => (s.rotation.x = -0.75 + (reduced ? 0 : Math.sin(t * 16 + phase + i) * 0.05)));
         p.elbows.forEach((e) => (e.rotation.x = -0.85));
-      } else if (kind === "cue") {
-        p.shoulders[0].rotation.x = -1.0; p.shoulders[1].rotation.x = -0.9 + (reduced ? 0 : Math.max(0, Math.sin(t * 1.4 + phase)) * 0.3);
-        p.elbows.forEach((e) => (e.rotation.x = -0.5));
+        p.head.rotation.x = 0.12;
       } else if (kind === "talk") {
-        // Seated debate: one hand gestures now and then.
+        // Council debate: one hand gestures now and then, the head turns between colleagues.
         const gesture = reduced ? 0 : Math.max(0, Math.sin(t * 0.8 + phase));
         p.shoulders[0].rotation.x = -0.45; p.shoulders[1].rotation.x = -0.45 - gesture * 0.7;
         p.elbows[0].rotation.x = -0.9; p.elbows[1].rotation.x = -0.9 - gesture * 0.4;
+        p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.5 + phase) * 0.45;
+      } else if (kind === "chat") {
+        // Kitchen: holding a coffee, a sip now and then, turning to chat.
+        const sip = reduced ? 0 : Math.max(0, Math.sin(t * 0.6 + phase) - 0.7) * 3;
+        p.shoulders[0].rotation.x = 0.05; p.elbows[0].rotation.x = -0.15;
+        p.shoulders[1].rotation.x = -0.35 - sip * 0.5; p.elbows[1].rotation.x = -1.4 - sip * 0.5;
+        p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.4 + phase) * 0.6;
+        p.head.rotation.x = -sip * 0.2;
+      } else if (kind === "watch") {
+        p.shoulders.forEach((s) => (s.rotation.x = -0.35)); p.elbows.forEach((e) => (e.rotation.x = -0.9));
+        p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.2 + phase) * 0.15;
       } else {
         p.shoulders.forEach((s) => (s.rotation.x = seated ? -0.4 : (reduced ? 0 : Math.sin(t * 1.2 + phase) * 0.04)));
         p.elbows.forEach((e) => (e.rotation.x = seated ? -0.7 : -0.1));
@@ -623,13 +740,19 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       for (const w of walls) {
         toCam.subVectors(camera.position, w.center).setY(0);
         const facing = Math.abs(w.normal.dot(view)) > 0.35;
-        const outside = toCam.dot(w.normal) > 0;
-        const cut = facing && (!w.outer || outside);
+        const cut = facing && (!w.outer || toCam.dot(w.normal) > 0);
         const target = cut ? 0.35 / w.full : 1;
         const s = w.mesh.scale.y + (target - w.mesh.scale.y) * Math.min(1, dt * 8);
         w.mesh.scale.y = s;
         for (const item of w.items) item.visible = s > 0.6;
       }
+    };
+
+    const walk = (p: Person, path: V2[], speed: number, dt: number) => {
+      const [tx, tz] = path[0];
+      const pos = p.group.position, dx = tx - pos.x, dz = tz - pos.z, dist = Math.hypot(dx, dz), step = speed * dt;
+      if (dist <= step) { pos.x = tx; pos.z = tz; path.shift(); }
+      else { pos.x += (dx / dist) * step; pos.z += (dz / dist) * step; p.group.rotation.y = Math.atan2(dx, dz); }
     };
 
     const clock = new THREE.Clock();
@@ -639,25 +762,27 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
       for (const r of people.values()) {
         if (r.path.length) {
-          const [tx, tz] = r.path[0];
-          const p = r.group.position, dx = tx - p.x, dz = tz - p.z, dist = Math.hypot(dx, dz);
-          const step = (reduced ? 40 : 2.4) * dt;
-          if (dist <= step) { p.x = tx; p.z = tz; r.path.shift(); }
-          else { p.x += (dx / dist) * step; p.z += (dz / dist) * step; r.group.rotation.y = Math.atan2(dx, dz); }
+          walk(r, r.path, reduced ? 40 : 2.4, dt);
           pose(r, "walk", t, r.phase);
           if (!r.path.length && r.slot) r.group.rotation.y = r.slot.face;
         } else if (r.slot) pose(r, r.slot.pose, t, r.phase);
       }
       for (const s of staff) pose(s.person, s.pose, t, s.phase);
-      if (!reduced) {
-        walkT += dt * 0.03;
-        const seg = Math.floor(walkT * loop.length) % loop.length, f = (walkT * loop.length) % 1;
-        const [ax, az] = loop[seg], [bx, bz] = loop[(seg + 1) % loop.length];
-        walker.group.position.set(ax + (bx - ax) * f, 0, az + (bz - az) * f);
-        walker.group.rotation.y = Math.atan2(bx - ax, bz - az);
-        pose(walker, "walk", t, 5);
-        holo.rotation.y = t * 0.5; holo.rotation.x = Math.sin(t * 0.3) * 0.3;
+      // Supervisor patrol: walk, stop at each desk and say what that agent is doing.
+      if (supPath.length) { walk(supervisor, supPath, reduced ? 40 : 1.6, dt); pose(supervisor, "walk", t, 3); }
+      else if (patrolWait > 0) { patrolWait -= dt; pose(supervisor, "stand", t, 3); }
+      else {
+        const stop = patrol[patrolIndex % patrol.length];
+        if (stop.face !== undefined) supervisor.group.rotation.y = stop.face;
+        if (stop.desk !== undefined && performance.now() > supTalkUntil) {
+          const agent = desks[stop.desk].agent, here = agent && people.get(agent.id);
+          if (agent && here) say(here.zone === "DESK" ? `Tudo certo, ${agent.name}?` : here.zone === "MEETING" ? `${agent.name} está no conselho.`
+            : `${agent.name} descansando: sem trabalho agora.`, 2.6);
+        }
+        patrolIndex++;
+        supPath.push(patrol[patrolIndex % patrol.length].at); patrolWait = stop.wait ?? 0;
       }
+      if (!supBubbleEl.hidden && performance.now() > supTalkUntil) supBubbleEl.hidden = true;
       controls.update();
       cutaway(dt);
       renderer.render(scene, camera);
@@ -666,7 +791,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     tick();
 
     api.current = {
-      sync, tv: updateTv,
+      sync, tv: updateTv, sound: (on) => { soundOn = on; if (on) unlockAudio(); },
       reset: () => { camera.position.copy(home).multiplyScalar(el.clientWidth / el.clientHeight < 1.2 ? 1.45 : 1); controls.target.set(0, 0, 0.3); },
     };
     return () => {
@@ -675,6 +800,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       labels.domElement.removeEventListener("pointerdown", onDown);
       labels.domElement.removeEventListener("pointerup", onUp);
       controls.dispose(); pmrem.dispose();
+      void audio?.close();
       scene.traverse((o) => {
         if (o instanceof THREE.Mesh) {
           o.geometry.dispose();
@@ -687,8 +813,12 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
     };
   }, []);
 
-  useEffect(() => { api.current?.sync(agents, selected); }, [agents, selected]);
+  useEffect(() => { api.current?.sync(agents, selected, boss); }, [agents, selected, boss]);
   useEffect(() => { api.current?.tv(tvHeadline, tvLines); }, [tvHeadline, tvLines]);
+  useEffect(() => {
+    api.current?.sound(sound);
+    try { localStorage.setItem("atlas-office-sound", sound ? "on" : "off"); } catch { /* storage blocked */ }
+  }, [sound]);
 
   if (failed) return <OfficeMap agents={agents} tvHeadline={tvHeadline} selected={selected} onSelect={onSelect} />;
   return (
@@ -696,6 +826,7 @@ export function Office3D({ agents, tvHeadline, tvLines, selected, onSelect }: {
       <div ref={host} className="office3d-canvas" role="img"
         aria-label={`Escritório 3D com ${agents.length} IAs. ${agents.map((a) => `${a.name}: ${a.activity}`).join(" ")}`} />
       <div className="office3d-hint">Arraste para girar · role para aproximar · toque numa pessoa
+        <button type="button" className="secondary" onClick={() => setSound((on) => !on)} aria-pressed={sound}>{sound ? "Som do bip: ligado" : "Som do bip: desligado"}</button>
         <button type="button" className="secondary" onClick={() => api.current?.reset()}>Centralizar</button>
       </div>
     </div>

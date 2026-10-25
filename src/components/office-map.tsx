@@ -86,7 +86,7 @@ export function OfficeLegend() {
     <ul className="office-legend" aria-label="O que cada lugar significa">
       <li><Monitor size={15} /> <b>Computador</b> = trabalhando</li>
       <li><Users size={15} /> <b>Reunião</b> = debatendo com os especialistas</li>
-      <li><Coffee size={15} /> <b>Sofás</b> e <CircleDot size={15} /> <b>Sinuca</b> = descansando</li>
+      <li><Coffee size={15} /> <b>Copa</b> e <CircleDot size={15} /> <b>Sala de TV</b> = descansando</li>
       <li>Camisa <span className="dot risk" /> Risco · <span className="dot balance" /> Balanço · <span className="dot strategy" /> Estratégia</li>
       <li><span className="dot gain" /> verde sobe · <span className="dot loss" /> vermelho cai</li>
     </ul>

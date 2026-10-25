@@ -143,7 +143,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
           alive={alive.length} total={alive.length} />
         <OfficeLegend />
         <div className="office-stage three">
-          <Office3D agents={office} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected}
+          <Office3D agents={office} boss={floor.live ? { deposited: floor.live.genial.deposited, free: floor.live.genial.free } : null} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected}
             tvLines={[["Resultado real", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
               ["CDI no período", cdiPct === null || !account ? "—" : `+${formatBrl(((Number(account.initial_cash) * cdiPct) / 100).toFixed(2))}`, "#ffc65c"],
               ["Bolsa", session.status === "OPEN" ? "Aberta" : "Fechada", session.status === "OPEN" ? "#3dffa8" : "#a9c0d6"]]} />
