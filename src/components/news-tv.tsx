@@ -35,7 +35,7 @@ export function useNews(connected: boolean, ticker?: string) {
         .catch((e) => !signal.aborted && setError(e instanceof Error ? e.message : "TV fora do ar."));
     };
     read();
-    const timer = setInterval(read, 120000);
+    const timer = setInterval(read, 30000);
     return () => { clearInterval(timer); controller.abort(); };
   }, [connected, ticker]);
   return { items, error };

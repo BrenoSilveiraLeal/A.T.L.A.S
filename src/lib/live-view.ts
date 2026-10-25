@@ -8,8 +8,8 @@ const amount = z.string().regex(/^\d{1,9}(?:\.\d{1,2})?$/);
 export const liveSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("settings"), enabled: z.boolean(), maxOrder: amount, dailyOrders: z.number().int().min(1).max(100), confirm: z.string().max(40).optional() }),
   z.object({ action: z.literal("budget"), agentId: z.uuid(), amount }),
-  // A real deposit at Genial: all to one agent, or split equally over the working agents.
-  z.object({ action: z.literal("deposit"), amount, agentId: z.uuid().optional() }),
+  // A real deposit at Genial, into the boss's pot.
+  z.object({ action: z.literal("deposit"), amount }),
 ]);
 
 const MESSAGES: Record<string, string> = {
@@ -79,18 +79,9 @@ export async function loadLive(db: SupabaseClient, ownerId: string) {
 
 export async function mutateLive(db: SupabaseClient, ownerId: string, raw: unknown) {
   const input = liveSchema.parse(raw);
-  if (input.action === "deposit") {
-    const total = Number(input.amount);
-    let allocation: { agentId: string; amount: number }[];
-    if (input.agentId) allocation = [{ agentId: input.agentId, amount: total }];
-    else {
-      const team = await db.from("agents").select("id").eq("owner_id", ownerId).eq("enabled", true).eq("autopilot", true).not("status", "in", "(DEAD,FIRED)");
-      if (team.error) throw new Error("LIVE_DATABASE_UNAVAILABLE");
-      const share = team.data.length ? Math.floor((total / team.data.length) * 100) / 100 : 0;
-      allocation = share > 0 ? team.data.map((a) => ({ agentId: a.id, amount: share })) : [];
-    }
-    return checked(await db.rpc("register_deposit", { p_owner_id: ownerId, p_amount: input.amount, p_allocation: allocation }));
-  }
+  // Deposits go to the boss's pot; the boss releases money to an agent when it is time to buy.
+  if (input.action === "deposit")
+    return checked(await db.rpc("register_deposit", { p_owner_id: ownerId, p_amount: input.amount, p_allocation: [] }));
   if (input.action === "budget")
     return checked(await db.rpc("set_agent_real_budget", { p_owner_id: ownerId, p_agent_id: input.agentId, p_amount: input.amount }));
   return checked(await db.rpc("set_live_settings", { p_owner_id: ownerId, p_enabled: input.enabled, p_max_order: input.maxOrder,

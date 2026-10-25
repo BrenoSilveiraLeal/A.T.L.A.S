@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatBrl } from "@/core/format";
 import { CandleChart, type ChartMarker } from "./candle-chart";
 import { readingOf, useCdi, useNews, type NewsItem } from "./news-tv";
@@ -12,7 +12,8 @@ const Office3D = dynamic(() => import("./office-3d").then((m) => m.Office3D), {
 });
 import { placeAgent } from "@/core/office";
 import { committee } from "@/core/committee";
-import { STEADY_RULE } from "@/core/autopilot";
+import { bossGrant } from "@/core/boss";
+import { RANGE_DEFAULTS } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
 import { b3Session } from "@/core/b3-calendar";
@@ -47,6 +48,53 @@ function useFloor(connected: boolean, revision: number): Floor {
   return connected ? state : { paper: null, decisions: [], health: null, live: null, error: "", loading: false };
 }
 
+type Range = { low: number; high: number; buyBelow: number; sellAbove: number; months: number; lowDate: string | null; highDate: string | null };
+
+/**
+ * Price now for every stock: from the Genial MetaTrader every 5 s on the owner's computer, from
+ * brapi (refreshed every 30 min on its free plan) elsewhere. Also keeps today's high and low as
+ * seen, to draw today's candle.
+ */
+function usePrices(connected: boolean) {
+  type Session = Record<string, { day: string; high: number; low: number }>;
+  const [state, setState] = useState<{ source: string; prices: Record<string, { price: number; at: string }>; session: Session }>({ source: "", prices: {}, session: {} });
+  const session = useRef<Session>({});
+  useEffect(() => {
+    if (!connected) return;
+    let stop = false, timer = 0;
+    const read = () => fetch("/api/atlas/prices").then((r) => (r.ok ? r.json() : null)).then((b) => {
+      if (stop || !b) return;
+      const day = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+      for (const [ticker, q] of Object.entries(b.prices as Record<string, { price: number }>)) {
+        const seen = session.current[ticker];
+        session.current[ticker] = seen && seen.day === day ? { day, high: Math.max(seen.high, q.price), low: Math.min(seen.low, q.price) } : { day, high: q.price, low: q.price };
+      }
+      setState({ source: b.source, prices: b.prices, session: { ...session.current } });
+      timer = window.setTimeout(read, (b.source === "MT5" ? 5 : 60) * 1000);
+    }).catch(() => { if (!stop) timer = window.setTimeout(read, 60000); });
+    read();
+    return () => { stop = true; window.clearTimeout(timer); };
+  }, [connected]);
+  return state;
+}
+
+/** 6-month low/high and the buy/sell triggers for each stock (owner's rule). */
+function useRanges(tickers: string[]) {
+  const [ranges, setRanges] = useState<Record<string, Range | null>>({});
+  const key = [...tickers].sort().join(",");
+  const tick = Math.floor(useNow(600000) / 600000);
+  useEffect(() => {
+    if (!key) return;
+    const controller = new AbortController();
+    Promise.all(key.split(",").map((ticker) => fetch(`/api/atlas/levels?ticker=${encodeURIComponent(ticker)}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null)).then((b: { range?: Range | null } | null) => [ticker, b?.range ?? null] as const)
+      .catch(() => [ticker, null] as const)))
+      .then((rows) => { if (!controller.signal.aborted) setRanges(Object.fromEntries(rows)); });
+    return () => controller.abort();
+  }, [key, tick]);
+  return ranges;
+}
+
 /** Daily candles of every team stock for the desk monitors (cached server-side; refreshed every 10 min). */
 function useCharts(tickers: string[]) {
   const [charts, setCharts] = useState<Record<string, AgentChart["bars"]>>({});
@@ -79,6 +127,8 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const paper = floor.paper ?? {};
   const assets = paper.assets ?? [];
   const charts = useCharts(assets.map((a) => text(a.ticker)));
+  const ranges = useRanges(assets.map((a) => text(a.ticker)));
+  const live = usePrices(connected);
   const account = paper.paper_accounts?.[0];
   const cdiPct = useCdi(account?.created_at ? String(account.created_at).slice(0, 10) : null);
   if (!connected) return null;
@@ -108,10 +158,20 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const place = placeAgent({ id: text(agent.id), status: text(agent.status), enabled: agent.enabled !== false, autopilot: agent.autopilot !== false,
       holding, openOrder: order ? { side: order.side === "SELL" ? "SELL" : "BUY" } : null,
       lastAnalysisAt: agent.last_analysis_at ? String(agent.last_analysis_at) : null, freshNews: fresh, marketOpen: session.status === "OPEN", now });
-    const budget = floor.live?.agents.find((a) => a.id === agent.id)?.realBudget ?? 0;
     const vital = vitalOf(agent.id);
-    const bars = charts[ticker] ?? [];
-    const last = vital?.mark_price != null ? Number(vital.mark_price) : null;
+    const daily = charts[ticker] ?? [];
+    const quote = live.prices[ticker];
+    const last = quote ? quote.price : vital?.mark_price != null ? Number(vital.mark_price) : null;
+    // Today's candle, moving with the price: from the last close to the price now.
+    const seen = live.session[ticker];
+    const prevClose = daily.at(-1)?.close;
+    const bars = quote && prevClose && session.status === "OPEN"
+      ? [...daily.slice(1), { open: prevClose, high: Math.max(prevClose, seen?.high ?? quote.price), low: Math.min(prevClose, seen?.low ?? quote.price), close: quote.price }]
+      : daily;
+    // The boss's pot is shared: how much this agent could receive now for its next purchase.
+    const budget = floor.live ? bossGrant({ pool: floor.live.genial.free, deposited: floor.live.genial.deposited, committed: cost,
+      price: last ?? daily.at(-1)?.close ?? 0, fee: 0.99 }) : 0;
+    const range = ranges[ticker] ?? null;
     const h = floor.health?.[ticker];
     const health = h ? { level: h.level, reason: h.reasons[0] ?? "" } : null;
     const decision = floor.decisions.find((d) => d.agent_id === agent.id);
@@ -119,7 +179,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const debate = committee({
       context: ctx ? { action: ctx.action, summary: ctx.reasons?.[0]?.text ?? "" } : null, health,
       holding, averageCost, price: last ?? bars.at(-1)?.close ?? null,
-      budgetRoom: budget - cost + realized, rule: STEADY_RULE,
+      budgetRoom: budget, range, minGainPct: RANGE_DEFAULTS.minGainPct,
     });
     return { id: text(agent.id), name: text(agent.name), ticker, company: text(asset?.company_name ?? ticker), ...place,
       pnl: holding > 0 || realized ? realized + holding * (last ?? bars.at(-1)?.close ?? averageCost ?? 0) - cost : null,
@@ -127,7 +187,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       events: agentEvents(text(agent.id), floor.live, paper.paper_proposals ?? [], String(paper.paper_book_restarts?.[0]?.started_at ?? "")),
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
       headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null,
-      chart: { bars, last }, health, debate };
+      chart: { bars, last }, health, debate, range, priceSource: live.source };
   });
   const items = news.items ?? [];
   const top = items.find((i) => readingOf(i).tags.length) ?? items[0] ?? null;

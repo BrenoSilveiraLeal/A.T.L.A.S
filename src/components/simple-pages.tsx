@@ -48,14 +48,13 @@ type Bridge = { available: boolean; reason?: string; balance?: { balance: string
  */
 export function GenialBalance({ connected, compact = false }: { connected: boolean; compact?: boolean }) {
   const [genial, setGenial] = useState<Genial | null>(null);
-  const [team, setTeam] = useState<{ id: string; name: string; ticker: string }[]>([]);
   const [bridge, setBridge] = useState<Bridge | null>(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [tick, setTick] = useState(0);
   const load = useCallback((signal?: AbortSignal) => {
     fetch("/api/atlas/live", { signal }).then(async (r) => {
       const body = await r.json(); if (!r.ok) throw new Error(body.error ?? "Indisponível.");
-      setGenial(body.genial); setTeam(body.agents ?? []); setError("");
+      setGenial(body.genial); setError("");
     }).catch((e) => { if (!signal?.aborted) setError(e instanceof Error ? e.message : "Indisponível."); });
     fetch("/api/atlas/broker-live", { signal }).then((r) => r.json()).then((b: Bridge) => setBridge(b)).catch(() => undefined);
   }, []);
@@ -73,15 +72,13 @@ export function GenialBalance({ connected, compact = false }: { connected: boole
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const amount = Number(String(form.get("amount") ?? "").replace(",", "."));
-    const agentId = String(form.get("agent") ?? "");
     if (!genial || !(amount > 0)) return;
     setBusy(true); setMessage("");
     try {
       const r = await fetch("/api/atlas/live", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "deposit", amount: amount.toFixed(2), ...(agentId ? { agentId } : {}) }) });
+        body: JSON.stringify({ action: "deposit", amount: amount.toFixed(2) }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.error ?? "Recusado.");
-      const who = team.find((a) => a.id === agentId);
-      setMessage(`Anotado: +${brl(amount)} ${who ? `para ${who.name} (${who.ticker})` : "dividido igualmente entre as IAs"}.`); load();
+      setMessage(`Anotado: +${brl(amount)} no caixa do Chefe. Ele libera para a IA que chegar no momento certo de comprar.`); load();
       (event.target as HTMLFormElement).reset();
     } catch (e) { setMessage(e instanceof Error ? e.message : "Falha de conexão."); }
     finally { setBusy(false); }
@@ -105,12 +102,6 @@ export function GenialBalance({ connected, compact = false }: { connected: boole
           <form className="genial-deposit" onSubmit={(e) => void deposit(e)}>
             <label>Depositei mais na Genial (R$)
               <input name="amount" inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" placeholder="200" required />
-            </label>
-            <label>Para quem
-              <select name="agent" defaultValue="">
-                <option value="">Dividir igualmente entre as IAs</option>
-                {team.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.ticker})</option>)}
-              </select>
             </label>
             <button disabled={busy}>{busy ? "Anotando…" : "Adicionar"}</button>
           </form>
@@ -183,7 +174,7 @@ function RealWallet({ connected }: { connected: boolean }) {
     <section className="panel wallet">
       <div className="section-heading"><h2>Ações de cada IA na Genial</h2><span className="muted">dinheiro real · atualiza a cada 20 s</span></div>
       <div className="table-scroll"><table>
-        <thead><tr><th>IA</th><th>Ações</th><th>Preço médio</th><th>Preço agora</th><th>Ganho</th><th>Dinheiro dela</th><th>Ordem em andamento</th></tr></thead>
+        <thead><tr><th>IA</th><th>Ações</th><th>Preço médio</th><th>Preço agora</th><th>Ganho</th><th>Em ações</th><th>Ordem em andamento</th></tr></thead>
         <tbody>{rows.map((r) => {
           const gain = r.quantity && r.price !== null ? r.value - r.cost : null;
           return <tr key={r.id}>
@@ -192,12 +183,12 @@ function RealWallet({ connected }: { connected: boolean }) {
             <td>{r.quantity ? brl(r.cost / r.quantity) : "—"}</td>
             <td>{r.price !== null ? brl(r.price) : "—"}</td>
             <td className={gain === null || Math.abs(gain) < 0.005 ? "" : gain > 0 ? "up" : "down"}>{gain === null ? "—" : `${gain >= 0 ? "+" : "−"}${brl(Math.abs(gain))}`}</td>
-            <td>{brl(r.free)}</td>
+            <td>{r.quantity ? brl(r.cost) : "—"}</td>
             <td>{r.order ? `${r.order.side === "BUY" ? "Compra" : "Venda"} de ${r.order.quantity} a ${brl(Number(r.order.limit_price))} (${ORDER_STATUS[String(r.order.status)] ?? r.order.status})` : "—"}</td>
           </tr>;
         })}</tbody>
       </table></div>
-      <p className="muted">Dinheiro dela = o que você depositou para essa IA e ela ainda não usou. Ela compra quando o preço de 1 ação couber; vende só com +60% sobre o preço médio, nunca no prejuízo.</p>
+      <p className="muted">O dinheiro fica no caixa do Chefe. Ele libera para uma IA quando o preço da ação dela chega perto da menor dos últimos 6 meses; ela vende perto da maior, nunca abaixo do que pagou, e o dinheiro volta para o caixa.</p>
     </section>
   );
 }

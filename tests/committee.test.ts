@@ -1,25 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { committee } from "@/core/committee";
-import { STEADY_RULE } from "@/core/autopilot";
 
-const base = { context: { action: "ALLOW" as const, summary: "" }, health: { level: "SAUDAVEL" as const, reason: "Lucro de R$ 110 bi." },
-  holding: 0, averageCost: null, price: 30, budgetRoom: 99, rule: STEADY_RULE };
+const range = { low: 40, high: 60, buyBelow: 40.8, sellAbove: 58.8 };
+const base = { context: { action: "ALLOW" as const, summary: "" }, health: { level: "SAUDAVEL" as const, reason: "Lucro de R$ 45 bi." },
+  holding: 0, averageCost: null, price: 50, budgetRoom: 50, range, minGainPct: 3 };
 
-describe("meeting-room committee", () => {
-  it("buys when the share of the contribution is ready and nobody objects", () => {
+describe("council: buy near the 6-month low, sell near the 6-month high", () => {
+  it("waits while the stock is expensive, even with money", () => {
     const c = committee(base);
-    expect(c.verdict).toBe("COMPRAR");
-    expect(c.opinions.map((o) => o.vote)).toEqual(["A_FAVOR", "A_FAVOR", "A_FAVOR"]);
+    expect(c.verdict).toBe("ESPERAR");
+    expect(c.opinions[2].text).toContain("40,80");
   });
 
-  it("vetoes the purchase for bad news or a company in danger", () => {
-    expect(committee({ ...base, health: { level: "PERIGO", reason: "Patrimônio negativo." } }).summary).toContain("Balanço contra");
-    expect(committee({ ...base, context: { action: "BLOCK_BUY", summary: "fato relevante" } }).verdict).toBe("ESPERAR");
+  it("buys near the low when the boss has money and nobody objects", () => {
+    expect(committee({ ...base, price: 40.5 }).verdict).toBe("COMPRAR");
+    expect(committee({ ...base, price: 40.5, budgetRoom: 0 }).verdict).toBe("ESPERAR");
+    expect(committee({ ...base, price: 40.5, health: { level: "PERIGO", reason: "Patrimônio negativo." } }).summary).toContain("Balanço contra");
+    expect(committee({ ...base, price: 40.5, context: { action: "BLOCK_BUY", summary: "fato relevante" } }).verdict).toBe("ESPERAR");
   });
 
-  it("holds while saving up and prepares the sale above the target", () => {
-    expect(committee({ ...base, holding: 3, averageCost: 30, budgetRoom: 33 }).verdict).toBe("SEGURAR");
-    const high = committee({ ...base, holding: 3, averageCost: 30, price: 49, budgetRoom: 0 });
-    expect([high.verdict, high.opinions[2].text]).toEqual(["VENDER_NA_ALTA", expect.stringContaining("+60%")]);
+  it("sells near the high only above what it paid", () => {
+    expect(committee({ ...base, holding: 1, averageCost: 41, price: 59 }).verdict).toBe("VENDER_NA_ALTA");
+    expect(committee({ ...base, holding: 1, averageCost: 58.5, price: 59 }).verdict).toBe("SEGURAR");
   });
 });

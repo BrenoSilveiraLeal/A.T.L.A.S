@@ -20,7 +20,7 @@ async function refreshNews(db: SupabaseClient, ownerId: string) {
   const year = new Date().getUTCFullYear();
   const [assets, agency, extra, market, ipe] = await Promise.all([
     db.from("assets").select("ticker,company_name").eq("owner_id", ownerId).eq("active", true),
-    softCached("agenciabrasil", "HEADLINES", 3600000, 12 * 3600000, 200, "https://agenciabrasil.ebc.com.br/", () => fetchAgenciaBrasilHeadlines()),
+    softCached("agenciabrasil", "HEADLINES", 600000, 12 * 3600000, 200, "https://agenciabrasil.ebc.com.br/", () => fetchAgenciaBrasilHeadlines()),
     loadExtraHeadlines(),
     cachedOnly<Headline[]>("gdelt", "MARKET", 12 * 3600000),
     cachedOnly<{ facts: CvmMaterialFact[]; companies: CvmCompany[] }>("cvm-ipe", `IPE2:${year}`, 8 * 86400000),
@@ -54,9 +54,9 @@ async function refreshNews(db: SupabaseClient, ownerId: string) {
   await db.from("news_items").delete().eq("owner_id", ownerId).lt("published_at", new Date(Date.now() - KEEP_DAYS * 86400000).toISOString());
 }
 
-/** Latest stored headlines; refreshes at most every 5 minutes (any viewer or tick). */
+/** Latest stored headlines; refreshes at most every 2 minutes (any viewer or tick). */
 export async function loadNews(db: SupabaseClient, ownerId: string, ticker?: string) {
-  const allowed = await db.rpc("consume_rate_limit", { p_key: `news:refresh:${ownerId}`, p_limit: 1, p_window_seconds: 300 });
+  const allowed = await db.rpc("consume_rate_limit", { p_key: `news:refresh:${ownerId}`, p_limit: 1, p_window_seconds: 120 });
   if (!allowed.error && allowed.data) await refreshNews(db, ownerId).catch(() => undefined);
   const rows = await db.from("news_items").select("url,title,source,published_at,tags,ai,ai_model").eq("owner_id", ownerId)
     .order("published_at", { ascending: false }).limit(300);

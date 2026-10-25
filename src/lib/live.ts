@@ -1,9 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { GatewayError, HttpExecutionGateway } from "@/providers/execution-gateway";
+import { bossGrant } from "@/core/boss";
 import { b3Session } from "@/core/b3-calendar";
 import { mergeFractionalPositions } from "@/core/lots";
-import { custodyShortfalls, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
+import { custodyShortfalls, LIVE, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
 import { adminClient } from "./supabase";
 import { required } from "./env";
 import { sendAlert } from "./alerts";
@@ -90,7 +91,7 @@ export async function runLive(now = new Date()) {
   // 3) Custody check, only when nothing is in flight.
   const [positions, stillActive] = await Promise.all([
     db.from("live_positions").select("agent_id,ticker,quantity,cost,realized_pnl").eq("owner_id", owner),
-    db.from("live_orders").select("id,agent_id,side,status,quantity,filled_quantity").eq("owner_id", owner).in("status", ACTIVE),
+    db.from("live_orders").select("id,agent_id,side,status,quantity,filled_quantity,reserved_cash").eq("owner_id", owner).in("status", ACTIVE),
   ]);
   const held: Record<string, number> = {};
   for (const p of positions.data ?? []) held[p.ticker] = (held[p.ticker] ?? 0) + Number(p.quantity);
@@ -139,7 +140,12 @@ export async function runLive(now = new Date()) {
       if (intent === "BUY") {
         const problem = quoteProblem(quote, String(latest.limit_price), now.getTime());
         if (problem) { events.push(`${agent.name}: ${problem}`); continue; }
-        const room = Number(agent.real_budget) + mine.reduce((s, p) => s + Number(p.realized_pnl) - Number(p.cost), 0);
+        // The boss's pot: deposits + realized results − cost of all shares held − buy orders in flight.
+        const plan = await db.from("capital_plans").select("ceiling").eq("owner_id", owner).maybeSingle();
+        const deposited = Number(plan.data?.ceiling ?? 0);
+        const pool = deposited + (positions.data ?? []).reduce((s, p) => s + Number(p.realized_pnl) - Number(p.cost), 0)
+          - (stillActive.data ?? []).filter((o) => o.side === "BUY").reduce((s, o) => s + Number(o.reserved_cash), 0);
+        const room = bossGrant({ pool, deposited, committed: mine.reduce((s, p) => s + Number(p.cost), 0), price: Number(quote.ask), fee: LIVE.fractionFee });
         const size = sizeLiveBuy(room, Number(settings.data!.max_order), quote.ask!);
         if ("skip" in size) { events.push(`${agent.name}: ${size.skip}`); continue; }
         await send(agent.id, "BUY", size.quantity, size.limit, `${agent.name}: ${proposal?.reasoning_summary ?? "sinal de compra do piloto"}`, latest.id);

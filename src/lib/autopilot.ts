@@ -12,6 +12,7 @@ import { loadBars } from "./market-bars";
 import { adjustStoredBars } from "@/core/strategies";
 import { saoPauloClock } from "@/core/b3-calendar";
 import { minimumSellPrice } from "@/core/live";
+import { bossGrant } from "@/core/boss";
 import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
@@ -103,7 +104,9 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     ticker: input.ticker, quote, history: input.history, now: new Date().toISOString(),
     position: { quantity: held.quantity, averageCost: String(held.average_cost) },
     hasOpenOrder: open.some((o) => o.agent_id === agentId),
-    budgetRoom: new D(String(rows(agent).budget)).minus(basis).minus(pendingBuy).toFixed(2),
+    // The boss decides how much of the pot this agent may use now (owner's rule, 25/10/2026).
+    budgetRoom: bossGrant({ pool: availableCash.toNumber(), deposited: Number(account.initial_cash), committed: basis.plus(pendingBuy).toNumber(),
+      price: Number(quote.price), fee: Number(account.fee_fraction ?? 0.99) }).toFixed(2),
     maxOrderValue: account.max_order_value, availableCash: availableCash.toFixed(2),
     lotSize: rows(asset).lot_size, tickSize: String(rows(asset).tick_size),
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,
@@ -112,7 +115,9 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     minOrderValue: MIN_ORDER_VALUE,
     minSellPrice: held.quantity > 0 ? minimumSellPrice(basis.toNumber(), held.quantity) : undefined,
     context,
-    steady,
+    // Owner's rule: buy near the 6-month low, sell near the 6-month high (never at a loss).
+    range: trailing ? { closes: trailing.closes } : undefined,
+    steady: trailing ? undefined : steady,
   });
   if (decision.action === "HOLD") return { filled, corporateActions: events.applied, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };
   const proposal = z.object({ id: z.uuid() }).loose().parse(rows(await db.rpc("paper_create_proposal", {
@@ -120,7 +125,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     p_limit_price: decision.limitPrice, p_reference_price: decision.referencePrice,
     p_quote_source: quote.source, p_quote_timestamp: quote.dataTimestamp,
     p_history_source: input.history.source, p_history_retrieved_at: input.history.retrievedAt,
-    p_strategy_version: ruleVersion({ steady }), p_reasoning: decision.reason, p_indicators: decision.indicators,
+    p_strategy_version: ruleVersion(trailing ? { range: { closes: trailing.closes } } : { steady }), p_reasoning: decision.reason, p_indicators: decision.indicators,
     p_idempotency_key: input.jobId,
   })));
   const review = z.object({ status: z.string() }).loose().parse(rows(
@@ -159,6 +164,7 @@ async function trailingInputs(db: SupabaseClient, owner: string, agentId: string
     priorHigh: Math.max(...adjusted.slice(-20).map((b) => b.close)).toFixed(2),
     everHeld: (fills ?? []).length > 0,
     trailPct: 15,
+    closes: adjusted.map((b) => b.close),
   };
 }
 

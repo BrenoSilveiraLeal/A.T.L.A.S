@@ -22,6 +22,10 @@ const variants: [string, SimRule][] = [
     ["Compra todo mês, pula se estiver 10% acima do preço médio; vende com +60%", -10, 60],
     ["Compra todo mês, pula se estiver 10% acima do preço médio; nunca vende", -10, 100000]] as [string, number, number][])
     .map(([name, averageDownPct, targetPct]): [string, SimRule] => [name, { kind: "accumulate", options: { ...ACCUMULATE_DEFAULTS, dipPct: 0, averageDownPct, targetPct, confirm: false } }]),
+  ...[63, 126, 252].flatMap((window) => [2, 5, 10].map((nearPct): [string, SimRule] => [
+    `Faixa: compra perto da mínima de ${Math.round(window / 21)} meses, vende perto da máxima (±${nearPct}%)`,
+    { kind: "range", options: { window, nearPct, minGainPct: 3 } },
+  ])),
   ...[10, 15, 20, 25].flatMap((dip) => [20, 40, 60].map((target): [string, SimRule] => [
     `Acumular: compra ${dip}% abaixo da máxima, vende com +${target}%`,
     { kind: "accumulate", options: { ...ACCUMULATE_DEFAULTS, dipPct: dip, targetPct: target } as AccumulateOptions },
@@ -62,7 +66,7 @@ it.skipIf(!CSV)("owner's monthly plan: accumulate on dips vs monthly buying vs C
     data.set(t, { bars, dividends });
   }
   const allDates = [...new Set([...data.values()].flatMap((d) => d.bars.map((b) => b.date)))].sort();
-  const cdi = await cdiDaily(allDates[0], allDates.at(-1)!);
+  const cdi = await retry(() => cdiDaily(allDates[0], allDates.at(-1)!));
   const out = [`# Plano mensal: acumular na baixa e vender na alta`, "",
     `Gerado em ${new Date().toISOString().slice(0, 10)} por \`tests/research-accumulate.test.ts\` (execução manual). Histórico oficial da B3 (AXIA3 inclui ELET3 e EMBJ3 inclui EMBR3, trocas de código 1 para 1).`, "",
     `**Plano:** R$ 200 por mês divididos entre ${TEAM.join(", ")} (R$ ${MONTHLY.toFixed(2)} por ação), depositados no 1º pregão do mês. Compra só com R$ 100 ou mais por ordem. Corretagem Genial R$ 0,99 por ordem, taxas B3, spread e slippage. Dividendos e JCP (líquido) incluídos. Dinheiro parado não rende. Sem imposto.`, ""];

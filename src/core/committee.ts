@@ -2,12 +2,13 @@ import type { ContextAction } from "./context";
 import type { HealthLevel } from "./company-health";
 
 /**
- * The meeting-room committee (owner, 24/10/2026: "debater com outras IAs sobre o risco, sobre
- * valores, sobre se vale a pena"). Three specialists give their vote on the agent's stock with
- * the same rules the autopilot applies, so what the room shows is what will actually happen:
+ * The council (owner, 24–25/10/2026: "debater com outras IAs sobre o risco, sobre valores, sobre
+ * se vale a pena"). Three specialists vote on the agent's stock with the same rules the autopilot
+ * applies, so what the room shows is what will actually happen:
  * - Risco: news, material facts, dollar and oil (the context brake);
  * - Balanço: the company's health from its annual statements;
- * - Estratégia: the owner's rule (buy with each share of the contribution, sell only high).
+ * - Estratégia: the owner's rule — buy only near the 6-month low, sell only near the 6-month
+ *   high and never below what was paid; the boss must have money free for one share.
  * A "contra" from Risco or Balanço vetoes a purchase.
  */
 export type Vote = "A_FAVOR" | "CONTRA" | "NEUTRO";
@@ -17,9 +18,12 @@ export interface CommitteeInput {
   context: { action: ContextAction; summary: string } | null;
   health: { level: HealthLevel; reason: string } | null;
   holding: number; averageCost: number | null; price: number | null;
-  /** Budget the agent may still spend (its accumulated share of the contributions). */
+  /** What the boss can release to this agent now (0 when the pot has nothing free). */
   budgetRoom: number;
-  rule: { targetPct: number; turnPct: number; minOrder: number };
+  /** 6-month levels: lowest/highest close and the buy/sell triggers (null while unknown). */
+  range: { low: number; high: number; buyBelow: number; sellAbove: number } | null;
+  /** Minimum gain over the average price before selling (fees included), in %. */
+  minGainPct: number;
 }
 
 const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -33,19 +37,24 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
     : i.health.level === "PERIGO" ? { role: "Balanço", vote: "CONTRA", text: `Empresa em perigo: ${i.health.reason}` }
       : i.health.level === "ATENCAO" ? { role: "Balanço", vote: "NEUTRO", text: `Atenção: ${i.health.reason}` }
         : { role: "Balanço", vote: "A_FAVOR", text: `Empresa saudável. ${i.health.reason}` };
-  const { targetPct, minOrder } = i.rule;
-  const gain = i.holding > 0 && i.averageCost && i.price ? i.price / i.averageCost - 1 : null;
-  const canBuy = i.budgetRoom >= minOrder;
-  const strategy: Opinion = gain !== null && gain >= targetPct / 100
-    ? { role: "Estratégia", vote: "NEUTRO", text: `Lucro de ${(gain * 100).toFixed(1)}%: passou da meta de +${targetPct}%. Vende tudo quando o preço virar ${i.rule.turnPct}% do topo.` }
-    : canBuy ? { role: "Estratégia", vote: "A_FAVOR", text: `Tem ${brl(i.budgetRoom)} de dinheiro: hora de acumular mais ações${gain !== null ? ` (preço médio ${brl(i.averageCost!)})` : ""}.` }
-      : { role: "Estratégia", vote: "NEUTRO", text: `Esperando dinheiro: tem ${brl(Math.max(0, i.budgetRoom))}, compra a partir de ${brl(minOrder)}.${gain !== null ? ` Segura as ações (${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(1)}%) até +${targetPct}%.` : ""}` };
+  const r = i.range, price = i.price;
+  const floor = i.holding > 0 && i.averageCost ? i.averageCost * (1 + i.minGainPct / 100) : null;
+  const sellNow = r !== null && price !== null && i.holding > 0 && price >= r.sellAbove && floor !== null && price >= floor;
+  const nearLow = r !== null && price !== null && price <= r.buyBelow;
+  const canBuy = i.budgetRoom > 0;
+  const strategy: Opinion = !r || price === null ? { role: "Estratégia", vote: "NEUTRO", text: "Ainda calculando a mínima e a máxima de 6 meses." }
+    : sellNow ? { role: "Estratégia", vote: "NEUTRO", text: `${brl(price)} chegou perto da máxima de 6 meses (${brl(r.high)}) e acima do que pagou: hora de vender na alta.` }
+      : nearLow ? (canBuy
+        ? { role: "Estratégia", vote: "A_FAVOR", text: `${brl(price)} está perto da mínima de 6 meses (${brl(r.low)}): hora de comprar na baixa.` }
+        : { role: "Estratégia", vote: "NEUTRO", text: `Preço bom (perto da mínima de ${brl(r.low)}), mas o Chefe não tem dinheiro livre para 1 ação.` })
+        : i.holding > 0
+          ? { role: "Estratégia", vote: "NEUTRO", text: `Segurando: vende perto da máxima, a partir de ${brl(Math.max(r.sellAbove, floor ?? 0))}.` }
+          : { role: "Estratégia", vote: "NEUTRO", text: `Caro agora (${brl(price)}). Compra só se cair até ${brl(r.buyBelow)}, perto da mínima de 6 meses (${brl(r.low)}).` };
   const vetoes = [risk, balance].filter((o) => o.vote === "CONTRA");
-  const verdict: Verdict = gain !== null && gain >= targetPct / 100 ? "VENDER_NA_ALTA"
-    : canBuy && !vetoes.length ? "COMPRAR" : i.holding > 0 ? "SEGURAR" : "ESPERAR";
-  const summary = verdict === "COMPRAR" ? `Decisão: comprar${risk.vote === "NEUTRO" && i.context?.action === "REDUCE" ? " pela metade" : ""}.`
-    : verdict === "VENDER_NA_ALTA" ? "Decisão: preparar a venda na alta."
-      : canBuy && vetoes.length ? `Decisão: não comprar agora (${vetoes.map((v) => v.role).join(" e ")} contra).`
-        : verdict === "SEGURAR" ? "Decisão: segurar as ações e esperar mais dinheiro." : "Decisão: esperar um depósito para ela.";
+  const verdict: Verdict = sellNow ? "VENDER_NA_ALTA" : nearLow && canBuy && !vetoes.length ? "COMPRAR" : i.holding > 0 ? "SEGURAR" : "ESPERAR";
+  const summary = verdict === "COMPRAR" ? "Decisão: comprar na baixa."
+    : verdict === "VENDER_NA_ALTA" ? "Decisão: vender na alta."
+      : nearLow && canBuy && vetoes.length ? `Decisão: não comprar agora (${vetoes.map((v) => v.role).join(" e ")} contra).`
+        : verdict === "SEGURAR" ? "Decisão: segurar até chegar perto da máxima." : "Decisão: esperar o preço cair.";
   return { opinions: [risk, balance, strategy], verdict, summary };
 }

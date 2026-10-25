@@ -121,8 +121,8 @@ export const SOURCE_NAMES: Record<string, string> = { "agenciabrasil.ebc.com.br"
 /** Banco Central and market RSS headlines (hourly cache); null only if every source failed. */
 export async function loadExtraHeadlines() {
   const lists = await Promise.all([
-    softCached("bcb", "NEWS", 3600000, 3 * 86400000, 50, "https://www.bcb.gov.br/", () => fetchBcbNews()),
-    ...enabledMarketFeeds().map((feed) => softCached(feed.provider, "FEED", 1800000, 12 * 3600000, 100, feed.origin, () => fetchRss(feed))),
+    softCached("bcb", "NEWS", 900000, 3 * 86400000, 120, "https://www.bcb.gov.br/", () => fetchBcbNews()),
+    ...enabledMarketFeeds().map((feed) => softCached(feed.provider, "FEED", 120000, 12 * 3600000, 800, feed.origin, () => fetchRss(feed))),
   ]);
   const available = lists.filter((l): l is Headline[] => l !== null);
   return available.length ? available.flat() : null;

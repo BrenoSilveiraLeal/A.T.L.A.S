@@ -480,7 +480,7 @@ export function Office3D({ agents, boss, tvHeadline, tvLines, selected, onSelect
       g.fillStyle = "#ffc65c"; g.font = "bold 40px sans-serif"; g.fillText("Painel do Chefe", 30, 22);
       g.fillStyle = "#e8f6ff"; g.font = "30px sans-serif";
       g.fillText(cash ? `Na Genial: ${brl(cash.deposited)} depositados · ${brl(cash.free)} livres` : "Dinheiro na Genial: —", 30, 82);
-      g.fillStyle = "#a9c0d6"; g.font = "26px sans-serif"; g.fillText("Repassado para cada IA", 30, 140);
+      g.fillStyle = "#a9c0d6"; g.font = "26px sans-serif"; g.fillText("Pode liberar agora para cada IA", 30, 140);
       list.slice(0, 6).forEach((a, i) => {
         const y = 186 + i * 58;
         g.fillStyle = "#e8f6ff"; g.font = "bold 30px sans-serif"; g.fillText(`${a.name} · ${a.ticker}`, 30, y);

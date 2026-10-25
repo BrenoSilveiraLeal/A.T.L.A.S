@@ -2,6 +2,7 @@ import Decimal from "decimal.js";
 import type { MarketHistory, MarketQuote } from "@/providers/types";
 import { sma } from "./research";
 import type { ContextAction } from "./context";
+import { rangeDecision, RANGE_DEFAULTS, RANGE_VERSION, type RangeOptions } from "./range";
 
 /**
  * Deterministic paper-only rule. It is not a validated strategy and never feeds live
@@ -66,10 +67,12 @@ export interface AutopilotInput {
   trailing?: { peak: string | null; priorHigh: string; everHeld: boolean; trailPct: number };
   /** Owner's monthly rule: highest close since the position was opened and the sell trigger. */
   steady?: { peak: string | null; targetPct: number; turnPct: number };
+  /** Owner's rule since 25/10/2026: buy near the 6-month low, sell near the 6-month high. */
+  range?: { closes: readonly number[]; options?: RangeOptions };
 }
 
-export function ruleVersion(input: Pick<AutopilotInput, "steady" | "trailing">) {
-  return input.steady ? STEADY_VERSION : input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION;
+export function ruleVersion(input: Pick<AutopilotInput, "steady" | "trailing" | "range">) {
+  return input.range ? RANGE_VERSION : input.steady ? STEADY_VERSION : input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION;
 }
 
 export type AutopilotDecision =
@@ -133,6 +136,14 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
       reason: `${input.ticker}: compra automática (${why}${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${ruleVersion(input)}.` };
   };
+  if (input.range) {
+    const decision = rangeDecision({ closes: input.range.closes, price: price.toNumber(), quantity: input.position.quantity,
+      cost: new D(input.position.averageCost).times(input.position.quantity).toNumber(), cash: Number(input.budgetRoom),
+      minOrder: input.minOrderValue ?? 0 }, input.range.options ?? RANGE_DEFAULTS);
+    if (decision.action === "SELL" && input.position.quantity > 0) return sellAll(decision.reason);
+    if (decision.action === "BUY") return buy(decision.reason);
+    return hold(decision.reason);
+  }
   if (input.steady) {
     const st = input.steady;
     if (input.position.quantity > 0) {

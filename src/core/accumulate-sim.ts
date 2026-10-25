@@ -1,4 +1,5 @@
 import { accumulateDecision, type AccumulateOptions } from "./accumulate";
+import { rangeDecision, type RangeOptions } from "./range";
 
 /**
  * Research simulation of a monthly-contribution plan on one stock: money arrives on the first
@@ -8,7 +9,7 @@ import { accumulateDecision, type AccumulateOptions } from "./accumulate";
  */
 export interface SimBar { date: string; open: number; close: number }
 export interface SimDividend { date: string; perShare: number }
-export type SimRule = { kind: "accumulate"; options: AccumulateOptions } | { kind: "monthly" };
+export type SimRule = { kind: "accumulate"; options: AccumulateOptions } | { kind: "monthly" } | { kind: "range"; options: RangeOptions };
 export interface SimResult { deposited: number; finalValue: number; gain: number; trades: number; worstDrop: number }
 
 const FIXED = 0.99, VARIABLE = (3 + 10 + 5) / 10000;
@@ -37,7 +38,11 @@ export function simulatePlan(bars: readonly SimBar[], dividends: readonly SimDiv
     const value = cash + shares * bar.close;
     bestValue = Math.max(bestValue, value - deposited);
     if (shares > 0 && cost > 0) worstDrop = Math.max(worstDrop, 1 - (shares * bar.close) / cost);
-    if (rule.kind === "monthly") {
+    if (rule.kind === "range") {
+      const decision = rangeDecision({ closes: [...closes, bar.close], price: bar.close, quantity: shares, cost, cash, minOrder }, rule.options);
+      if (decision.action === "BUY") pending = { side: "BUY", spend: cash };
+      if (decision.action === "SELL") pending = { side: "SELL" };
+    } else if (rule.kind === "monthly") {
       if (cash >= minOrder) pending = { side: "BUY", spend: cash };
     } else if (closes.length >= 60) {
       const decision = accumulateDecision({ closes, price: bar.close, quantity: shares, cost, cash, peakSinceEntry: peak }, rule.options);

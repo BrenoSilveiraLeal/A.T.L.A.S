@@ -3,7 +3,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, CircleDot, Coffee, Monitor, Users } from "lucide-react";
 import { formatBrl } from "@/core/format";
-import { minimumSellPrice } from "@/core/live";
 import type { OfficeZone } from "@/core/office";
 import type { NewsDirection } from "@/core/news";
 import type { Opinion, Verdict } from "@/core/committee";
@@ -20,6 +19,10 @@ export interface OfficeAgent {
   /** Company health from the annual statements and the meeting-room committee. */
   health?: { level: HealthLevel; reason: string } | null;
   debate?: { opinions: Opinion[]; verdict: Verdict; summary: string };
+  /** 6-month low/high and the buy/sell triggers (owner's rule). */
+  range?: { low: number; high: number; buyBelow: number; sellAbove: number; months: number; lowDate: string | null; highDate: string | null } | null;
+  /** Where the price now comes from: "MT5" (live, every 5 s) or "brapi" (every 30 min). */
+  priceSource?: string;
   /** Real history (trades at Genial, orders, decisions), newest first. */
   events?: { at: string; text: string; tone: "up" | "down" | "info" }[];
 }
@@ -210,16 +213,16 @@ export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null;
       </div>}
       <dl className="agent-facts">
         <div><dt>Ações na Genial</dt><dd>{agent.holding}{agent.holding > 0 ? ` a ${formatBrl((agent.paidTotal / agent.holding).toFixed(2))}` : ""}</dd></div>
-        <div><dt>Dinheiro dela</dt><dd>{formatBrl(Math.max(0, agent.budget - agent.paidTotal).toFixed(2))}</dd></div>
+        <div><dt>O Chefe pode liberar</dt><dd>{agent.budget > 0 ? formatBrl(agent.budget.toFixed(2)) : "nada agora"}</dd></div>
         <div><dt>Próxima análise</dt><dd>{inMinutes(agent.nextAnalysisAt, now)}</dd></div>
       </dl>
+      {agent.range && <AgentRange agent={agent} range={agent.range} />}
       <div className="agent-history">
         <span className="score-kicker">Histórico real</span>
         {agent.events?.length ? <ul>{agent.events.map((e, i) => <li key={`${e.at}-${i}`} className={e.tone}>
           <small>{new Date(e.at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })}</small> {e.text}</li>)}</ul>
           : <p className="muted">Ainda nada: nenhuma compra, venda ou ordem com dinheiro real.</p>}
       </div>
-      {agent.zone !== "OUT" && <AgentPlan agent={agent} />}
       {agent.headline && <p className="agent-news">
         <span className={`status-label ${agent.headline.direction === "UP" ? "success" : agent.headline.direction === "DOWN" ? "danger" : "warning"}`}>
           {agent.headline.direction === "UP" ? "Notícia boa" : agent.headline.direction === "DOWN" ? "Notícia ruim" : "Notícia para ficar de olho"}</span>{" "}
@@ -233,27 +236,21 @@ export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null;
   );
 }
 
-/**
- * The agent's plan in plain words (owner's rule): every share of the monthly contribution buys
- * more shares once it reaches R$ 40; it sells everything only after +60% over the average price
- * and an 8% turn from the top, never below what it paid.
- */
-function AgentPlan({ agent }: { agent: OfficeAgent }) {
-  if (agent.holding > 0) {
-    const average = agent.paidTotal / agent.holding;
-    const target = Math.max(average * 1.6, Number(minimumSellPrice(agent.paidTotal, agent.holding)));
-    return (
-      <div className="agent-plan">
-        <span className="score-kicker">Plano: comprar na baixa, vender na alta</span>
-        <p>Tem <b>{agent.holding} ações</b> a <b>{formatBrl(average.toFixed(2))}</b> em média. Cada depósito novo compra mais: quando a ação cai, o mesmo dinheiro compra mais ações e o preço médio baixa.
-          <b> Vende tudo</b> só depois de passar de <b>{formatBrl(target.toFixed(2))}</b> (+60%) e começar a cair 8% do topo. Nunca vende no prejuízo.</p>
-      </div>
-    );
-  }
+/** The owner's rule with this stock's numbers: 6-month low and high, price now, buy and sell triggers. */
+function AgentRange({ agent, range }: { agent: OfficeAgent; range: NonNullable<OfficeAgent["range"]> }) {
+  const price = agent.chart?.last ?? agent.chart?.bars.at(-1)?.close ?? null;
+  const day = (d: string | null) => (d ? new Date(`${d}T12:00:00Z`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "");
+  const where = price === null ? "" : price <= range.buyBelow ? "Perto da mínima: hora de comprar." : price >= range.sellAbove ? "Perto da máxima: hora de vender (se estiver acima do que pagou)."
+    : `Falta cair ${formatBrl((price - range.buyBelow).toFixed(2))} para comprar.`;
   return (
-    <div className="agent-plan">
-      <span className="score-kicker">Plano: comprar na baixa, vender na alta</span>
-      <p>{agent.budget > 0 ? <>Tem <b>{formatBrl(agent.budget.toFixed(2))}</b> de dinheiro real e <b>compra assim que o preço de 1 ação couber</b> (corretagem R$ 0,99).</> : <>Ainda sem dinheiro: recebe quando você registrar um depósito para ela.</>} Depois segura nas quedas e vende só com +60% de lucro. Notícia ruim adia a compra.</p>
+    <div className="agent-range">
+      <span className="score-kicker">Últimos {range.months} meses · {agent.ticker}</span>
+      <dl>
+        <div><dt>Menor preço</dt><dd className="up">{formatBrl(range.low.toFixed(2))}<small>{day(range.lowDate)}</small></dd></div>
+        <div><dt>Agora</dt><dd>{price === null ? "—" : formatBrl(price.toFixed(2))}<small>{agent.priceSource === "MT5" ? "ao vivo" : "atualiza a cada 30 min"}</small></dd></div>
+        <div><dt>Maior preço</dt><dd className="down">{formatBrl(range.high.toFixed(2))}<small>{day(range.highDate)}</small></dd></div>
+      </dl>
+      <p>Compra até <b>{formatBrl(range.buyBelow.toFixed(2))}</b> · vende a partir de <b>{formatBrl(range.sellAbove.toFixed(2))}</b>, nunca abaixo do que pagou. {where}</p>
     </div>
   );
 }

@@ -281,7 +281,7 @@ describe("paper trading isolated virtual book", () => {
     expect((await db.query(kinds, [owner])).rows).toEqual(before);
   });
 
-  it("registers a real deposit for one agent: real budget, decision budget, ceiling and cash move together", async () => {
+  it("registers real deposits into the boss's pot: ceiling, agents' access and cash move together", async () => {
     await openPaper();
     const a = await agent("Ana");
     const before = await db.query<{ cash: string }>("select cash from public.paper_accounts where owner_id=$1", [owner]);
@@ -292,9 +292,10 @@ describe("paper trading isolated virtual book", () => {
     expect(Number(ceiling.rows[0].ceiling)).toBe(50);
     const after = await db.query<{ cash: string }>("select cash from public.paper_accounts where owner_id=$1", [owner]);
     expect(Number(after.rows[0].cash) - Number(before.rows[0].cash)).toBe(50);
-    await db.exec("savepoint over");
-    await expect(db.query("select public.register_deposit($1, 10, $2::jsonb)", [owner, JSON.stringify([{ agentId: a.id, amount: 20 }])])).rejects.toThrow(/ATLAS_DEPOSIT_OVERALLOCATED/);
-    await db.exec("rollback to savepoint over");
+    // The boss's pot: a second deposit raises every working agent's access to the whole pot.
+    await db.query("select public.register_deposit($1, 10, '[]'::jsonb)", [owner]);
+    const pot = await db.query<{ real_budget: string }>("select real_budget from public.agents where id=$1", [a.id]);
+    expect(Number(pot.rows[0].real_budget)).toBe(60);
   });
 
   it("rejects insufficient virtual cash, short selling and direct anonymous access", async () => {
@@ -439,8 +440,8 @@ describe("real money at Genial (live orders)", () => {
     await rejected("select public.live_create_order($1,$2,'BUY',137,10,'x',null)", [owner, a.id], "ATLAS_LIVE_SPLIT_REQUIRED");
   });
 
-  it("respects the order size, the agent budget and the kill switch", async () => {
-    const a = await ready(1000, 200);
+  it("respects the order size, the free money in the boss's pot and the kill switch", async () => {
+    const a = await ready(150, 150); // pot of R$ 150: a R$ 200 order does not fit
     await rejected("select public.live_create_order($1,$2,'BUY',20,20,'x',null)", [owner, a.id], "ATLAS_LIVE_MAX_ORDER");
     await rejected("select public.live_create_order($1,$2,'BUY',10,20,'x',null)", [owner, a.id], "ATLAS_LIVE_AGENT_BUDGET");
     await rejected("select public.live_create_order($1,$2,'SELL',1,20,'x',null)", [owner, a.id], "ATLAS_LIVE_NOT_ENOUGH_SHARES");
