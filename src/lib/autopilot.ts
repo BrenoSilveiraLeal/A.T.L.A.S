@@ -12,7 +12,7 @@ import { loadBars } from "./market-bars";
 import { adjustStoredBars } from "@/core/strategies";
 import { saoPauloClock } from "@/core/b3-calendar";
 import { minimumSellPrice } from "@/core/live";
-import { bossGrant } from "@/core/boss";
+import { bossRelease } from "./boss";
 import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
@@ -90,7 +90,6 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   const open = rows(openOrders);
   const D = Decimal;
   const basis = new D(held.quantity).times(String(held.average_cost));
-  const pendingBuy = open.filter((o) => o.agent_id === agentId).reduce((sum, o) => sum.plus(String(o.reserved_cash)), new D(0));
   const reserved = new D(account.reserved_cash);
   const exposure = rows(allPositions).reduce((sum, p) => sum.plus(new D(p.quantity).times(String(p.average_cost))), new D(0));
   const availableCash = D.min(new D(account.cash).minus(reserved), new D(account.max_exposure).minus(exposure).minus(reserved));
@@ -104,9 +103,8 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     ticker: input.ticker, quote, history: input.history, now: new Date().toISOString(),
     position: { quantity: held.quantity, averageCost: String(held.average_cost) },
     hasOpenOrder: open.some((o) => o.agent_id === agentId),
-    // The boss decides how much of the pot this agent may use now (owner's rule, 25/10/2026).
-    budgetRoom: bossGrant({ pool: availableCash.toNumber(), deposited: Number(account.initial_cash), committed: basis.plus(pendingBuy).toNumber(),
-      price: Number(quote.price), fee: Number(account.fee_fraction ?? 0.99) }).toFixed(2),
+    // The boss compares the six stocks and releases the pot to the best ones in their buy zone.
+    budgetRoom: (await bossRelease(db, owner, agentId, availableCash.toNumber(), { [input.ticker]: Number(quote.price) })).toFixed(2),
     maxOrderValue: account.max_order_value, availableCash: availableCash.toFixed(2),
     lotSize: rows(asset).lot_size, tickSize: String(rows(asset).tick_size),
     feeBps: account.fee_bps, slippageBps: account.slippage_bps, stopLossPct: STOP_LOSS_PCT,

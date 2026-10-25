@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bossGrant } from "@/core/boss";
+import { allocatePot, bossGrant, opportunityScore } from "@/core/boss";
 import { rangeDecision } from "@/core/range";
 
 const flat = (n: number, v: number) => Array.from({ length: n }, () => v);
@@ -28,5 +28,22 @@ describe("buy near the 6-month low, sell near the 6-month high", () => {
     expect(rangeDecision({ closes, price: 40.5, quantity: 0, cost: 0, cash: 50, minOrder: 40 }).action).toBe("BUY");
     expect(rangeDecision({ closes, price: 59, quantity: 1, cost: 41.5, cash: 0, minOrder: 40 }).action).toBe("SELL");
     expect(rangeDecision({ closes, price: 59, quantity: 1, cost: 58.5, cash: 0, minOrder: 40 }).action).toBe("HOLD");
+  });
+});
+
+describe("the boss compares the six stocks", () => {
+  it("gives the whole pot to the only stock in its buy zone, so it can buy several shares", () => {
+    expect(allocatePot(100, [{ agentId: "joao", price: 30, fee: 0.99, score: 0.02 }])).toEqual({ joao: 100 });
+  });
+  it("serves the best opportunity first, at least one share each, while money lasts", () => {
+    const a = allocatePot(100, [{ agentId: "ana", price: 49, fee: 0.99, score: 0.3 }, { agentId: "joao", price: 62, fee: 0.99, score: 0.01 }]);
+    expect(a.joao).toBeCloseTo(63.61, 2);
+    expect(a.ana).toBe(0); // R$ 36,39 left does not pay one ITUB4
+    const b = allocatePot(300, [{ agentId: "ana", price: 49, fee: 0.99, score: 0.3 }, { agentId: "joao", price: 62, fee: 0.99, score: 0.01 }]);
+    expect([b.joao, b.ana]).toEqual([150, 150]);
+  });
+  it("ranks closeness to the 6-month low and penalises a company flagged Atenção", () => {
+    expect(opportunityScore(41, 40, 60, false)).toBeCloseTo(0.05);
+    expect(opportunityScore(41, 40, 60, true)).toBeCloseTo(0.2);
   });
 });

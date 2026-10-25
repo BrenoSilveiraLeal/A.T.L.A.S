@@ -1,10 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { GatewayError, HttpExecutionGateway } from "@/providers/execution-gateway";
-import { bossGrant } from "@/core/boss";
+import { bossRelease } from "./boss";
 import { b3Session } from "@/core/b3-calendar";
 import { mergeFractionalPositions } from "@/core/lots";
-import { custodyShortfalls, LIVE, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
+import { custodyShortfalls, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
 import { adminClient } from "./supabase";
 import { required } from "./env";
 import { sendAlert } from "./alerts";
@@ -145,7 +145,7 @@ export async function runLive(now = new Date()) {
         const deposited = Number(plan.data?.ceiling ?? 0);
         const pool = deposited + (positions.data ?? []).reduce((s, p) => s + Number(p.realized_pnl) - Number(p.cost), 0)
           - (stillActive.data ?? []).filter((o) => o.side === "BUY").reduce((s, o) => s + Number(o.reserved_cash), 0);
-        const room = bossGrant({ pool, deposited, committed: mine.reduce((s, p) => s + Number(p.cost), 0), price: Number(quote.ask), fee: LIVE.fractionFee });
+        const room = await bossRelease(db, owner, agent.id, pool, { [ticker]: Number(quote.ask) });
         const size = sizeLiveBuy(room, Number(settings.data!.max_order), quote.ask!);
         if ("skip" in size) { events.push(`${agent.name}: ${size.skip}`); continue; }
         await send(agent.id, "BUY", size.quantity, size.limit, `${agent.name}: ${proposal?.reasoning_summary ?? "sinal de compra do piloto"}`, latest.id);

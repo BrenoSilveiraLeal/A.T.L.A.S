@@ -12,7 +12,7 @@ const Office3D = dynamic(() => import("./office-3d").then((m) => m.Office3D), {
 });
 import { placeAgent } from "@/core/office";
 import { committee } from "@/core/committee";
-import { bossGrant } from "@/core/boss";
+import { allocatePot, opportunityScore } from "@/core/boss";
 import { RANGE_DEFAULTS } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
@@ -145,6 +145,18 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const alive = agents.filter((a) => !["DEAD", "FIRED"].includes(text(a.status)));
   const session = b3Session(new Date(now));
   const maxLossPct = Number(account?.agent_max_loss_pct ?? 40);
+  // The boss compares the six stocks: the ones in their buy zone get the pot, best first.
+  const priceNow = (agent: Row) => {
+    const ticker = text(assets.find((a) => a.id === agent.asset_id)?.ticker);
+    const vital = vitalOf(agent.id);
+    return live.prices[ticker]?.price ?? (vital?.mark_price != null ? Number(vital.mark_price) : charts[ticker]?.at(-1)?.close ?? null);
+  };
+  const potShares = allocatePot(floor.live?.genial.free ?? 0, alive.flatMap((agent) => {
+    const ticker = text(assets.find((a) => a.id === agent.asset_id)?.ticker);
+    const r = ranges[ticker], price = priceNow(agent), level = floor.health?.[ticker]?.level;
+    return r && price !== null && price <= r.buyBelow && level !== "PERIGO"
+      ? [{ agentId: text(agent.id), price, fee: 0.99, score: opportunityScore(price, r.low, r.high, level === "ATENCAO") }] : [];
+  }));
   const office: OfficeAgent[] = alive.map((agent) => {
     const asset = assets.find((a) => a.id === agent.asset_id);
     const ticker = text(asset?.ticker);
@@ -168,9 +180,8 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const bars = quote && prevClose && session.status === "OPEN"
       ? [...daily.slice(1), { open: prevClose, high: Math.max(prevClose, seen?.high ?? quote.price), low: Math.min(prevClose, seen?.low ?? quote.price), close: quote.price }]
       : daily;
-    // The boss's pot is shared: how much this agent could receive now for its next purchase.
-    const budget = floor.live ? bossGrant({ pool: floor.live.genial.free, deposited: floor.live.genial.deposited, committed: cost,
-      price: last ?? daily.at(-1)?.close ?? 0, fee: 0.99 }) : 0;
+    // What the boss would release to this agent now (0 when its stock is not in its buy zone).
+    const budget = potShares[text(agent.id)] ?? 0;
     const range = ranges[ticker] ?? null;
     const h = floor.health?.[ticker];
     const health = h ? { level: h.level, reason: h.reasons[0] ?? "" } : null;
