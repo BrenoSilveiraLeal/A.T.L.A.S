@@ -51,7 +51,8 @@ function useFloor(connected: boolean, revision: number): Floor {
 }
 
 type Range = { low: number; high: number; buyBelow: number; sellAbove: number; months: number; lowDate: string | null; highDate: string | null };
-type Forecast = { consensus: ConsensusView | null; history: { samples: number; average: number; upShare: number } | null };
+type Forecast = { consensus: ConsensusView | null; history: { samples: number; average: number; upShare: number } | null; bars6m: Bar6m[] };
+type Bar6m = { date: string; open: number; high: number; low: number; close: number };
 
 /**
  * Price now for every stock: from the Genial MetaTrader every 5 s on the owner's computer, from
@@ -81,6 +82,24 @@ function usePrices(connected: boolean) {
   return state;
 }
 
+/** What the boss's assistant reports: the best stock outside the team from today's list. */
+function useAssistantTip(connected: boolean) {
+  const [tip, setTip] = useState<string | undefined>();
+  useEffect(() => {
+    if (!connected) return;
+    const controller = new AbortController();
+    fetch("/api/atlas/scout", { signal: controller.signal }).then((r) => (r.ok ? r.json() : null))
+      .then((b: { rows?: { ticker: string; upside: number | null; good: boolean; position: number }[] } | null) => {
+        const best = b?.rows?.find((r) => r.good);
+        if (controller.signal.aborted) return;
+        setTip(best ? `${best.ticker} está perto da mínima de 6 meses e os analistas veem ${best.upside !== null ? `+${Math.round(best.upside * 100)}%` : "alta"}. Pode ser boa para o time.`
+          : "hoje nenhuma ação de fora do time está boa para comprar.");
+      }).catch(() => undefined);
+    return () => controller.abort();
+  }, [connected]);
+  return tip;
+}
+
 /** 6-month low/high and the buy/sell triggers for each stock (owner's rule). */
 function useRanges(tickers: string[]) {
   const [ranges, setRanges] = useState<Record<string, { range: Range | null } & Forecast>>({});
@@ -91,8 +110,8 @@ function useRanges(tickers: string[]) {
     const controller = new AbortController();
     Promise.all(key.split(",").map((ticker) => fetch(`/api/atlas/levels?ticker=${encodeURIComponent(ticker)}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((b: ({ range?: Range | null } & Partial<Forecast>) | null) => [ticker, { range: b?.range ?? null, consensus: b?.consensus ?? null, history: b?.history ?? null }] as const)
-      .catch(() => [ticker, { range: null, consensus: null, history: null }] as const)))
+      .then((b: ({ range?: Range | null } & Partial<Forecast>) | null) => [ticker, { range: b?.range ?? null, consensus: b?.consensus ?? null, history: b?.history ?? null, bars6m: b?.bars6m ?? [] }] as const)
+      .catch(() => [ticker, { range: null, consensus: null, history: null, bars6m: [] }] as const)))
       .then((rows) => { if (!controller.signal.aborted) setRanges(Object.fromEntries(rows)); });
     return () => controller.abort();
   }, [key, tick]);
@@ -125,7 +144,8 @@ function useCharts(tickers: string[]) {
 export function AgentFloor({ connected, revision, tv = false, mode }: { connected: boolean; revision: number; tv?: boolean; mode?: "full" | "summary" | "tv" }) {
   const view = mode ?? (tv ? "tv" : "full");
   const now = useNow(30000);
-  const [selected, setSelected] = useState("");
+  // "/app?ia=Ana" opens that agent's card directly.
+  const [selected, setSelected] = useState(() => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("ia") ?? ""));
   const floor = useFloor(connected, revision + Math.floor(now / 30000));
   const news = useNews(connected);
   const paper = floor.paper ?? {};
@@ -133,6 +153,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const charts = useCharts(assets.map((a) => text(a.ticker)));
   const ranges = useRanges(assets.map((a) => text(a.ticker)));
   const live = usePrices(connected);
+  const tip = useAssistantTip(connected);
   const account = paper.paper_accounts?.[0];
   const cdiPct = useCdi(account?.created_at ? String(account.created_at).slice(0, 10) : null);
   if (!connected) return null;
@@ -204,28 +225,29 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       events: agentEvents(text(agent.id), floor.live, paper.paper_proposals ?? [], String(paper.paper_book_restarts?.[0]?.started_at ?? "")),
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
       headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null,
-      chart: { bars, last }, health, debate, range, priceSource: live.source, forecast, history };
+      chart: { bars, last }, health, debate, range, priceSource: live.source, forecast, history, bars6m: ranges[ticker]?.bars6m ?? [],
+      marketOpen: session.status === "OPEN" };
   });
   const items = news.items ?? [];
   const top = items.find((i) => readingOf(i).tags.length) ?? items[0] ?? null;
   const totalPnl = office.reduce((sum, a) => sum + (a.pnl ?? 0), 0);
-  const chosen = office.find((a) => a.id === selected) ?? null;
+  const chosen = office.find((a) => a.id === selected || a.name === selected) ?? null;
   const band = items.slice(0, 14);
   return (
     <>
       <div className={`office ${view === "tv" ? "office-tv-mode" : ""}`}>
-        <Scoreboard initial={floor.live ? floor.live.genial.deposited : null} pnl={totalPnl} cdiPct={cdiPct}
+        <Scoreboard initial={floor.live ? floor.live.genial.deposited : null} free={floor.live ? floor.live.genial.free : null} pnl={totalPnl} cdiPct={cdiPct}
           marketOpen={session.status === "OPEN"}
           marketNote={session.status === "OPEN" ? "As IAs podem comprar e vender (10h05 às 16h50)." : `${session.reason} As IAs só operam das 10h05 às 16h50 em dias úteis.`}
           alive={alive.length} total={alive.length} />
-        <OfficeLegend />
         <div className="office-stage three">
-          <Office3D agents={office} boss={floor.live ? { deposited: floor.live.genial.deposited, free: floor.live.genial.free } : null} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected}
+          <Office3D agents={office} assistantTip={tip} boss={floor.live ? { deposited: floor.live.genial.deposited, free: floor.live.genial.free } : null} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected}
             tvLines={[["Resultado real", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
               ["CDI no período", cdiPct === null || !account ? "—" : `+${formatBrl(((Number(account.initial_cash) * cdiPct) / 100).toFixed(2))}`, "#ffc65c"],
               ["Bolsa", session.status === "OPEN" ? "Aberta" : "Fechada", session.status === "OPEN" ? "#3dffa8" : "#a9c0d6"]]} />
           {view !== "tv" && <AgentCard agent={chosen} now={now} onSelect={setSelected} />}
         </div>
+        <OfficeLegend />
         {band.length > 0 && <div className="news-band office-band" aria-label="Últimas manchetes"><div className="news-band-track">
           {[...band, ...band].map((item, index) => <span key={`${item.url}-${index}`} aria-hidden={index >= band.length}>
             <strong>{item.source}</strong> {item.title}</span>)}
@@ -235,6 +257,8 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     </>
   );
 }
+
+const dayMonth = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 
 /** What each AI is doing, in plain words: one row per agent. */
 function TeamStatus({ agents, onSelect }: { agents: OfficeAgent[]; onSelect: (id: string) => void }) {
@@ -255,6 +279,13 @@ function TeamStatus({ agents, onSelect }: { agents: OfficeAgent[]; onSelect: (id
                 <span className={a.pnl === null || Math.abs(a.pnl) < 0.005 ? "" : a.pnl > 0 ? "up" : "down"}>
                   {a.pnl === null ? "—" : `${a.pnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(a.pnl).toFixed(2))}`}</span>
               </span>
+              {a.range && <span className="team-range">
+                <span>Últimos 6 meses:</span>
+                <span>mínima <b className="up">{formatBrl(a.range.low.toFixed(2))}</b>{a.range.lowDate ? <small> ({dayMonth(a.range.lowDate)})</small> : null}</span>
+                <span>máxima <b className="down">{formatBrl(a.range.high.toFixed(2))}</b>{a.range.highDate ? <small> ({dayMonth(a.range.highDate)})</small> : null}</span>
+                <span>compra até <b>{formatBrl(a.range.buyBelow.toFixed(2))}</b> · vende a partir de <b>{formatBrl(a.range.sellAbove.toFixed(2))}</b></span>
+                {price !== null && <span className="range-bar" title="posição do preço de agora entre a mínima e a máxima"><span style={{ left: `${Math.min(100, Math.max(0, ((price - a.range.low) / (a.range.high - a.range.low || 1)) * 100))}%` }} /></span>}
+              </span>}
             </button>
           </li>
         );

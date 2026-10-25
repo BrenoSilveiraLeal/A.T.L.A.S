@@ -28,5 +28,8 @@ export async function agentLevels(db: SupabaseClient, ticker: string) {
   return { ticker, available: true as const, bars: bars.length, from: bars[0].trade_date, to: bars[bars.length - 1].trade_date,
     lastClose: Number(adjusted[adjusted.length - 1].close).toFixed(2), eventsVerified: events !== null, plan, range,
     // Forecasts: analysts' consensus (daily) and what followed past visits to the 6-month low.
-    consensus: await consensusFor(ticker).catch(() => null), history: nearLowHistory(closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) };
+    consensus: await consensusFor(ticker).catch(() => null), history: nearLowHistory(closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63),
+    // Daily candles of the same 6 months, for the chart in the agent's card.
+    bars6m: adjusted.slice(-RANGE_DEFAULTS.window).map((b, i) => ({ date: recent[i].trade_date,
+      open: Number(recent[i].open) * (Number(b.close) / Number(recent[i].close)), high: Number(b.high), low: Number(b.low), close: Number(b.close) })) };
 }

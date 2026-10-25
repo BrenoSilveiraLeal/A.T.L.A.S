@@ -119,7 +119,6 @@ export function OfficePage({ connected }: { connected: boolean }) {
       <Link className="button secondary" href="/tv"><Tv size={16} /> Modo TV</Link>
     </Heading>
     <Offline connected={connected} />
-    <GenialBalance connected={connected} compact />
     <AgentFloor connected={connected} revision={0} mode="full" />
     <ScoutPanel connected={connected} />
   </>;

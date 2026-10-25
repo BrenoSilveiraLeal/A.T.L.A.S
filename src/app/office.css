@@ -434,3 +434,62 @@ p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
 .range-bar { position: relative; display: inline-block; width: 90px; height: 6px; border-radius: 3px; margin-right: 6px; vertical-align: middle;
   background: linear-gradient(90deg, #3dffa8, #ffc65c 50%, #ff5d7d); }
 .range-bar span { position: absolute; top: -3px; width: 4px; height: 12px; margin-left: -2px; border-radius: 2px; background: #fff; box-shadow: 0 0 4px rgba(0, 0, 0, 0.6); }
+.team-range { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; font-size: 12px; color: #c7d0ca; font-variant-numeric: tabular-nums; }
+.team-range small { color: #8ea4ba; }
+.team-range .range-bar { width: 120px; }
+
+/* Six-month chart in the agent card. */
+.price-history { display: grid; gap: 8px; }
+.price-history-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+@media (min-width: 900px) { .price-history-body { grid-template-columns: minmax(0, 1fr) 230px; } }
+.price-history-chart { position: relative; }
+.price-history svg { width: 100%; height: auto; display: block; touch-action: none; background: rgba(0, 0, 0, 0.18); border-radius: 10px; }
+.ph-grid { stroke: rgba(255, 255, 255, 0.07); }
+.ph-axis { fill: #8ea4ba; font-size: 11px; }
+.ph-up line, .ph-up rect { stroke: #3dffa8; fill: #3dffa8; }
+.ph-down line, .ph-down rect { stroke: #ff5d7d; fill: #ff5d7d; }
+.ph-buy { stroke: #3dffa8; stroke-dasharray: 5 4; opacity: 0.8; }
+.ph-sell { stroke: #ff9db1; stroke-dasharray: 5 4; opacity: 0.8; }
+.ph-label { font-size: 11px; font-weight: 700; }
+.ph-label.buy { fill: #3dffa8; }
+.ph-label.sell { fill: #ff9db1; }
+.ph-mark { stroke: #fff; stroke-width: 2; }
+.ph-mark.low { fill: #3dffa8; }
+.ph-mark.high { fill: #ff5d7d; }
+.ph-cursor { stroke: rgba(255, 255, 255, 0.5); stroke-dasharray: 3 3; }
+.ph-tip { position: absolute; top: 6px; transform: translateX(-50%); display: grid; gap: 2px; padding: 6px 10px; border-radius: 8px; pointer-events: none;
+  background: rgba(6, 10, 16, 0.94); border: 1px solid rgba(94, 231, 255, 0.4); font-size: 12px; white-space: nowrap; z-index: 2; }
+.price-history-swings { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; align-content: start; }
+.price-history-swings li { display: grid; gap: 2px; font-size: 12px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); border-left: 3px solid #8ea4ba; }
+.price-history-swings li.up { border-left-color: #3dffa8; }
+.price-history-swings li.down { border-left-color: #ff5d7d; }
+.price-history-swings li span { color: #c7d0ca; font-variant-numeric: tabular-nums; }
+
+/* Council speech: who speaks, coloured by the vote. */
+.speech-bubble.council { max-width: 220px; white-space: normal; font-size: 11px; line-height: 1.35; font-weight: 600; }
+.speech-bubble.council.a_favor { background: #d9ffe9; }
+.speech-bubble.council.a_favor::after { border-top-color: #d9ffe9; }
+.speech-bubble.council.contra { background: #ffdbe2; }
+.speech-bubble.council.contra::after { border-top-color: #ffdbe2; }
+@media (max-width: 640px) { .speech-bubble.council { max-width: 140px; font-size: 9px; } }
+
+/* ===== 25/10/2026 design pass: tidier layout ===== */
+.sidebar .brand { margin: 4px 4px 26px; }
+.sidebar .brand small { display: block; margin-top: 4px; letter-spacing: 0.04em; }
+.score { grid-template-columns: 1fr 1.3fr 1fr 1fr; }
+.score-cash strong { font-size: 28px; color: #3dffa8; font-variant-numeric: tabular-nums; }
+@media (max-width: 1100px) { .score { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .score { grid-template-columns: minmax(0, 1fr); } }
+/* Legend: one tidy strip under the office. */
+.office-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; padding: 10px 14px; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(94, 231, 255, 0.12); }
+.office-legend li { background: none; border: 0; padding: 0; font-size: 12px; }
+/* Agent card in sections. */
+.office-stage.three .agent-card.sections { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.office-stage.three .agent-card.sections > * { grid-column: 1 / -1 !important; grid-row: auto !important; }
+.ac-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.ac-head h3 { margin: 2px 0 4px; font-size: 26px; }
+.ac-head .agent-activity { margin: 0; }
+.ac-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@media (min-width: 900px) { .ac-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.ac-col { display: grid; gap: 12px; align-content: start; }
