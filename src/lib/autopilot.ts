@@ -14,6 +14,7 @@ import { saoPauloClock } from "@/core/b3-calendar";
 import { minimumSellPrice } from "@/core/live";
 import { bossRelease } from "./boss";
 import { notify } from "./notify";
+import { bridgeReachable } from "./prices";
 import { consensusFor } from "./forecast";
 import { forecastOpinion, nearLowHistory } from "@/core/forecast";
 import { RANGE_DEFAULTS } from "@/core/range";
@@ -131,6 +132,13 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
       lines: [decision.reason, `Livre no caixa do Chefe: R$ ${availableCash.toFixed(2).replace(".", ",")}.`,
         "Se você já depositou na Genial, registre o valor em Carteira → Depositei mais."],
       dedupeKey: `nomoney:${agentId}:${new Date().toISOString().slice(0, 10)}`, windowSeconds: 86400 });
+  }
+  // Real money on: decide only when the order can actually reach Genial now.
+  if (decision.action !== "HOLD") {
+    const live = maybe(await db.from("live_settings").select("enabled").eq("owner_id", owner).maybeSingle()) as { enabled?: boolean } | null;
+    if (live?.enabled && (process.env.VERCEL || !(await bridgeReachable())))
+      return { filled, corporateActions: events.applied, status: "HOLD" as const, lifePct: vitals.lifePct,
+        reason: `${input.ticker}: queria ${decision.action === "BUY" ? "comprar" : "vender"}, mas a ponte com a Genial está fora do ar; espera ela voltar.` };
   }
   if (decision.action === "HOLD") return { filled, corporateActions: events.applied, status: "HOLD" as const, reason: decision.reason, lifePct: vitals.lifePct };
   const proposal = z.object({ id: z.uuid() }).loose().parse(rows(await db.rpc("paper_create_proposal", {

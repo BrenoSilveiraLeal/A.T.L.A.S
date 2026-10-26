@@ -8,6 +8,23 @@ import { HttpExecutionGateway } from "@/providers/execution-gateway";
  * - elsewhere (Vercel, computer off), the latest price an agent recorded from brapi, whose free
  *   plan only refreshes every 30 minutes.
  */
+/** Is the Genial bridge answering on this computer? (cached 30 s) */
+let bridgeCheck: { at: number; up: boolean } | null = null;
+export async function bridgeReachable() {
+  if (bridgeCheck && Date.now() - bridgeCheck.at < 30000) return bridgeCheck.up;
+  const url = process.env.ATLAS_GATEWAY_URL, token = process.env.ATLAS_GATEWAY_TOKEN;
+  const accountId = process.env.ATLAS_GATEWAY_ACCOUNT_ID, providerId = process.env.ATLAS_GATEWAY_PROVIDER_ID;
+  let up = false;
+  if (url && token && accountId && providerId) {
+    try {
+      const gateway = await HttpExecutionGateway.connect({ url, token, expectedAccountId: accountId, expectedProviderId: providerId, timeoutMs: 5000 });
+      up = (await gateway.healthCheck()).healthy;
+    } catch { up = false; }
+  }
+  bridgeCheck = { at: Date.now(), up };
+  return up;
+}
+
 export async function loadPrices(db: SupabaseClient, ownerId: string) {
   const assets = await db.from("assets").select("ticker").eq("owner_id", ownerId).eq("active", true);
   if (assets.error) throw new Error("PRICES_DATABASE_UNAVAILABLE");

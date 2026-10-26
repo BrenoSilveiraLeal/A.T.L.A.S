@@ -22,6 +22,13 @@ const jobSchema = z.object({
 export async function runScheduler() {
   const db = adminClient(),
     owner = required("ATLAS_OWNER_ID");
+  // With real money on, only the owner's computer decides: it is the only place a real order can go
+  // out (MetaTrader). Deciding in the cloud while the bridge is off made the agents' book believe
+  // in a purchase that never happened at Genial (26/10/2026).
+  if (process.env.VERCEL) {
+    const live = await db.from("live_settings").select("enabled").eq("owner_id", owner).maybeSingle();
+    if (live.data?.enabled) return { skipped: "LOCAL_EXECUTION" as const, jobs: [] };
+  }
   // Distributed rate cap prevents repeated scheduler requests from exhausting provider quotas.
   const rate = await db.rpc("consume_rate_limit", {
     p_key: "atlas-scheduler",
@@ -197,20 +204,22 @@ export async function runScheduler() {
   );
   // Owner notifications are best effort and only for events that need attention.
   const alerts: string[] = [];
+  const notes: string[] = [];
   for (const r of results) {
     if (r.status === "FAILED" && "code" in r) alerts.push(`Falha na análise de ${r.label}: ${r.code}`);
     if (!("paper" in r) || !r.paper) continue;
     const paper = r.paper;
     if ("corporateActions" in paper && (paper.corporateActions ?? 0) > 0)
-      alerts.push(`${r.label}: ${paper.corporateActions} evento(s) oficial(is) da B3 aplicado(s) na carteira virtual (dividendos ou ajuste de ações).`);
-    if ("filled" in paper && (paper.filled ?? 0) > 0) alerts.push(`${r.label}: ${paper.filled} ordem(ns) virtual(is) executada(s).`);
+      notes.push(`${r.label}: ${paper.corporateActions} evento(s) oficial(is) da B3 aplicado(s) (dividendos ou ajuste de ações).`);
+
     if (paper.status === "ORDER_OPENED")
-      alerts.push(`${r.label}: ${paper.side === "BUY" ? "compra" : "venda"} virtual de ${paper.quantity} a até R$ ${paper.limitPrice}.`);
-    if (paper.status === "ELIMINATED") alerts.push(`${r.label} foi ELIMINADO: atingiu o limite de perda da simulação.`);
+      notes.push(`${r.label}: decidiu ${paper.side === "BUY" ? "comprar" : "vender"} ${paper.quantity} a até R$ ${paper.limitPrice} (a ordem vai para a Genial).`);
+    if (paper.status === "ELIMINATED") alerts.push(`${r.label} atingiu o limite de perda.`);
     if (paper.status === "FAILED") alerts.push(`Piloto automático falhou para ${r.label}.`);
-    if (paper.status === "CORPORATE_ACTION_SUSPECTED") alerts.push(`${r.label} PAUSADO: ${paper.reason} Confira e ajuste a posição virtual antes de retomar.`);
+    if (paper.status === "CORPORATE_ACTION_SUSPECTED") alerts.push(`${r.label} PAUSADO: ${paper.reason} Confira a posição antes de retomar.`);
   }
   if (alerts.length) await notify({ level: "error", title: "Problema nas análises das IAs", lines: alerts, dedupeKey: `scheduler:${alerts.join("|").slice(0, 120)}`, windowSeconds: 3600 });
+  if (notes.length) await notify({ level: "info", title: "Atividade das IAs", lines: notes });
   // Keeps the office TV filled even with the panel closed (refresh at most every 5 min).
   await loadNews(db, owner).catch(() => undefined);
   // No simulated contribution: the agents' money comes only from real deposits (register_deposit).
