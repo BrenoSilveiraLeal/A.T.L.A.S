@@ -60,12 +60,12 @@ describe("rule-based market context", () => {
   it("recognises new companies by unambiguous official name only", () => {
     const directory = [{ cvmCode: "000906", name: "BANCO BRADESCO S.A." }, { cvmCode: "019640", name: "BRADESCO LEASING S.A. - ARRENDAMENTO MERCANTIL" },
       { cvmCode: "005410", name: "WEG SA" }, { cvmCode: "008133", name: "LOJAS RENNER SA" }];
-    expect(resolveCompany("LREN3", "Lojas Renner", directory)).toMatchObject({ cvmCode: "008133", aliases: ["lren3", "lojas renner"] });
+    expect(resolveCompany("LOJA3", "Lojas Renner", directory)).toMatchObject({ cvmCode: "008133", aliases: ["loja3", "lojas renner"] });
     expect(resolveCompany("WEGE3", "WEG", directory)).toMatchObject({ cvmCode: "005410", aliases: ["wege3"] });
-    expect(resolveCompany("BBDC4", "Bradesco", directory).cvmCode).toBeNull();
-    expect(resolveCompany("BBDC4", "Banco Bradesco", directory).cvmCode).toBe("000906");
+    expect(resolveCompany("BRAD4", "Bradesco", directory).cvmCode).toBeNull();
+    expect(resolveCompany("BRAD4", "Banco Bradesco", directory).cvmCode).toBe("000906");
     expect(resolveCompany("PETR4", "qualquer", null).cvmCode).toBe("009512");
-    const unknown = assessContext({ ...base, ticker: "LREN3", company: resolveCompany("LREN3", "Lojas Renner", directory),
+    const unknown = assessContext({ ...base, ticker: "LOJA3", company: resolveCompany("LOJA3", "Lojas Renner", directory),
       facts: [{ cvmCode: "008133", deliveredOn: "2026-10-22", subject: "Aquisição", url: "https://www.rad.cvm.gov.br/z" }] });
     expect(unknown).toMatchObject({ action: "BLOCK_BUY", company: { name: "Lojas Renner", cvmCode: "008133" } });
   });

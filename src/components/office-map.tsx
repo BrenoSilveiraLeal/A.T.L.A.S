@@ -40,9 +40,9 @@ export interface AgentChart { bars: { open: number; high: number; low: number; c
 const W = 1600, H = 850;
 const at = (x: number, y: number) => ({ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` });
 // Desk agents stand behind the desk front (drawn on top), so they look seated.
-const DESKS: [number, number][] = [[190, 255], [450, 255], [710, 255], [190, 460], [450, 460], [710, 460]];
+const DESKS: [number, number][] = [175, 320, 465].flatMap((y) => [135, 335, 535, 735].map((x): [number, number] => [x, y]));
 const SLOTS: Record<OfficeZone, [number, number][]> = {
-  DESK: [...DESKS.map(([x, y]): [number, number] => [x, y - 4]), [320, 355], [580, 355]],
+  DESK: DESKS.map(([x, y]): [number, number] => [x, y - 4]),
   MEETING: [[1060, 420], [1400, 420], [1150, 490], [1310, 490], [1230, 470], [1000, 470], [1460, 470]],
   COFFEE: [[225, 800], [405, 800], [565, 800], [315, 805], [485, 805]],
   POOL: [[730, 790], [1110, 790], [850, 825], [990, 825]],

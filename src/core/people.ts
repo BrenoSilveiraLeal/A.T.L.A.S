@@ -17,6 +17,13 @@ export const PEOPLE: Record<string, PersonLook> = {
   Rafa: { presentation: "masculine", skin: "#8d5a3b", hair: "#120c08", hairStyle: "curly", shirt: "#22a06b", pants: "#2a2d34" },
   Davi: { presentation: "masculine", skin: "#d9a07a", hair: "#1d1410", hairStyle: "buzz", shirt: "#7c4dcc", pants: "#33363d" },
   Sofia: { presentation: "feminine", skin: "#e8b896", hair: "#d9a441", hairStyle: "ponytail", shirt: "#1fa3b8", pants: "#2b2f3a" },
+  // Hired 26/10/2026 when the office grew to twelve desks.
+  Beatriz: { presentation: "feminine", skin: "#a8714f", hair: "#1a110c", hairStyle: "curly", shirt: "#d6336c", pants: "#2a2e38" },
+  Lucas: { presentation: "masculine", skin: "#f0c9a8", hair: "#6b4a2b", hairStyle: "short", shirt: "#e03131", pants: "#2f3440" },
+  Clara: { presentation: "feminine", skin: "#f5d3b8", hair: "#b5651d", hairStyle: "long", shirt: "#1c4e9c", pants: "#23262e", skirt: true },
+  Gabriel: { presentation: "masculine", skin: "#c48a62", hair: "#2a1d14", hairStyle: "buzz", shirt: "#f08c00", pants: "#363a44" },
+  Helena: { presentation: "feminine", skin: "#7a4a32", hair: "#0f0a08", hairStyle: "bun", shirt: "#7048e8", pants: "#2b2f3a" },
+  Thiago: { presentation: "masculine", skin: "#dba982", hair: "#3b2a1c", hairStyle: "curly", shirt: "#2b8a3e", pants: "#30343c" },
 };
 
 const NEUTRAL_SHIRTS = ["#5c6bc0", "#26a69a", "#ef6c00", "#8d6e63", "#546e7a"];

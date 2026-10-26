@@ -8,6 +8,7 @@ import { RANGE_DEFAULTS, rangeLevels } from "@/core/range";
 import { nearLowHistory } from "@/core/forecast";
 import { consensusFor } from "./forecast";
 import { softCached } from "./context";
+import { saoPauloClock } from "@/core/b3-calendar";
 
 /** The agent's price plan from the long official history, adjusted by official stock events. */
 export async function agentLevels(db: SupabaseClient, ticker: string) {
@@ -28,6 +29,8 @@ export async function agentLevels(db: SupabaseClient, ticker: string) {
   return { ticker, available: true as const, bars: bars.length, from: bars[0].trade_date, to: bars[bars.length - 1].trade_date,
     lastClose: Number(adjusted[adjusted.length - 1].close).toFixed(2), eventsVerified: events !== null, plan, range,
     // Forecasts: analysts' consensus (daily) and what followed past visits to the 6-month low.
+    // Closes before today (oldest first), to tell whether the fall has turned into a rise.
+    turnCloses: adjusted.filter((_, i) => bars[i].trade_date < saoPauloClock(new Date()).date).slice(-(RANGE_DEFAULTS.turnLookback ?? 10)).map((b) => Number(b.close)),
     consensus: await consensusFor(ticker).catch(() => null), history: nearLowHistory(closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63),
     // Daily candles of the same 6 months, for the chart in the agent's card.
     bars6m: adjusted.slice(-RANGE_DEFAULTS.window).map((b, i) => ({ date: recent[i].trade_date,

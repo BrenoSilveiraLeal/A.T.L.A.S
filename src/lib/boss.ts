@@ -5,15 +5,15 @@ import { agentLevels } from "./levels";
 import { cachedCompanyHealth } from "./company-health";
 import { consensusFor } from "./forecast";
 import { forecastOpinion, type ConsensusView } from "@/core/forecast";
-import { historyAgrees } from "@/core/range";
+import { historyAgrees, turnState } from "@/core/range";
 
 /**
- * The boss's view of the team: which agents' stocks are in their buy zone now (price within 2% of
- * the 6-month low, company not in danger), ranked best first. Prices are the latest each agent
+ * The boss's view of the team: which agents' stocks are in their buy zone now (price near the
+ * 6-month low and already turning up, company not in danger), ranked best first. Prices are the latest each agent
  * recorded; `overrides` replaces them (e.g. the live MetaTrader quote). The levels are cached for
  * 60 s so every decision in the same minute sees the same picture.
  */
-interface Watch { agentId: string; ticker: string; price: number; low: number; high: number; buyBelow: number; attention: boolean; consensus: ConsensusView | null }
+interface Watch { agentId: string; ticker: string; price: number; low: number; high: number; buyBelow: number; turnCloses: number[]; attention: boolean; consensus: ConsensusView | null }
 let cache: { at: number; owner: string; rows: Watch[] } | null = null;
 
 async function watchList(db: SupabaseClient, owner: string): Promise<Watch[]> {
@@ -36,7 +36,7 @@ async function watchList(db: SupabaseClient, owner: string): Promise<Watch[]> {
     if (level === "PERIGO" || !historyAgrees(levels.history)) continue;
     const mark = vitals.data.find((v) => v.agent_id === agent.id)?.mark_price;
     rows.push({ agentId: agent.id, ticker, price: Number(mark ?? levels.lastClose), low: levels.range.low, high: levels.range.high,
-      buyBelow: levels.range.buyBelow, attention: level === "ATENCAO", consensus: await consensusFor(ticker).catch(() => null) });
+      buyBelow: levels.range.buyBelow, turnCloses: levels.turnCloses, attention: level === "ATENCAO", consensus: await consensusFor(ticker).catch(() => null) });
   }
   cache = { at: Date.now(), owner, rows };
   return rows;
@@ -45,8 +45,8 @@ async function watchList(db: SupabaseClient, owner: string): Promise<Watch[]> {
 export async function teamCandidates(db: SupabaseClient, owner: string, overrides: Record<string, number> = {}): Promise<Candidate[]> {
   return (await watchList(db, owner))
     .map((w) => ({ ...w, price: overrides[w.ticker] ?? w.price }))
-    // In its buy zone and not vetoed by the analysts' forecast.
-    .filter((w) => w.price <= w.buyBelow && forecastOpinion(w.price, w.consensus).vote !== "CONTRA")
+    // In its buy zone, already turning up, and not vetoed by the analysts' forecast.
+    .filter((w) => w.price <= w.buyBelow && turnState(w.turnCloses, w.price).turned && forecastOpinion(w.price, w.consensus).vote !== "CONTRA")
     .map((w) => ({ agentId: w.agentId, price: w.price, fee: 0.99,
       score: opportunityScore(w.price, w.low, w.high, w.attention, forecastOpinion(w.price, w.consensus).upside) }));
 }

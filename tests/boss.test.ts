@@ -22,12 +22,28 @@ describe("buy near the 6-month low, sell near the 6-month high", () => {
   it("waits while the price is far from the low", () => {
     const d = rangeDecision({ closes, price: 50, quantity: 0, cost: 0, cash: 50, minOrder: 40 });
     expect([d.action, d.low, d.high]).toEqual(["HOLD", 40, 60]);
-    expect(d.reason).toContain("40,80");
+    expect(d.reason).toContain("42,00");
   });
-  it("buys within 2% of the low and sells within 2% of the high, never at a loss", () => {
-    expect(rangeDecision({ closes, price: 40.5, quantity: 0, cost: 0, cash: 50, minOrder: 40 }).action).toBe("BUY");
+  it("sells within 2% of the high, never at a loss", () => {
     expect(rangeDecision({ closes, price: 59, quantity: 1, cost: 41.5, cash: 0, minOrder: 40 }).action).toBe("SELL");
     expect(rangeDecision({ closes, price: 59, quantity: 1, cost: 58.5, cash: 0, minOrder: 40 }).action).toBe("HOLD");
+  });
+});
+
+describe("buys only after the fall turns into a rise (owner, 26/10/2026)", () => {
+  const falling = [...flat(60, 50), ...flat(62, 60), 45, 43, 41, 40]; // low 40 (yesterday), high 60
+  const at = (price: number, quantity = 0, cost = 0) => rangeDecision({ closes: falling, price, quantity, cost, cash: 100, minOrder: 40 });
+  it("waits while it is still falling, and until it has risen 1% off the bottom", () => {
+    expect([at(39.5).action, at(39.5).reason]).toEqual(["HOLD", expect.stringContaining("ainda caindo")]);
+    expect([at(40.2).action, at(40.2).reason]).toEqual(["HOLD", expect.stringContaining("ainda não virou")]);
+  });
+  it("buys once it turned up and is still within 5% of the low", () => {
+    expect([at(40.6).action, at(40.6).reason]).toEqual(["BUY", expect.stringContaining("virou para cima")]);
+    expect(at(42.5).action).toBe("HOLD"); // already 6% above the low
+  });
+  it("holding already, buys more only after a new dip below the average price", () => {
+    expect([at(40.6, 1, 41).action, at(40.6, 1, 41).reason]).toEqual(["HOLD", expect.stringContaining("compra mais só se cair")]);
+    expect(at(40.6, 1, 43).action).toBe("BUY");
   });
 });
 
@@ -52,9 +68,10 @@ describe("only really cheap, and only at the top", () => {
   const closes = [...flat(60, 50), ...flat(30, 40), ...flat(35, 60), 58]; // low 40, high 60, last close 58
   it("does not buy near the low when past visits to the low were not followed by rises (Vale today)", () => {
     const vale = { samples: 6, upShare: 0.33, average: -0.01 };
-    const d = rangeDecision({ closes, price: 40.5, quantity: 0, cost: 0, cash: 100, minOrder: 40, history: vale });
+    const turned = [...flat(60, 50), ...flat(62, 60), 45, 43, 41, 40];
+    const d = rangeDecision({ closes: turned, price: 40.6, quantity: 0, cost: 0, cash: 100, minOrder: 40, history: vale });
     expect([d.action, d.reason]).toEqual(["HOLD", expect.stringContaining("não vale a pena")]);
-    expect(rangeDecision({ closes, price: 40.5, quantity: 0, cost: 0, cash: 100, minOrder: 40, history: { samples: 4, upShare: 0.75, average: 0.03 } }).action).toBe("BUY");
+    expect(rangeDecision({ closes: turned, price: 40.6, quantity: 0, cost: 0, cash: 100, minOrder: 40, history: { samples: 4, upShare: 0.75, average: 0.03 } }).action).toBe("BUY");
   });
   it("holds near the high while the price is still rising, sells when the rise stops", () => {
     expect(rangeDecision({ closes, price: 59.5, quantity: 1, cost: 41.5, cash: 0, minOrder: 40 }).action).toBe("HOLD"); // 59,50 > 58

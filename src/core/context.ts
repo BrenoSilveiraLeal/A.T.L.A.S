@@ -33,6 +33,17 @@ export const COMPANIES: Record<string, CompanyProfile> = {
   B3SA3: { name: "B3", cvmCode: "021610", query: '("b3 sa" OR b3sa3 OR "bolsa b3")', aliases: ["b3sa3", "b3 s.a", "bolsa b3"] },
   AXIA3: { name: "Axia Energia", cvmCode: "002437", query: '("axia energia" OR eletrobras OR axia3)', aliases: ["axia energia", "eletrobras", "axia3", "elet3"] },
   EMBJ3: { name: "Embraer", cvmCode: "020087", query: '(embraer OR embj3)', aliases: ["embraer", "embj3", "embr3"] },
+  // Added 26/10/2026 (office extended after the election sell-off); codes from the 2025 DFP index.
+  BBDC4: { name: "Bradesco", cvmCode: "000906", query: '(bradesco OR bbdc4)', aliases: ["bradesco", "bbdc4"] },
+  SANB11: { name: "Santander Brasil", cvmCode: "020532", query: '("santander brasil" OR sanb11)', aliases: ["santander brasil", "santander", "sanb11"] },
+  BPAC11: { name: "BTG Pactual", cvmCode: "022616", query: '("btg pactual" OR bpac11)', aliases: ["btg pactual", "btg", "bpac11"] },
+  LREN3: { name: "Lojas Renner", cvmCode: "008133", query: '("lojas renner" OR lren3)', aliases: ["lojas renner", "renner", "lren3"] },
+  MULT3: { name: "Multiplan", cvmCode: "020982", query: '(multiplan OR mult3)', aliases: ["multiplan", "mult3"] },
+  EQTL3: { name: "Equatorial", cvmCode: "020010", query: '("equatorial energia" OR eqtl3)', aliases: ["equatorial energia", "equatorial", "eqtl3"] },
+  CYRE3: { name: "Cyrela", cvmCode: "014460", query: '(cyrela OR cyre3)', aliases: ["cyrela", "cyre3"] },
+  ABEV3: { name: "Ambev", cvmCode: "023264", query: '(ambev OR abev3)', aliases: ["ambev", "abev3"] },
+  TIMS3: { name: "TIM Brasil", cvmCode: "024929", query: '("tim brasil" OR tims3)', aliases: ["tim brasil", "tims3"] },
+  CPFE3: { name: "CPFL Energia", cvmCode: "018660", query: '("cpfl energia" OR cpfe3)', aliases: ["cpfl energia", "cpfl", "cpfe3"] },
 };
 export const MARKET_QUERY = '(ibovespa OR "bolsa brasileira" OR "mercado brasileiro")';
 

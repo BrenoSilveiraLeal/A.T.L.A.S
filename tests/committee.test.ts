@@ -19,6 +19,13 @@ describe("council: buy near the 6-month low, sell near the 6-month high", () => 
     expect(committee({ ...base, price: 40.5, context: { action: "BLOCK_BUY", summary: "fato relevante" } }).verdict).toBe("ESPERAR");
   });
 
+  it("waits while the price is still falling, buys once it turns up", () => {
+    const falling = committee({ ...base, price: 40.2, recent: [45, 43, 41, 40.5] });
+    expect([falling.verdict, falling.summary]).toEqual(["ESPERAR", "Decisão: esperar a queda virar para cima."]);
+    expect(committee({ ...base, price: 40.5, recent: [45, 43, 41, 40] }).verdict).toBe("COMPRAR");
+    expect(committee({ ...base, price: 40.5, recent: [45, 43, 41, 40], holding: 1, averageCost: 41 }).verdict).toBe("SEGURAR");
+  });
+
   it("sells near the high only above what it paid", () => {
     expect(committee({ ...base, holding: 1, averageCost: 41, price: 59 }).verdict).toBe("VENDER_NA_ALTA");
     expect(committee({ ...base, holding: 1, averageCost: 58.5, price: 59 }).verdict).toBe("SEGURAR");

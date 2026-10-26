@@ -43,7 +43,9 @@ const S = 1.25; // people are drawn a little larger than life so they read well 
 const SEAT_Y = 0.6;
 const CORRIDOR_Z = -5;
 const REST_ZONES: OfficeZone[] = ["COFFEE", "POOL", "OUT"];
-const DESKS: V2[] = [[-11, -1.6], [-5.5, -1.6], [0, -1.6], [-11, 3.4], [-5.5, 3.4], [0, 3.4]];
+// Two rows of six desks (owner, 26/10/2026: "vamos estender o escritório"): 0–5 front row, 6–11 back row.
+const DESK_COLUMNS = [-18, -13.5, -9, -4.5, 0, 4.5];
+const DESKS: V2[] = [-1.6, 3.4].flatMap((z) => DESK_COLUMNS.map((x): V2 => [x, z]));
 const COUNCILS = [[-24, -16], [-16, -8], [-8, 0]].map(([x1, x2]) => ({ x1, x2, table: [(x1 + x2) / 2, -10.4] as V2, door: x2 - 1.4 }));
 const SPECIALIST_SHIRTS = ["#f28c28", "#2f6fd6", "#22a06b", "#9b6bff"]; // Risco, Balanço, Estratégia, Previsão
 const KITCHEN_TABLES: V2[] = [[12.6, -9.6], [19.2, -9.6]];
@@ -79,7 +81,7 @@ function slotFor(zone: OfficeZone, index: number, desk: number): Slot {
   if (zone === "POOL") {
     // TV lounge: sofas facing the news TV.
     const [[x, z], face] = TV_SEATS[index % TV_SEATS.length];
-    return { pos: [x, z], face, pose: "watch", route: [[-13.4, CORRIDOR_Z], [-13.4, 8.6], [x, 8.6]] };
+    return { pos: [x, z], face, pose: "watch", route: [[-15.25, CORRIDOR_Z], [-15.25, 8.6], [x, 8.6]] };
   }
   // Kitchen: standing around the high tables with a coffee, chatting.
   const [tx, tz] = KITCHEN_TABLES[Math.floor(index / 4) % KITCHEN_TABLES.length];
@@ -108,9 +110,9 @@ function restSlot(activity: RestActivity, spot: number): Slot {
     const [[x, z], face] = spots[spot % spots.length];
     return { pos: [x, z], face, pose: "cue", route: [[10.5, CORRIDOR_Z], [10.5, 7.4], [x, 7.4]] };
   }
-  const spots: [V2, number][] = [[[7.2, 1.0], -Math.PI / 2], [[6.0, 1.0], Math.PI / 2], [[-13.2, 1.5], Math.PI / 2], [[-12.0, 1.5], -Math.PI / 2]];
+  const spots: [V2, number][] = [[[9.6, 1.0], -Math.PI / 2], [[8.4, 1.0], Math.PI / 2], [[-21.6, 1.0], Math.PI / 2], [[-20.4, 1.0], -Math.PI / 2]];
   const [[x, z], face] = spots[spot % spots.length];
-  return { pos: [x, z], face, pose: "chat", route: [[x < 0 ? -13.4 : 8.6, CORRIDOR_Z], [x, z - 0.8]] };
+  return { pos: [x, z], face, pose: "chat", route: [[x < 0 ? -21 : 8.6, CORRIDOR_Z], [x, z - 0.8]] };
 }
 
 const hex = (c: string | number) => new THREE.Color(c);
@@ -379,7 +381,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(48, 28), matte("#d9d5ce", 0.8));
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
     const rug = (w: number, d: number, x: number, z: number, c: string) => box(w, 0.02, d, x, 0.011, z, matte(c, 1), false);
-    rug(17.5, 9.6, -5.5, 0.9, "#8b9097");
+    rug(26, 9.6, -6.75, 0.9, "#8b9097");
     rug(16, 5.8, -2, 10.4, "#5f6b7a");
     rug(15.8, 7.8, 16, -10, "#efe7da");
     rug(12, 7.6, 16.5, 0.6, "#7a6f86");
@@ -465,7 +467,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       });
       box(0.6, 0.02, 0.2, x, 0.99, z + 0.15, metal);
       chair(x, z + 1.05, Math.PI, ["#f07b2b", "#2f6fd6", "#22a06b"][i % 3]);
-      if (i === 2 || i === 5) plant(x + 2.2, z - 0.2, 0.8);
+      if (i % DESK_COLUMNS.length === DESK_COLUMNS.length - 1) plant(x + 2.2, z - 0.2, 0.8);
       return { screens, key: "", alertUntil: 0, agent: null as OfficeAgent | null };
     });
     const drawDesk = (i: number, agent: OfficeAgent | null, force = false) => {
@@ -717,13 +719,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const supBubble = new CSS2DObject(supBubbleEl); supBubble.position.set(0, 2.75, 0); supervisor.rig.add(supBubble);
     // Patrol: past every desk (stopping to check), the council corridor and the lounges.
     const patrol: { at: V2; face?: number; wait?: number; desk?: number }[] = [
-      { at: [-13.4, -4.2] }, ...DESKS.slice(0, 3).map(([x, z], i) => ({ at: [x, z + 2.3] as V2, face: Math.PI, wait: 3, desk: i })),
-      { at: [6.2, 1.2] }, ...DESKS.slice(3).reverse().map(([x, z], i) => ({ at: [x, z + 2.3] as V2, face: Math.PI, wait: 3, desk: 5 - i })),
-      { at: [-13.4, 6.4] }, { at: [-13.4, -4.6] }, { at: [8.6, -4.6] }, { at: [8.6, -4.2], wait: 2 },
+      { at: [-20, -4.2] }, ...DESKS.slice(0, 6).map(([x, z], i) => ({ at: [x, z + 2.3] as V2, face: Math.PI, wait: 3, desk: i })),
+      { at: [7.6, 1.2] }, ...DESKS.slice(6).reverse().map(([x, z], i) => ({ at: [x, z + 2.3] as V2, face: Math.PI, wait: 3, desk: 11 - i })),
+      { at: [-20, 5.4] }, { at: [-20, -4.6] }, { at: [8.6, -4.6] }, { at: [8.6, -4.2], wait: 2 },
     ];
     let patrolIndex = 0, patrolWait = 0, supTalkUntil = 0;
     const supPath: V2[] = [];
-    supervisor.group.position.set(-13.4, 0, -4.2);
+    supervisor.group.position.set(-20, 0, -4.2);
     const say = (text: string, seconds = 4) => { supBubbleEl.textContent = text; supBubbleEl.hidden = false; supTalkUntil = performance.now() + seconds * 1000; };
 
     // Agents.
