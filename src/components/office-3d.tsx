@@ -985,7 +985,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const shade = cyl(0.28, 0.36, 0.4, x, 2.0, z, matte("#fff6e5", 0.6));
       (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
     };
-    floorLamp(-10.6, 12.8); floorLamp(6.6, 12.8); floorLamp(11, 4.6); floorLamp(-22.6, 11.4);
+    floorLamp(-10.6, 12.8); floorLamp(6.6, 12.8); floorLamp(-22.6, 11.4);
     // Market room: side tables with lamps by the sofa, big plants in the corners, a water cooler
     // and a wall clock.
     for (const x of [14.75, 19.85]) {
@@ -994,7 +994,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const shade = cyl(0.13, 0.17, 0.2, x, 0.88, 1.5, matte("#fff6e5", 0.6));
       (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.5;
     }
-    plant(11.6, 3.4, 1.15); plant(22.9, 3.6, 1.2); plant(22.9, -3.9, 1.0); plant(11.4, -3.9, 0.9);
+    plant(22.9, -3.9, 1.0);
     box(0.4, 1.0, 0.4, 23.4, 0.5, -2.6, white); cyl(0.17, 0.17, 0.42, 23.4, 1.22, -2.6, matte("#9fd3f0", 0.1));
     {
       const clock = canvasTexture(256, 256), g = clock.g;
