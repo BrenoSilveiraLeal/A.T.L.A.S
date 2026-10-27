@@ -24,6 +24,7 @@ import { cachedCompanyHealth } from "@/lib/company-health";
 import { loadPrices } from "@/lib/prices";
 import { notify } from "@/lib/notify";
 import { readScout } from "@/lib/forecast";
+import { recentMeetings } from "@/lib/meeting";
 import {
   readQuote,
   readHistory,
@@ -82,6 +83,7 @@ export async function GET(request: Request, context: RouteContext) {
       return json({ rows: rows.data, unread: rows.data.filter((r) => !r.read_at).length });
     }
     if (resource === "scout") return json(await readScout(adminClient(), user.id) ?? { at: null, rows: [] });
+    if (resource === "meeting") return json({ meetings: await recentMeetings(adminClient(), user.id, 7) });
     if (resource === "prices") return json(await loadPrices(adminClient(), user.id));
     if (resource === "company-health") return json(await cachedCompanyHealth(adminClient(), user.id) ?? {});
     if (resource === "news-tv") {

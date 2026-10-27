@@ -194,7 +194,9 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
  * positions keep pre-event cost, so marking them would fake a gain or loss (and could
  * eliminate an agent). Callers pause marking and trading and alert the owner.
  */
-export function corporateActionSuspected(history: MarketHistory, quotePrice: string, knownEventDates: readonly string[] = []): string | null {
+export function corporateActionSuspected(history: MarketHistory, quotePrice: string, knownEventDates: readonly string[] = [],
+  /** Closes from another source (stored long history), to tell a real crash from a stale feed. */
+  confirmed: readonly { date: string; close: number }[] = []): string | null {
   // A jump within 6 days after an official record date is explained by that event.
   const explained = (day: string) => knownEventDates.some((d) => day > d && Date.parse(day) - Date.parse(d) <= 6 * 86400000);
   const bars = history.bars.slice(-11);
@@ -209,7 +211,11 @@ export function corporateActionSuspected(history: MarketHistory, quotePrice: str
   const last = bars.at(-1);
   if (last && !explained(new Date().toISOString().slice(0, 10))) {
     const gap = Number(quotePrice) / Number(last.close) - 1;
-    if (Math.abs(gap) > 0.3)
+    // 26/10/2026: real falls of 35–45% after the election, while the feed still had Friday's close.
+    // A newer close from another source near the quote shows the market really moved.
+    const lastDay = last.timestamp.slice(0, 10);
+    const real = confirmed.some((c) => c.date > lastDay && c.close > 0 && Math.abs(Number(quotePrice) / c.close - 1) < 0.08);
+    if (Math.abs(gap) > 0.3 && !real)
       return `${history.ticker}: cotação ${quotePrice} difere ${(gap * 100).toFixed(0)}% do último fechamento ${last.close} (possível evento corporativo ou dado inconsistente).`;
   }
   return null;

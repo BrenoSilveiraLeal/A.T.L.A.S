@@ -20,14 +20,22 @@ export interface RangeOptions {
   turnPct?: number; turnLookback?: number;
   /** Holding already: buy more only after the price fell this % below the average price (a new dip, then a new turn). */
   rebuyBelowAvgPct?: number;
+  /**
+   * Owner, 26/10/2026: the turn only matters after a big fall ("o gráfico naturalmente cai e sobe").
+   * A big fall is the bottom at least `bigDropPct` below the highest close of the last `dropLookback`
+   * sessions. Without one (normal ups and downs): "skip" never buys, "near" buys only within `nearPct`
+   * of the 6-month low, "nearTurn" also needs the turn.
+   */
+  bigDropPct?: number; dropLookback?: number; calmBuy?: "skip" | "near" | "nearTurn";
 }
 // Chosen on B3 history 2023–2026: the history filter helps a little and waiting for the rise to stop
-// sells closer to the top (docs/BACKTEST_ACUMULAR.md); buying up to 5% above the low after a 1% turn,
-// re-buying only 3% below the average, matched or beat the 2% rule in every period on 50 stocks
-// (docs/BACKTEST_VIRADA.md).
+// sells closer to the top (docs/BACKTEST_ACUMULAR.md); after a big fall (8% in 20 sessions) buying up
+// to 5% above the low once it turned up 1%, and otherwise only within 2% of the low, re-buying only 3%
+// below the average, gave the same result with fewer losing stocks and smaller drawdowns on 50
+// stocks (docs/BACKTEST_VIRADA.md).
 export const RANGE_DEFAULTS: RangeOptions = { window: 126, nearPct: 2, minGainPct: 3, confirmBuy: true, confirmSell: true, minUpShare: 0.6,
-  buyZonePct: 5, turnPct: 1, turnLookback: 10, rebuyBelowAvgPct: 3 };
-export const RANGE_VERSION = "paper-autopilot-range-6m-turn/3.0.0";
+  buyZonePct: 5, turnPct: 1, turnLookback: 10, rebuyBelowAvgPct: 3, bigDropPct: 8, dropLookback: 20, calmBuy: "near" };
+export const RANGE_VERSION = "paper-autopilot-range-6m-bigdrop-turn/4.0.0";
 
 export interface RangeInput {
   closes: readonly number[]; price: number; quantity: number; cost: number; cash: number; minOrder: number;
@@ -56,6 +64,26 @@ export function turnState(closes: readonly number[], price: number, o: Pick<Rang
   return { bottom, rise, turned: previous !== undefined && price > previous && rise * 100 >= (o.turnPct ?? 0) };
 }
 
+/**
+ * Whether the entry timing allows a purchase now (the price is already in the buy zone). After a big
+ * fall it must have turned up; in normal ups and downs (`calmBuy`) it must be within `nearPct` of the
+ * low. One place for the order, the boss, the council and the team meeting.
+ */
+export function entryCheck(closes: readonly number[], price: number, low: number, o: RangeOptions = RANGE_DEFAULTS) {
+  const t = turnState(closes, price, o);
+  const top = Math.max(price, ...closes.slice(-(o.dropLookback ?? 20)));
+  const drop = top > 0 ? 1 - t.bottom / top : 0;
+  const big = o.bigDropPct === undefined || drop * 100 >= o.bigDropPct;
+  const calm = !o.confirmBuy || big ? null : o.calmBuy ?? "skip";
+  const nearLow = low * (1 + o.nearPct / 100), turnAt = t.bottom * (1 + (o.turnPct ?? 0) / 100);
+  const previous = closes[closes.length - 1], falling = previous !== undefined && price <= previous;
+  const wait = !o.confirmBuy ? null
+    : calm === "skip" ? "CALM_SKIP" as const
+      : calm && price > nearLow ? "CALM_TOO_HIGH" as const
+        : (big || calm === "nearTurn") && !t.turned ? (falling ? "FALLING" as const : "NOT_TURNED" as const) : null;
+  return { ok: wait === null, wait, big, drop, bottom: t.bottom, turnAt, nearLow };
+}
+
 /** The stock's history near the low agrees with buying (or there is too little history to say). */
 export function historyAgrees(h: { samples: number; upShare: number; average: number } | null | undefined, o: RangeOptions = RANGE_DEFAULTS) {
   return !(o.minUpShare > 0 && h && h.samples >= 3 && (h.upShare < o.minUpShare || h.average <= 0));
@@ -79,23 +107,29 @@ export function rangeDecision(i: RangeInput, o: RangeOptions = RANGE_DEFAULTS): 
       return { action: "HOLD", ...base, reason: `perto da máxima, mas ${brl(i.price)} não paga o que custou (${brl(floor)} com taxas): segura` };
   }
   if (i.price <= buyBelow) {
-    if (o.confirmBuy) {
-      const t = turnState(i.closes, i.price, o);
-      if (!t.turned) return { action: "HOLD", ...base, reason: previous && i.price <= previous
-        ? `perto da mínima de ${months} meses, mas ainda caindo (${brl(i.price)}): espera a queda parar e virar para cima`
-        : `perto da mínima e parou de cair, mas ainda não virou: compra quando passar de ${brl(t.bottom * (1 + (o.turnPct ?? 0) / 100))} subindo` };
-    }
+    const entry = entryCheck(i.closes, i.price, low, o);
+    if (!entry.ok) return { action: "HOLD", ...base, reason: entryReason(entry, i.price, months) };
     if (i.quantity > 0 && o.rebuyBelowAvgPct !== undefined && i.price > (i.cost / i.quantity) * (1 - o.rebuyBelowAvgPct / 100))
       return { action: "HOLD", ...base, reason: `já tem ${i.quantity} (preço médio ${brl(i.cost / i.quantity)}): compra mais só se cair abaixo de ${brl((i.cost / i.quantity) * (1 - o.rebuyBelowAvgPct / 100))} e virar de novo` };
     const h = i.history;
     if (h && !historyAgrees(h, o))
       return { action: "HOLD", ...base, reason: `perto da mínima, mas nas ${h.samples} vezes anteriores subiu só em ${Math.round(h.upShare * 100)}% (média ${(h.average * 100).toFixed(0)}%): não vale a pena` };
     if (i.cash < i.minOrder) return { action: "HOLD", ...base, reason: `preço bom (${brl(i.price)}, perto da mínima de ${brl(low)}), mas falta dinheiro para comprar` };
-    return { action: "BUY", ...base, reason: o.confirmBuy
-      ? `${brl(i.price)} ainda está perto da mínima de ${months} meses (${brl(low)}), a queda parou e já virou para cima: compra na baixa`
-      : `${brl(i.price)} está perto da mínima de ${months} meses (${brl(low)}): compra na baixa` };
+    return { action: "BUY", ...base, reason: o.confirmBuy && entry.big
+      ? `${brl(i.price)} ainda está perto da mínima de ${months} meses (${brl(low)}), depois de uma queda grande que já virou para cima: compra na baixa`
+      : `${brl(i.price)} está encostado na mínima de ${months} meses (${brl(low)}): compra na baixa` };
   }
   return { action: "HOLD", ...base, reason: i.quantity > 0
     ? `segurando: vende perto da máxima (a partir de ${brl(sellAbove)}); compra mais se cair até ${brl(buyBelow)}`
     : `esperando o preço cair até perto da mínima de ${months} meses: compra a partir de ${brl(buyBelow)} (agora ${brl(i.price)})` };
+}
+
+/** Plain-language reason for waiting, from entryCheck. */
+export function entryReason(e: ReturnType<typeof entryCheck>, price: number, months = 6) {
+  const fell = `${(e.drop * 100).toFixed(0)}%`;
+  if (e.wait === "CALM_SKIP") return `perto da mínima, mas caiu só ${fell} (oscilação normal): compra depois de uma queda grande que vire para cima`;
+  if (e.wait === "CALM_TOO_HIGH") return `oscilação normal (caiu ${fell}): sem queda grande, compra só encostado na mínima, até ${brl(e.nearLow)}`;
+  if (e.wait === "FALLING") return `perto da mínima de ${months} meses depois de cair ${fell}, mas ainda caindo (${brl(price)}): espera a queda parar e virar para cima`;
+  if (e.wait === "NOT_TURNED") return `caiu ${fell} e parou de cair, mas ainda não virou: compra quando passar de ${brl(e.turnAt)} subindo`;
+  return "pode comprar";
 }

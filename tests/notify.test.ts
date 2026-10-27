@@ -30,3 +30,22 @@ describe("e-mail notifications (Resend)", () => {
     expect(await sendEmail("x", "y", vi.fn<typeof fetch>().mockRejectedValue(new Error("offline")))).toBe(false);
   });
 });
+
+describe("WhatsApp notifications (CallMeBot)", () => {
+  it("stays silent without the owner's number and key", async () => {
+    const { sendWhatsApp } = await import("@/lib/notify");
+    const send = vi.fn<typeof fetch>();
+    expect(await sendWhatsApp("x", send)).toBe(false);
+    vi.stubEnv("CALLMEBOT_PHONE", "not-a-phone"); vi.stubEnv("CALLMEBOT_APIKEY", "123");
+    expect(await sendWhatsApp("x", send)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("sends the text to the owner's number", async () => {
+    const { sendWhatsApp } = await import("@/lib/notify");
+    vi.stubEnv("CALLMEBOT_PHONE", "+5511999990000"); vi.stubEnv("CALLMEBOT_APIKEY", "123456");
+    const send = vi.fn<typeof fetch>(async () => new Response("ok"));
+    expect(await sendWhatsApp("ATLAS: Ana comprou 1 ITUB4", send)).toBe(true);
+    const url = new URL(String(send.mock.calls[0][0]));
+    expect([url.host, url.searchParams.get("phone"), url.searchParams.get("text")]).toEqual(["api.callmebot.com", "+5511999990000", "ATLAS: Ana comprou 1 ITUB4"]);
+  });
+});

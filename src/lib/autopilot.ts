@@ -68,7 +68,9 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     filled = z.object({ filled: z.number() }).loose().parse(settled).filled;
   }
   // A suspected split/grouping would fake a gain or loss on the virtual position: pause instead.
-  const corporateAction = corporateActionSuspected(input.history, quote.price, events.knownDates);
+  const stored = await loadBars(db, input.ticker, 5).catch(() => []);
+  const corporateAction = corporateActionSuspected(input.history, quote.price, events.knownDates,
+    stored.map((b) => ({ date: b.trade_date, close: Number(b.close) })));
   if (corporateAction) return { filled, corporateActions: events.applied, status: "CORPORATE_ACTION_SUSPECTED" as const, reason: corporateAction };
   const vitals = z.object({ lifePct: z.coerce.number(), eliminated: z.boolean() }).loose().parse(rows(
     await db.rpc("paper_mark_agent", { p_owner_id: owner, p_agent_id: agentId, p_price: price,

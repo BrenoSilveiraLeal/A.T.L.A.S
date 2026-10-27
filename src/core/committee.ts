@@ -1,7 +1,7 @@
 import type { ContextAction } from "./context";
 import type { HealthLevel } from "./company-health";
 import { forecastOpinion, type ConsensusView } from "./forecast";
-import { historyAgrees, RANGE_DEFAULTS, turnState } from "./range";
+import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS } from "./range";
 
 /**
  * The council (owner, 24–25/10/2026: "debater com outras IAs sobre o risco, sobre valores, sobre
@@ -52,8 +52,8 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
   const sellNow = r !== null && price !== null && i.holding > 0 && price >= r.sellAbove && floor !== null && price >= floor;
   const zone = r !== null && price !== null && price <= r.buyBelow;
   const badHistory = zone && !historyAgrees(i.history);
-  const turn = zone && i.recent?.length ? turnState(i.recent, price!) : null;
-  const falling = turn !== null && !turn.turned;
+  const entry = zone && i.recent?.length ? entryCheck(i.recent, price!, r.low) : null;
+  const falling = entry !== null && !entry.ok;
   const average = i.holding > 0 ? i.averageCost : null;
   const rebuyBelow = average && RANGE_DEFAULTS.rebuyBelowAvgPct !== undefined ? average * (1 - RANGE_DEFAULTS.rebuyBelowAvgPct / 100) : null;
   const holdingEnough = zone && rebuyBelow !== null && price! > rebuyBelow;
@@ -62,7 +62,7 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
   const strategy: Opinion = !r || price === null ? { role: "Estratégia", vote: "NEUTRO", text: "Ainda calculando a mínima e a máxima de 6 meses." }
     : sellNow ? { role: "Estratégia", vote: "NEUTRO", text: `${brl(price)} chegou perto da máxima de 6 meses (${brl(r.high)}) e acima do que pagou: hora de vender na alta.` }
       : badHistory ? { role: "Estratégia", vote: "NEUTRO", text: `Perto da mínima, mas nas ${i.history!.samples} vezes anteriores subiu só em ${Math.round(i.history!.upShare * 100)}% (média ${(i.history!.average * 100).toFixed(0)}%): não vale a pena.` }
-      : zone && !badHistory && falling ? { role: "Estratégia", vote: "NEUTRO", text: `Perto da mínima de 6 meses (${brl(r.low)}), mas ainda caindo: compra quando virar para cima, passando de ${brl(turn!.bottom * (1 + (RANGE_DEFAULTS.turnPct ?? 0) / 100))}.` }
+      : zone && !badHistory && falling ? { role: "Estratégia", vote: "NEUTRO", text: `Perto da mínima de 6 meses (${brl(r.low)}): ${entryReason(entry!, price)}.` }
       : holdingEnough ? { role: "Estratégia", vote: "NEUTRO", text: `Já tem ${i.holding}: compra mais só se cair abaixo de ${brl(rebuyBelow!)} e virar de novo.` }
       : nearLow ? (canBuy
         ? { role: "Estratégia", vote: "A_FAVOR", text: `${brl(price)} está perto da mínima de 6 meses (${brl(r.low)}) e já virou para cima: hora de comprar na baixa.` }
@@ -77,7 +77,7 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
   const summary = verdict === "COMPRAR" ? "Decisão: comprar na baixa."
     : verdict === "VENDER_NA_ALTA" ? "Decisão: vender na alta."
       : nearLow && canBuy && vetoes.length ? `Decisão: não comprar agora (${vetoes.map((v) => v.role).join(" e ")} contra).`
-        : falling ? "Decisão: esperar a queda virar para cima."
+        : falling ? (entry!.big ? "Decisão: esperar a queda virar para cima." : "Decisão: esperar encostar na mínima.")
         : verdict === "SEGURAR" ? "Decisão: segurar até chegar perto da máxima." : "Decisão: esperar o preço cair.";
   return { opinions: [risk, balance, prediction, strategy], verdict, summary };
 }

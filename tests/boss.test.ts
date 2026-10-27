@@ -47,6 +47,23 @@ describe("buys only after the fall turns into a rise (owner, 26/10/2026)", () =>
   });
 });
 
+describe("the turn matters only after a big fall (owner, 26/10/2026)", () => {
+  // Normal ups and downs near the low: 52 → 49 is only a 6% dip, below the 8% big-fall mark.
+  const calm = [...flat(60, 50), ...flat(54, 52), 51, 50, 49.5, 49];
+  const at = (price: number) => rangeDecision({ closes: calm, price, quantity: 0, cost: 0, cash: 100, minOrder: 40 });
+  it("in normal ups and downs it buys only right at the low, without waiting for a turn", () => {
+    expect(at(49.5).action).toBe("BUY"); // low 49, within 2%
+    expect(at(48.9).action).toBe("BUY"); // still falling a little, but it was no big fall
+    expect([at(50.5).action, at(50.5).reason]).toEqual(["HOLD", expect.stringContaining("oscilação normal")]);
+  });
+  it("after a big fall it waits for the turn", () => {
+    const crash = [...flat(60, 50), ...flat(54, 60), 52, 47, 44, 43];
+    const d = (price: number) => rangeDecision({ closes: crash, price, quantity: 0, cost: 0, cash: 100, minOrder: 40 });
+    expect([d(42.5).action, d(42.5).reason]).toEqual(["HOLD", expect.stringContaining("ainda caindo")]);
+    expect(d(43.6).action).toBe("BUY");
+  });
+});
+
 describe("the boss compares the six stocks", () => {
   it("gives the whole pot to the only stock in its buy zone, so it can buy several shares", () => {
     expect(allocatePot(100, [{ agentId: "joao", price: 30, fee: 0.99, score: 0.02 }])).toEqual({ joao: 100 });

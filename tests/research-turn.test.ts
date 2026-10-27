@@ -15,12 +15,15 @@ const MONTHLY = 100;
 const PERIODS: [string, string, string][] = [["2023-01 a 2026-10", "0000", "9999"], ["2023–2024", "2023-01-01", "2024-12-31"], ["2025–2026", "2025-01-01", "2026-12-31"]];
 const pct = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%`;
 const variants: [string, SimRule][] = [
-  ["Atual: compra até 2% acima da mínima de 6 meses", { kind: "range", options: RANGE_DEFAULTS }],
-  ["Atual + espera subir 1 dia", { kind: "range", options: { ...RANGE_DEFAULTS, confirmBuy: true } }],
-  ...[3, 5, 8, 10].flatMap((zone) => [1, 2, 3].flatMap((turn) => [undefined, 3].map((rebuy): [string, SimRule] => [
-    `Virada: até ${zone}% acima da mínima, subiu ${turn}% do fundo de 10 dias${rebuy ? `, recompra só ${rebuy}% abaixo do preço médio` : ""}`,
-    { kind: "range", options: { ...RANGE_DEFAULTS, confirmBuy: true, buyZonePct: zone, turnPct: turn, turnLookback: 10, rebuyBelowAvgPct: rebuy } },
-  ]))),
+  ["Regra de 25/10: compra até 2% acima da mínima de 6 meses, sem esperar virar",
+    { kind: "range", options: { window: 126, nearPct: 2, minGainPct: 3, confirmBuy: false, confirmSell: true, minUpShare: 0.6 } }],
+  ["Virada sempre (até 5% da mínima, +1% do fundo)", { kind: "range", options: { ...RANGE_DEFAULTS, bigDropPct: undefined } }],
+  ["EM USO: virada só após queda de 8% em 20 pregões; sem ela compra até 2% da mínima", { kind: "range", options: RANGE_DEFAULTS }],
+  // Owner, 26/10/2026: the turn only after a big fall; without one, normal ups and downs.
+  ...[8, 12, 15, 20].flatMap((drop) => (["skip", "near", "nearTurn"] as const).map((calm): [string, SimRule] => [
+    `Virada só após queda de ${drop}% em 20 pregões; sem ela ${calm === "skip" ? "não compra" : calm === "near" ? "compra até 2% da mínima" : "compra até 2% da mínima se virar"}`,
+    { kind: "range", options: { ...RANGE_DEFAULTS, bigDropPct: drop, dropLookback: 20, calmBuy: calm } },
+  ])),
 ];
 
 async function retry<T>(fn: () => Promise<T>): Promise<T> {

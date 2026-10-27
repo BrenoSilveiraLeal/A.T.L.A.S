@@ -8,17 +8,18 @@ import type { OfficeZone } from "@/core/office";
 import type { Vote } from "@/core/committee";
 import { lookFor, type PersonLook } from "@/core/people";
 import { companyProfile } from "@/core/context";
+import { meetingDue } from "@/core/meeting";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
 
 /**
  * 3D office in the style of a modern tech office. Every agent is a person (look from
  * core/people) labelled with name, stock, company, holding and today's trend.
- * Layout (owner, 26/10/2026: "remodelagem mais moderna"): six council rooms along the back wall
- * with the boss's office in the middle; three islands of four facing desks in the middle; the
+ * Layout (owner, 26/10/2026: "remodelagem mais moderna"): along the back wall four council rooms,
+ * the boss's office and the team meeting room, whose front wall carries the market room screen; three islands of four facing desks in the middle; the
  * market room with sofas around the chart wall on the right; reception, TV lounge and the
  * snack bar with the pool table along the front.
  * - Work: one desk per agent with the real candles of its stock and the price now.
- * - Six council rooms with four specialists each (Risco, Balanço, Estratégia, Previsão): an
+ * - Four council rooms with four specialists each (Risco, Balanço, Estratégia, Previsão): an
  *   analysing agent walks in and the room shows the debate and the chart.
  * - The boss's office: the boss keeps the money and passes it to the agents; the wall shows the
  *   money at Genial and what each agent received.
@@ -27,6 +28,9 @@ import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
  *   market room. Labels are compact (name, stock, a status dot, today's move); the details show
  *   on hover or when the person is selected.
  * - Sound on: the beep plus a quiet office ambience (murmur, typing, a phone now and then).
+ * - Team meeting (17:10–17:40 on trading days): everyone sits at the long table and each agent
+ *   says its part of the real minutes (core/meeting.ts); the room screen shows the last minutes.
+ * - Pool: real balls on the table, players take turns and the balls roll, bounce and drop.
  * - When an agent goes back to work its computer beeps and flashes and it walks to the desk.
  * Walls work like The Sims "cutaway". Falls back to the 2D map without WebGL.
  */
@@ -35,7 +39,7 @@ type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch" | "cue" | "look
 interface Slot { pos: V2; face: number; pose: Pose; route: V2[] }
 interface Person {
   group: THREE.Group; rig: THREE.Group; head: THREE.Group; hips: THREE.Group[]; knees: THREE.Group[];
-  shoulders: THREE.Group[]; elbows: THREE.Group[]; mug: THREE.Group; cue: THREE.Group;
+  shoulders: THREE.Group[]; elbows: THREE.Group[]; mug: THREE.Group; cue: THREE.Group; phone: THREE.Group;
 }
 interface Walker extends Person {
   label: CSS2DObject; labelEl: HTMLDivElement; bubble: CSS2DObject; bubbleEl: HTMLDivElement;
@@ -44,6 +48,7 @@ interface Walker extends Person {
   rest: { activity: RestActivity; spot: number; timer: number } | null;
 }
 type Money = { deposited: number; free: number } | null;
+export type Meeting = { day: string; lines: { agentId: string; name: string; text: string }[]; summary: string[]; lessons: string[]; suggestions: string[] };
 type RestActivity = "KITCHEN" | "TV" | "MARKET" | "POOL" | "STROLL";
 
 const S = 1.25; // people are drawn a little larger than life so they read well from above
@@ -60,18 +65,38 @@ const ISLANDS: V2[] = [[-17.5, 0.4], [-8.5, 0.4], [0.5, 0.4]];
 const DESKS: DeskSpot[] = ISLANDS.flatMap(([cx, cz]) => ([[-1, -1], [1, -1], [-1, 1], [1, 1]] as const)
   .map(([side, dir]): DeskSpot => ({ x: cx + side * 1.25, z: cz + dir * 0.55, dir, lane: cx + side * 3.2 })));
 const seatOf = (d: DeskSpot): V2 => [d.x, d.z + d.dir * 1.05];
-// Six council rooms: three each side of the boss's office (x −4 to 4).
-const COUNCILS = [[-24, -17.33], [-17.33, -10.67], [-10.67, -4], [4, 10.67], [10.67, 17.33], [17.33, 24]]
-  .map(([x1, x2]) => ({ x1, x2, table: [(x1 + x2) / 2, -10.4] as V2, door: x1 < 0 ? x2 - 1.4 : x1 + 1.4 }));
+// Back wall, left to right (owner, 26/10/2026): four council rooms (each serving three agents), the
+// boss's office (x 2.67 to 10.67) and the team meeting room (x 10.67 to 24).
+const COUNCILS = [[-24, -17.33], [-17.33, -10.67], [-10.67, -4], [-4, 2.67]]
+  .map(([x1, x2]) => ({ x1, x2, table: [(x1 + x2) / 2, -10.4] as V2, door: x2 - 1.4 }));
 const SPECIALIST_SHIRTS = ["#f28c28", "#2f6fd6", "#22a06b", "#9b6bff"]; // Risco, Balanço, Estratégia, Previsão
 // Snack bar (front right): two high tables and the counter along the right wall.
 const KITCHEN_TABLES: V2[] = [[16.4, 7.6], [16.4, 11.4]];
 const BAR_SPOTS: V2[] = [[21.5, 7.4], [21.5, 8.8], [21.5, 10.2], [21.5, 11.6]];
 const POOL_TABLE: V2 = [11.6, 11];
-// Market room: two sofas facing the chart wall and one on each side.
-const MARKET_SEATS: [V2, number][] = [[[14.2, 2.8], Math.PI], [[15.6, 2.8], Math.PI], [[17.4, 2.8], Math.PI], [[18.8, 2.8], Math.PI],
-  [[12.2, -0.9], Math.PI / 2], [[12.2, 0.5], Math.PI / 2], [[20.8, -0.9], -Math.PI / 2], [[20.8, 0.5], -Math.PI / 2]];
+// Market room: the chart screen hangs on the front wall of the meeting room (owner, 26/10/2026); a
+// long sofa faces it and two sofas close the sides, around a coffee table.
+const MARKET_SEATS: [V2, number][] = [[[15.8, 1.4], Math.PI], [[16.8, 1.4], Math.PI], [[17.8, 1.4], Math.PI], [[18.8, 1.4], Math.PI],
+  [[13.6, -2.3], Math.PI / 2], [[13.6, -0.9], Math.PI / 2], [[21.0, -2.3], -Math.PI / 2], [[21.0, -0.9], -Math.PI / 2]];
+const MARKET_LANE = 22.4;
 const LOUNGE_LANE = 9;
+const BOSS_X = 6.67;
+// Team meeting room: long table, five chairs each side and one at each end; the door is where the
+// fifth council room's door was.
+const MEETING_TABLE: V2 = [17.3, -10];
+const MEETING_DOOR = 12.07;
+const MEETING_SEATS: { pos: V2; face: number }[] = [
+  ...[13.3, 15.3, 17.3, 19.3, 21.3].map((x) => ({ pos: [x, -8.55] as V2, face: Math.PI })),
+  ...[13.3, 15.3, 17.3, 19.3, 21.3].map((x) => ({ pos: [x, -11.45] as V2, face: 0 })),
+  { pos: [11.6, -10], face: Math.PI / 2 }, { pos: [23.0, -10], face: -Math.PI / 2 }];
+function meetingSlot(i: number): Slot {
+  const { pos, face } = MEETING_SEATS[i % MEETING_SEATS.length], [x] = pos;
+  const door: V2[] = [[MEETING_DOOR, CORRIDOR_Z], [MEETING_DOOR, -7.2]];
+  const route: V2[] = face === Math.PI ? [...door, [x, -7.6]]
+    : face === 0 ? [...door, [23.5, -7.2], [23.5, -12.5], [x, -12.5]]
+      : [...door, [x, -7.2]];
+  return { pos, face, pose: "talk", route };
+}
 const TV_SEATS: [V2, number][] = [[[-6.1, 10.6], Math.PI], [[-3.9, 10.6], Math.PI], [[0.1, 10.6], Math.PI], [[2.3, 10.6], Math.PI],
   [[-8.6, 9.4], Math.PI * 0.78], [[4.8, 9.4], -Math.PI * 0.78]];
 const VOTE_LABEL: Record<Vote, string> = { A_FAVOR: "a favor", CONTRA: "contra", NEUTRO: "neutro" };
@@ -132,8 +157,8 @@ function restSlot(activity: RestActivity, spot: number): Slot {
   if (activity === "MARKET") {
     // Seated on the market room sofas, looking at the charts and chatting.
     const [[x, z], face] = MARKET_SEATS[spot % MARKET_SEATS.length];
-    const inside: V2 = [x < 13 ? 13.4 : x > 20 ? 19.6 : x, -2.2];
-    return { pos: [x, z], face, pose: "watch", route: [[10, CORRIDOR_Z], [10, -2.2], inside] };
+    const via: V2[] = face === Math.PI ? [[x, 0.4]] : [[face === Math.PI / 2 ? 14.6 : 20, 0.4], [face === Math.PI / 2 ? 14.6 : 20, z]];
+    return { pos: [x, z], face, pose: "watch", route: [[MARKET_LANE, CORRIDOR_Z], [MARKET_LANE, 0.4], ...via] };
   }
   if (activity === "POOL") {
     const [px, pz] = POOL_TABLE;
@@ -151,12 +176,18 @@ function restSlot(activity: RestActivity, spot: number): Slot {
 const hex = (c: string | number) => new THREE.Color(c);
 const matte = (c: string | number, rough = 0.75) => new THREE.MeshStandardMaterial({ color: hex(c), roughness: rough, metalness: 0.02 });
 
-/** A stylised person (origin at the feet, facing +z); `rig` moves down when seated. */
+/**
+ * A person (origin at the feet, facing +z); `rig` moves down when seated. Owner, 26/10/2026: "mais
+ * humanos, mais detalhes": ears, nose, eyes with whites, eyebrows, collar, belt, hands, optional
+ * glasses and jacket; a coffee mug, a pool cue and a phone appear in the hands when used.
+ */
 function makePerson(look: PersonLook): Person {
   const group = new THREE.Group(), rig = new THREE.Group();
   group.add(rig);
   const skin = matte(look.skin, 0.6), hair = matte(look.hair, 0.85), shirt = matte(look.shirt, 0.8), pants = matte(look.pants, 0.85);
-  const shoe = matte("#22252b", 0.5), dark = matte("#16181d", 0.3), lips = matte("#a2574b", 0.6);
+  const jacket = look.jacket ? matte(look.jacket, 0.75) : shirt;
+  const shoe = matte("#22252b", 0.4), dark = matte("#16181d", 0.3), lips = matte("#a2574b", 0.6), whites = matte("#f7f4ef", 0.4);
+  const skinShade = matte(new THREE.Color(look.skin).multiplyScalar(0.85).getStyle(), 0.6);
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = rig) => {
     const mesh = new THREE.Mesh(geometry, material); mesh.position.set(x, y, z); mesh.castShadow = true; parent.add(mesh); return mesh;
   };
@@ -164,48 +195,79 @@ function makePerson(look: PersonLook): Person {
   const hips: THREE.Group[] = [], knees: THREE.Group[] = [], shoulders: THREE.Group[] = [], elbows: THREE.Group[] = [];
   for (const side of [-1, 1]) {
     const hip = new THREE.Group(); hip.position.set(side * 0.1, 0.92, 0); rig.add(hip); hips.push(hip);
-    add(new THREE.CapsuleGeometry(0.078, 0.3, 4, 10), pants, 0, -0.2, 0, hip);
+    add(new THREE.CapsuleGeometry(0.078, 0.3, 6, 12), pants, 0, -0.2, 0, hip);
     const knee = new THREE.Group(); knee.position.y = -0.42; hip.add(knee); knees.push(knee);
-    add(new THREE.CapsuleGeometry(0.066, 0.3, 4, 10), look.skirt ? skin : pants, 0, -0.2, 0, knee);
-    add(new THREE.BoxGeometry(0.11, 0.08, 0.25), shoe, 0, -0.44, 0.05, knee);
+    add(new THREE.CapsuleGeometry(0.064, 0.3, 6, 12), look.skirt ? skin : pants, 0, -0.2, 0, knee);
+    // Shoe: sole and a rounded toe.
+    add(new THREE.BoxGeometry(0.11, 0.035, 0.27), dark, 0, -0.47, 0.05, knee);
+    add(new THREE.CapsuleGeometry(0.05, 0.14, 4, 10), shoe, 0, -0.43, 0.06, knee).rotation.x = Math.PI / 2;
   }
-  add(new THREE.CapsuleGeometry(0.16, 0.12, 4, 12), pants, 0, 0.95, 0).scale.set(1.15, 1, 0.8);
-  if (look.skirt) add(new THREE.CylinderGeometry(0.19, 0.27, 0.36, 18), shirt, 0, 0.8, 0);
-  add(new THREE.CapsuleGeometry(0.17, 0.3, 6, 16), shirt, 0, 1.25, 0).scale.set(feminine ? 1.0 : 1.18, 1, 0.72);
-  add(new THREE.CylinderGeometry(0.05, 0.055, 0.1, 10), skin, 0, 1.5, 0);
+  add(new THREE.CapsuleGeometry(0.16, 0.12, 6, 14), pants, 0, 0.95, 0).scale.set(1.15, 1, 0.8);
+  if (look.skirt) add(new THREE.CylinderGeometry(0.19, 0.27, 0.36, 20), shirt, 0, 0.8, 0);
+  else {
+    add(new THREE.CylinderGeometry(0.188, 0.188, 0.04, 20), dark, 0, 1.05, 0).scale.set(1.12, 1, 0.8);
+    add(new THREE.BoxGeometry(0.05, 0.035, 0.02), matte("#c9a45c", 0.3), 0, 1.05, 0.15);
+  }
+  // Torso: shirt (or open jacket over the shirt) and the collar.
+  add(new THREE.CapsuleGeometry(0.17, 0.3, 8, 18), jacket, 0, 1.25, 0).scale.set(feminine ? 1.0 : 1.18, 1, 0.72);
+  if (look.jacket) add(new THREE.BoxGeometry(0.1, 0.42, 0.02), shirt, 0, 1.27, 0.122);
+  for (const side of [-1, 1]) add(new THREE.BoxGeometry(0.07, 0.05, 0.03), shirt, side * 0.045, 1.47, 0.07).rotation.z = side * 0.5;
+  add(new THREE.CylinderGeometry(0.048, 0.055, 0.1, 12), skin, 0, 1.5, 0);
   // Head on its own pivot (the neck) so it can turn to whoever is talking.
   const head = new THREE.Group(); head.position.y = 1.52; rig.add(head);
-  add(new THREE.SphereGeometry(0.13, 24, 18), skin, 0, 0.14, 0, head).scale.set(0.95, 1.08, 1);
+  add(new THREE.SphereGeometry(0.13, 32, 24), skin, 0, 0.14, 0, head).scale.set(0.93, 1.1, 1);
+  add(new THREE.SphereGeometry(0.085, 20, 14), skin, 0, 0.065, 0.035, head).scale.set(1, 0.8, 1.05);
   for (const side of [-1, 1]) {
-    add(new THREE.SphereGeometry(0.018, 8, 6), dark, side * 0.045, 0.16, 0.12, head);
-    add(new THREE.BoxGeometry(0.045, 0.01, 0.01), dark, side * 0.045, 0.195, 0.12, head);
+    add(new THREE.SphereGeometry(0.03, 10, 8), skinShade, side * 0.123, 0.14, -0.005, head).scale.set(0.5, 1, 0.8);
+    add(new THREE.SphereGeometry(0.02, 10, 8), whites, side * 0.044, 0.16, 0.112, head).scale.set(1.2, 0.8, 0.6);
+    add(new THREE.SphereGeometry(0.011, 8, 6), dark, side * 0.044, 0.16, 0.124, head);
+    add(new THREE.BoxGeometry(0.05, 0.011, 0.012), hair, side * 0.045, 0.197, 0.118, head).rotation.z = side * -0.12;
   }
-  add(new THREE.BoxGeometry(0.05, 0.012, 0.01), lips, 0, 0.09, 0.125, head);
-  const cap = (r: number) => add(new THREE.SphereGeometry(r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 1.9), hair, 0, 0.16, -0.012, head);
-  if (look.hairStyle === "curly") cap(0.16).scale.set(1, 0.85, 1);
-  else cap(look.hairStyle === "buzz" ? 0.134 : 0.14);
-  if (look.hairStyle === "long") add(new THREE.CapsuleGeometry(0.12, 0.2, 4, 12), hair, 0, -0.02, -0.075, head).scale.set(1.05, 1, 0.45);
-  if (look.hairStyle === "bun") add(new THREE.SphereGeometry(0.065, 12, 10), hair, 0, 0.3, -0.09, head);
-  if (look.hairStyle === "ponytail") add(new THREE.CapsuleGeometry(0.045, 0.2, 4, 8), hair, 0, 0.05, -0.17, head).rotation.x = 0.35;
+  add(new THREE.ConeGeometry(0.018, 0.05, 8), skinShade, 0, 0.125, 0.135, head).rotation.x = Math.PI / 2;
+  add(new THREE.BoxGeometry(0.05, 0.012, 0.01), lips, 0, 0.083, 0.124, head);
+  const cap = (r: number) => add(new THREE.SphereGeometry(r, 28, 14, 0, Math.PI * 2, 0, Math.PI / 1.9), hair, 0, 0.16, -0.012, head);
+  if (look.hairStyle === "curly") {
+    cap(0.158).scale.set(1, 0.88, 1);
+    for (let k = 0; k < 7; k++) add(new THREE.SphereGeometry(0.05, 10, 8), hair, Math.cos(k) * 0.11, 0.25 + (k % 2) * 0.03, Math.sin(k) * 0.09 - 0.02, head);
+  } else cap(look.hairStyle === "buzz" ? 0.134 : 0.14);
+  if (look.hairStyle === "long") {
+    add(new THREE.CapsuleGeometry(0.12, 0.22, 6, 14), hair, 0, -0.02, -0.075, head).scale.set(1.08, 1, 0.45);
+    for (const side of [-1, 1]) add(new THREE.CapsuleGeometry(0.035, 0.18, 4, 8), hair, side * 0.12, 0.04, 0.0, head);
+  }
+  if (look.hairStyle === "bun") add(new THREE.SphereGeometry(0.065, 14, 12), hair, 0, 0.3, -0.09, head);
+  if (look.hairStyle === "ponytail") add(new THREE.CapsuleGeometry(0.045, 0.2, 4, 10), hair, 0, 0.05, -0.17, head).rotation.x = 0.35;
+  if (look.glasses) {
+    for (const side of [-1, 1]) add(new THREE.TorusGeometry(0.026, 0.005, 6, 16), dark, side * 0.044, 0.16, 0.128, head);
+    add(new THREE.BoxGeometry(0.03, 0.006, 0.006), dark, 0, 0.165, 0.13, head);
+  }
   for (const side of [-1, 1]) {
     const shoulder = new THREE.Group(); shoulder.position.set(side * (feminine ? 0.22 : 0.25), 1.4, 0); rig.add(shoulder); shoulders.push(shoulder);
-    add(new THREE.CapsuleGeometry(0.056, 0.2, 4, 10), shirt, 0, -0.14, 0, shoulder);
+    add(new THREE.CapsuleGeometry(0.056, 0.2, 6, 12), jacket, 0, -0.14, 0, shoulder);
     const elbow = new THREE.Group(); elbow.position.y = -0.29; shoulder.add(elbow); elbows.push(elbow);
-    add(new THREE.CapsuleGeometry(0.047, 0.18, 4, 10), skin, 0, -0.12, 0, elbow);
-    add(new THREE.SphereGeometry(0.05, 10, 8), skin, 0, -0.26, 0, elbow);
+    add(new THREE.CapsuleGeometry(0.047, 0.16, 6, 12), look.jacket ? jacket : skin, 0, -0.1, 0, elbow);
+    if (look.jacket) add(new THREE.CylinderGeometry(0.044, 0.044, 0.03, 10), shirt, 0, -0.2, 0, elbow);
+    // Hand: palm and thumb.
+    add(new THREE.SphereGeometry(0.045, 12, 10), skin, 0, -0.26, 0.005, elbow).scale.set(0.85, 1.15, 0.7);
+    add(new THREE.CapsuleGeometry(0.013, 0.03, 4, 6), skin, side * -0.03, -0.24, 0.03, elbow).rotation.z = side * 0.6;
   }
-  // Coffee mug in the right hand (shown in the kitchen).
+  // Coffee mug in the right hand (snack bar and sofas).
   const mug = new THREE.Group(); mug.position.set(0, -0.3, 0.04); elbows[1].add(mug);
-  add(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 14), matte("#f4f1ec", 0.4), 0, 0, 0, mug);
+  add(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 16), matte("#f4f1ec", 0.4), 0, 0, 0, mug);
+  add(new THREE.TorusGeometry(0.025, 0.007, 6, 12), matte("#f4f1ec", 0.4), 0.05, 0, 0, mug).rotation.y = Math.PI / 2;
+  add(new THREE.CircleGeometry(0.04, 14), matte("#4a2c1a", 0.3), 0, 0.051, 0, mug).rotation.x = -Math.PI / 2;
   mug.visible = false;
   // Pool cue held in the right hand (shown at the pool table).
   const cue = new THREE.Group(); cue.position.set(0, -0.26, 0); elbows[1].add(cue);
   const stick = add(new THREE.CylinderGeometry(0.012, 0.022, 1.3, 8), matte("#c89b62", 0.5), 0, 0, 0.5, cue); stick.rotation.x = Math.PI / 2.2;
   cue.visible = false;
+  // Phone in the left hand: a call to the broker or a look at the app.
+  const phone = new THREE.Group(); phone.position.set(0, -0.29, 0.03); elbows[0].add(phone);
+  add(new THREE.BoxGeometry(0.05, 0.1, 0.01), dark, 0, 0, 0, phone);
+  phone.visible = false;
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.32, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.012; group.add(shadow);
   group.scale.setScalar(S);
-  return { group, rig, head, hips, knees, shoulders, elbows, mug, cue };
+  return { group, rig, head, hips, knees, shoulders, elbows, mug, cue, phone };
 }
 
 /** Price now and change against the previous close (green rising, red falling). */
@@ -393,18 +455,21 @@ function beep(ctx: AudioContext | null) {
   });
 }
 
-export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, selected, onSelect }: {
+export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, selected, onSelect, meeting = null }: {
   agents: OfficeAgent[]; boss: Money;
+  /** Latest end-of-day meeting minutes (team_meetings). */
+  meeting?: Meeting | null;
   /** What the boss's assistant reports when he walks to the boss (best stock outside the team). */
   assistantTip?: string;
   tvHeadline: { title: string; source: string } | null; tvLines: [string, string, string][];
   selected: string | null; onSelect: (id: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const api = useRef<{ sync: (agents: OfficeAgent[], selected: string | null, boss: Money) => void;
+  const api = useRef<{ sync: (agents: OfficeAgent[], selected: string | null, boss: Money, meeting: Meeting | null) => void;
     tv: (h: typeof tvHeadline, l: typeof tvLines) => void; reset: () => void; sound: (on: boolean) => void; tip: (text: string) => void } | null>(null);
   const select = useRef(onSelect);
   const [failed, setFailed] = useState(false);
+  const [help, setHelp] = useState(false);
   const [sound, setSound] = useState(() => { try { return localStorage.getItem("atlas-office-sound") !== "off"; } catch { return true; } });
   useEffect(() => { select.current = onSelect; }, [onSelect]);
 
@@ -509,9 +574,12 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     wall(-24, 14, -21.5, 14, H, paint, true, [0, 1]);
     wall(-17, 14, 24, 14, H, paint, true, [0, 1]);
     const accents = ["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"];
-    [-17.33, -10.67, -4, 4, 10.67, 17.33].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
+    [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
     for (const r of COUNCILS) { glassWall(r.x1 + 0.1, -6, r.door - 0.8, -6); glassWall(r.door + 0.8, -6, r.x2 - 0.1, -6); }
-    glassWall(-3.9, -6, -0.8, -6); glassWall(0.8, -6, 3.9, -6);
+    glassWall(2.77, -6, BOSS_X - 0.8, -6); glassWall(BOSS_X + 0.8, -6, 10.57, -6);
+    // Meeting room front: glass by the door, then a solid wall that carries the market screen.
+    glassWall(10.77, -6, MEETING_DOOR - 0.8, -6);
+    box(24 - (MEETING_DOOR + 0.8), Hi, 0.2, (24 + MEETING_DOOR + 0.8) / 2, Hi / 2, -6, paint);
 
     // Room names are painted on each room's own screen or board (no floating signs that turn with the camera).
 
@@ -637,15 +705,15 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     };
 
     // The boss's office: desk facing the room, dashboard of the money on the wall behind.
-    box(2.6, 0.06, 1.2, 0, 0.95, -10.6, darkWood);
-    for (const dx of [-1.2, 1.2]) box(0.06, 0.92, 1.1, dx, 0.46, -10.6, metal);
-    box(0.9, 0.55, 0.04, 0, 1.35, -10.2, metal);
-    chair(0, -11.6, 0, "#2b2e34");
-    sofa(2.0, -2.3, -7.4, Math.PI, "#8c8274"); plant(-3.3, -13.2, 0.8);
+    box(2.6, 0.06, 1.2, BOSS_X, 0.95, -10.6, darkWood);
+    for (const dx of [-1.2, 1.2]) box(0.06, 0.92, 1.1, BOSS_X + dx, 0.46, -10.6, metal);
+    box(0.9, 0.55, 0.04, BOSS_X, 1.35, -10.2, metal);
+    chair(BOSS_X, -11.6, 0, "#2b2e34");
+    sofa(2.0, BOSS_X - 2.3, -7.4, Math.PI, "#8c8274"); plant(BOSS_X - 3.3, -13.2, 0.8);
     const bossScreen = canvasTexture(1000, 560);
-    const bossFrame = box(4.6, 2.6, 0.08, 0, 2.2, -13.85, metal);
+    const bossFrame = box(4.6, 2.6, 0.08, BOSS_X, 2.2, -13.85, metal);
     const bossTv = new THREE.Mesh(new THREE.PlaneGeometry(4.45, 2.45), new THREE.MeshBasicMaterial({ map: bossScreen.texture, toneMapped: false }));
-    bossTv.position.set(0, 2.2, -13.8); scene.add(bossTv);
+    bossTv.position.set(BOSS_X, 2.2, -13.8); scene.add(bossTv);
     backWall.items.push(bossFrame, bossTv);
     let bossKey = "";
     const drawBoss = (list: OfficeAgent[], cash: Money) => {
@@ -685,6 +753,64 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     }
     pouf(9.4, 13.2, "#d6336c", 0.5); pouf(14.2, 13.3, "#f2b33d", 0.5); pouf(19.0, 13.3, "#1fa3b8", 0.5);
 
+    // Pool balls: cue ball and seven coloured balls on the felt (table coordinates, metres).
+    const FELT = { x: 1.42, z: 0.67 }, BALL_R = 0.045;
+    const POCKETS: V2[] = [[-1.45, -0.7], [0, -0.72], [1.45, -0.7], [-1.45, 0.7], [0, 0.72], [1.45, 0.7]];
+    const balls = [0xffffff, 0xf2c014, 0x1f5fd6, 0xd62828, 0x6a2c91, 0xf07b2b, 0x1d8a4a, 0x111111].map((color) => {
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 16, 12), new THREE.MeshStandardMaterial({ color, roughness: 0.25, metalness: 0.05 }));
+      mesh.castShadow = true; scene.add(mesh);
+      return { mesh, x: 0, z: 0, vx: 0, vz: 0, potted: false };
+    });
+    const rack = () => {
+      balls[0].x = -0.8; balls[0].z = 0;
+      const spots: V2[] = [[0.55, 0], [0.63, -0.05], [0.63, 0.05], [0.71, -0.1], [0.71, 0], [0.71, 0.1], [0.79, -0.05]];
+      balls.forEach((b, k) => { if (k) [b.x, b.z] = spots[k - 1]; b.vx = b.vz = 0; b.potted = false; b.mesh.visible = true; });
+    };
+    rack();
+
+    // Team meeting room: long table, twelve chairs, the minutes on the wall screen.
+    {
+      const [mx, mz] = MEETING_TABLE;
+      box(9.4, 0.08, 2.2, mx, 0.95, mz, wood);
+      for (const dx of [-3.6, 0, 3.6]) box(0.5, 0.9, 0.5, mx + dx, 0.46, mz, metal);
+      MEETING_SEATS.forEach(({ pos, face }) => chair(pos[0], pos[1], face, "#3b3f47"));
+      plant(11.4, -13.2, 0.8); plant(23.3, -13.2, 0.8);
+    }
+    const meetingScreen = canvasTexture(1600, 520);
+    const meetingFrame = box(7.2, 2.4, 0.08, MEETING_TABLE[0], 2.0, -13.85, metal);
+    const meetingTv = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 2.25), new THREE.MeshBasicMaterial({ map: meetingScreen.texture, toneMapped: false }));
+    meetingTv.position.set(MEETING_TABLE[0], 2.0, -13.8); scene.add(meetingTv);
+    backWall.items.push(meetingFrame, meetingTv);
+    let meetingKey = "";
+    const drawMeeting = (m: Meeting | null, live: boolean) => {
+      const key = JSON.stringify([m?.day, live]);
+      if (key === meetingKey) return;
+      meetingKey = key;
+      const g = meetingScreen.g;
+      g.fillStyle = "#06121d"; g.fillRect(0, 0, 1600, 520); g.textBaseline = "top"; g.textAlign = "left";
+      g.fillStyle = "#ffc65c"; g.font = "bold 44px sans-serif";
+      g.fillText(live ? "SALA DE REUNIÕES · reunião de fim de dia agora" : "SALA DE REUNIÕES · reunião diária às 17h10", 30, 22);
+      if (!m) { g.fillStyle = "#8ea4ba"; g.font = "32px sans-serif"; g.fillText("A primeira reunião acontece no fim do próximo pregão.", 30, 110); }
+      else {
+        g.fillStyle = "#a9c0d6"; g.font = "28px sans-serif"; g.fillText(`Última reunião: ${m.day.split("-").reverse().join("/")}`, 30, 84);
+        const rows = [...m.summary, ...m.lessons, ...m.suggestions.slice(0, 2)];
+        g.font = "26px sans-serif";
+        let y = 130;
+        for (const row of rows) {
+          let line = "";
+          for (const word of `• ${row}`.split(" ")) {
+            if (g.measureText(`${line} ${word}`).width > 1520 && line) { g.fillStyle = "#e8f6ff"; g.fillText(line, 30, y); y += 34; line = `  ${word}`; }
+            else line = line ? `${line} ${word}` : word;
+            if (y > 470) break;
+          }
+          if (y > 470) break;
+          g.fillStyle = "#e8f6ff"; g.fillText(line, 30, y); y += 40;
+        }
+      }
+      meetingScreen.texture.needsUpdate = true;
+    };
+    drawMeeting(null, false);
+
     // Reception: logo wall, desk with the receptionist, waiting poufs.
     box(7.4, 3, 0.25, -19.5, 1.5, 6.2, matte("#f07b2b", 0.75));
     // Company logo painted on the front of the wall (owner: "só de um lado, como se fosse uma logo"),
@@ -718,23 +844,23 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     pouf(-2.9, 12.8, "#f2b33d"); pouf(0.4, 12.8, "#22a06b"); plant(-12.8, 12.6);
 
     // Market room and game corner.
-    const wallCanvas = canvasTexture(1800, 1000);
-    box(8.4, 4.8, 0.2, 16.5, 2.7, -3.6, metal);
-    const wallScreen = new THREE.Mesh(new THREE.PlaneGeometry(8.1, 4.5), new THREE.MeshBasicMaterial({ map: wallCanvas.texture, toneMapped: false }));
-    wallScreen.position.set(16.5, 2.7, -3.49); scene.add(wallScreen);
+    const wallCanvas = canvasTexture(2400, 820);
+    box(7.8, 2.75, 0.08, 17.3, 1.65, -5.86, metal);
+    const wallScreen = new THREE.Mesh(new THREE.PlaneGeometry(7.6, 2.6), new THREE.MeshBasicMaterial({ map: wallCanvas.texture, toneMapped: false }));
+    wallScreen.position.set(17.3, 1.65, -5.81); scene.add(wallScreen);
     // Sofas around the chart wall, where resting agents sit, chat and look at the charts.
-    sofa(3.2, 14.9, 2.8, Math.PI, "#2f6fd6"); sofa(3.2, 18.1, 2.8, Math.PI, "#2f6fd6");
-    sofa(2.8, 12.2, -0.2, Math.PI / 2, "#1fa3b8"); sofa(2.8, 20.8, -0.2, -Math.PI / 2, "#1fa3b8");
-    cyl(0.75, 0.75, 0.06, 16.5, 0.45, 0.2, white); cyl(0.08, 0.12, 0.42, 16.5, 0.21, 0.2, metal);
+    sofa(4.4, 17.3, 1.4, Math.PI, "#2f6fd6");
+    sofa(2.6, 13.6, -1.6, Math.PI / 2, "#1fa3b8"); sofa(2.6, 21.0, -1.6, -Math.PI / 2, "#1fa3b8");
+    cyl(0.42, 0.42, 0.06, 17.3, 0.45, -1.2, white); cyl(0.06, 0.1, 0.42, 17.3, 0.21, -1.2, metal);
     let wallKey = "";
     const drawWall = (list: OfficeAgent[]) => {
       const key = list.map((a) => `${a.ticker}:${a.chart?.last}:${a.chart?.bars.length}`).join("|");
       if (key === wallKey) return;
       wallKey = key;
-      wallCanvas.g.fillStyle = "#010810"; wallCanvas.g.fillRect(0, 0, 1800, 1000);
+      wallCanvas.g.fillStyle = "#010810"; wallCanvas.g.fillRect(0, 0, 2400, 820);
       wallCanvas.g.fillStyle = "#ffc65c"; wallCanvas.g.font = "bold 40px sans-serif"; wallCanvas.g.textBaseline = "middle"; wallCanvas.g.textAlign = "left";
       wallCanvas.g.fillText("SALA DO MERCADO · ações da equipe", 16, 34);
-      list.slice(0, 12).forEach((a, i) => drawChart(wallCanvas.g, 8 + (i % 4) * 448, 72 + Math.floor(i / 4) * 308, 440, 300, `${a.ticker} · ${a.name}`, a.chart, 0.6));
+      list.slice(0, 12).forEach((a, i) => drawChart(wallCanvas.g, 8 + (i % 6) * 398, 68 + Math.floor(i / 6) * 376, 390, 368, `${a.ticker} · ${a.name}`, a.chart, 0.6));
       wallCanvas.texture.needsUpdate = true;
     };
 
@@ -745,8 +871,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       m.position.set(x, y, z); m.rotation.y = turn; scene.add(m); onWall.items.push(m);
     };
     mural(9, 2.6, -23.88, 1.7, -0.5, Math.PI / 2, 7, leftWall);
-    mural(4.2, 2.2, 23.88, 1.9, 3.4, -Math.PI / 2, 21, rightWall);
-    mural(4.6, 0.8, 0, 3.1, -13.88, 0, 47, backWall);
+    mural(4.6, 0.8, BOSS_X, 3.1, -13.88, 0, 47, backWall);
     const bookshelf = (x: number, z: number, turn: number) => {
       const g = new THREE.Group();
       const frame = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.2, 0.45), darkWood); frame.position.y = 1.1; g.add(frame);
@@ -759,12 +884,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       g.position.set(x, 0, z); g.rotation.y = turn; scene.add(g);
     };
     bookshelf(-23.4, -4.2, Math.PI / 2); bookshelf(-23.4, 3.4, Math.PI / 2); bookshelf(23.4, -0.5, -Math.PI / 2);
+    mural(4.2, 2.2, 23.88, 1.9, 3.4, -Math.PI / 2, 21, rightWall);
     const floorLamp = (x: number, z: number) => {
       cyl(0.03, 0.03, 1.9, x, 0.95, z, metal); cyl(0.22, 0.22, 0.04, x, 0.02, z, metal);
       const shade = cyl(0.28, 0.36, 0.4, x, 2.0, z, matte("#fff6e5", 0.6));
       (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
     };
-    floorLamp(-10.6, 12.8); floorLamp(6.6, 12.8); floorLamp(23.2, -4.4); floorLamp(-22.6, 11.4);
+    floorLamp(-10.6, 12.8); floorLamp(6.6, 12.8); floorLamp(11, 4.6); floorLamp(-22.6, 11.4);
     // Coffee bar extras: menu board and a fruit bowl.
     const menu = canvasTexture(512, 256);
     menu.g.fillStyle = "#1b1e24"; menu.g.fillRect(0, 0, 512, 256); menu.g.fillStyle = "#ffc65c"; menu.g.font = "bold 44px sans-serif";
@@ -798,19 +924,21 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const SPEAKER: Record<string, number> = { Risco: 0, "Balanço": 1, "Estratégia": 2, "Previsão": 3 };
     const roomTalk = COUNCILS.map(() => ({ agentId: "", turn: 0, timer: 0 }));
     let roomAgents: (OfficeAgent | null)[] = COUNCILS.map(() => null);
+    // Staff show only the name; the role appears when the mouse is over it (owner, 26/10/2026).
     const tagged = (person: Person, title: string, subtitle = "") => {
-      const tag = plaque(title, subtitle, "plaque staff-plate"); tag.position.set(0, 2.05, 0); person.rig.add(tag); return tag;
+      const tag = plaque(title, subtitle, "plaque staff-plate"); tag.position.set(0, 2.05, 0); person.rig.add(tag);
+      tag.element.title = subtitle ? `${title}: ${subtitle}` : title; return tag;
     };
-    const bossPerson = makePerson({ presentation: "masculine", skin: "#d9a07a", hair: "#9a9a9a", hairStyle: "short", shirt: "#1f2a44", pants: "#1b1e24" });
-    bossPerson.group.position.set(0, 0, -11.6); scene.add(bossPerson.group);
+    const bossPerson = makePerson({ presentation: "masculine", skin: "#d9a07a", hair: "#9a9a9a", hairStyle: "short", shirt: "#f4f4f4", pants: "#1b1e24", jacket: "#1f2a44", glasses: true });
+    bossPerson.group.position.set(BOSS_X, 0, -11.6); scene.add(bossPerson.group);
     const bossTag = tagged(bossPerson, "Chefe", "cuida do dinheiro");
     staff.push({ person: bossPerson, pose: "type", phase: 7 });
     // The boss's assistant watches stocks outside the team (the list under the office).
-    box(1.3, 0.06, 0.7, 2.8, 0.95, -8.4, white); box(0.6, 0.4, 0.04, 2.8, 1.25, -8.7, metal);
+    box(1.3, 0.06, 0.7, BOSS_X + 2.8, 0.95, -8.4, white); box(0.6, 0.4, 0.04, BOSS_X + 2.8, 1.25, -8.7, metal);
     const assistant = makePerson({ presentation: "masculine", skin: "#c68863", hair: "#2b1a12", hairStyle: "curly", shirt: "#5c6bc0", pants: "#2d3142" });
-    const ASSIST_DESK: V2 = [2.8, -7.6];
+    const ASSIST_DESK: V2 = [BOSS_X + 2.8, -7.6];
     assistant.group.position.set(ASSIST_DESK[0], 0, ASSIST_DESK[1]); assistant.group.rotation.y = Math.PI; scene.add(assistant.group);
-    chair(2.8, -7.6, Math.PI, "#5c6bc0"); tagged(assistant, "Assistente", "vigia outras ações");
+    chair(BOSS_X + 2.8, -7.6, Math.PI, "#5c6bc0"); tagged(assistant, "Assistente", "vigia outras ações");
     const bubbleFor = (p: Person, y = 2.75) => {
       const el = document.createElement("div"); el.className = "speech-bubble"; el.hidden = true;
       const o = new CSS2DObject(el); o.position.set(0, y, 0); p.rig.add(o); return el;
@@ -880,10 +1008,15 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const releaseSpot = (activity: RestActivity, spot: number) => occupied[activity].delete(spot);
     const latest = new Map<string, OfficeAgent>();
     let chatTimer = 6;
-    const sync = (list: OfficeAgent[], sel: string | null, cash: Money) => {
+    let meetingNow = false, meetingData: Meeting | null = null, meetingTurn = 0, meetingTimer = 3;
+    const sync = (list: OfficeAgent[], sel: string | null, cash: Money, meeting: Meeting | null) => {
+      meetingData = meeting; meetingNow = meetingDue(new Date()).live;
+      drawMeeting(meeting, meetingNow);
       for (const a of list) latest.set(a.id, a);
       const counters: Partial<Record<OfficeZone, number>> = {};
       const inRoom: (OfficeAgent | null)[] = COUNCILS.map(() => null);
+      // Each agent has its own council room (by desk); when it is taken, the emptiest one.
+      const roomCount = COUNCILS.map(() => 0);
       for (const id of [...deskOf.keys()]) if (!list.some((a) => a.id === id)) deskOf.delete(id);
       list.forEach((agent, i) => {
         if (!deskOf.has(agent.id)) { const used = new Set(deskOf.values()); deskOf.set(agent.id, DESKS.findIndex((_, d) => !used.has(d))); }
@@ -903,11 +1036,21 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           people.set(agent.id, r);
         }
         const zone: OfficeZone = agent.zone === "OUT" ? "COFFEE" : agent.zone;
-        const index = counters[zone] ?? 0; counters[zone] = index + 1;
-        if (zone === "MEETING" && !inRoom[index % COUNCILS.length]) inRoom[index % COUNCILS.length] = agent;
-        if (!first && r.zone && REST_ZONES.includes(r.zone) && !REST_ZONES.includes(zone)) callToWork(r, agent, desk);
-        r.zone = zone;
-        if (REST_ZONES.includes(zone)) {
+        let index = counters[zone] ?? 0; counters[zone] = index + 1;
+        if (zone === "MEETING") {
+          const own = desk % COUNCILS.length;
+          const room = roomCount[own] === 0 ? own : roomCount.indexOf(Math.min(...roomCount));
+          index = room + COUNCILS.length * roomCount[room]; roomCount[room]++;
+          inRoom[room] ??= agent;
+        }
+        if (meetingNow) {
+          // End-of-day meeting: everyone at the long table.
+          if (r.rest) { releaseSpot(r.rest.activity, r.rest.spot); r.rest = null; }
+          r.zone = "MEETING";
+          setTarget(r, meetingSlot(i), `TEAM:${i}`, first);
+        } else if (!first && r.zone && REST_ZONES.includes(r.zone) && !REST_ZONES.includes(zone)) callToWork(r, agent, desk);
+        if (!meetingNow) r.zone = zone;
+        if (meetingNow) { /* seated above */ } else if (REST_ZONES.includes(zone)) {
           // Resting: keep the current activity; a newcomer starts in the kitchen or at the TV.
           if (!r.rest) {
             const activity: RestActivity = zone === "POOL" ? "TV" : "KITCHEN";
@@ -923,9 +1066,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         // Label (owner: "muito poluído, mas tem que ter essas informações"): one compact line with a
         // status dot, name, stock and today's move; company, holding and status on hover/selection.
         const { change } = quoteOf(agent.chart);
-        const status = agent.holding > 0 ? "own" : !agent.marketOpen ? "closed" : agent.debate?.verdict === "COMPRAR" ? "buy" : zone === "MEETING" ? "council" : "wait";
+        const status = agent.holding > 0 ? "own" : meetingNow ? "council" : !agent.marketOpen ? "closed" : agent.debate?.verdict === "COMPRAR" ? "buy" : zone === "MEETING" ? "council" : "wait";
         const statusText = agent.holding > 0 ? `${agent.holding} ${agent.holding === 1 ? "ação" : "ações"} · ${signed(agent.pnl)}`
-          : !agent.marketOpen ? "bolsa fechada" : agent.debate?.verdict === "COMPRAR" ? "vai comprar" : zone === "MEETING" ? "no conselho" : "esperando preço baixo";
+          : meetingNow ? "na reunião de fim de dia" : !agent.marketOpen ? "bolsa fechada" : agent.debate?.verdict === "COMPRAR" ? "vai comprar" : zone === "MEETING" ? "no conselho" : "esperando preço baixo";
         r.labelEl.className = `agent3d-label person compact ${tone(agent.pnl)} ${sel === agent.id ? "selected" : ""}`;
         r.labelEl.replaceChildren();
         const head = document.createElement("span"); head.className = "label-head";
@@ -989,7 +1132,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 
     const pose = (p: Person, kind: Pose | "walk", t: number, phase: number) => {
       const swing = reduced ? 0 : Math.sin(t * 7 + phase);
-      p.mug.visible = kind === "chat"; p.cue.visible = kind === "cue";
+      p.mug.visible = kind === "chat"; p.cue.visible = kind === "cue"; p.phone.visible = false;
+      p.shoulders.forEach((s) => (s.rotation.z = 0));
       const seated = kind === "sit" || kind === "type" || kind === "talk" || kind === "watch";
       p.rig.position.y = seated ? SEAT_Y / S - 0.92 : kind === "walk" ? Math.abs(swing) * 0.02 : 0;
       p.head.rotation.set(0, 0, 0);
@@ -1003,9 +1147,19 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       p.hips.forEach((h) => (h.rotation.x = seated ? -Math.PI / 2 : 0));
       p.knees.forEach((k) => (k.rotation.x = seated ? Math.PI / 2 : 0));
       if (kind === "type") {
+        // At the desk: mostly typing; now and then a call to the broker or a look at the colleague opposite.
+        const moment = reduced ? 0.5 : ((t / 40 + phase * 0.37) % 1);
         p.shoulders.forEach((s, i) => (s.rotation.x = -0.75 + (reduced ? 0 : Math.sin(t * 16 + phase + i) * 0.05)));
         p.elbows.forEach((e) => (e.rotation.x = -0.85));
         p.head.rotation.x = 0.12;
+        if (moment < 0.1) {
+          p.phone.visible = true;
+          p.shoulders[0].rotation.x = -0.45; p.shoulders[0].rotation.z = 0.35; p.elbows[0].rotation.x = -2.5;
+          p.head.rotation.x = 0; p.head.rotation.z = 0.12;
+        } else if (moment < 0.17) {
+          p.shoulders.forEach((s) => (s.rotation.x = -0.35)); p.elbows.forEach((e) => (e.rotation.x = -0.6));
+          p.head.rotation.x = -0.12; p.head.rotation.y = Math.sin(t * 0.8 + phase) * 0.3;
+        }
       } else if (kind === "talk") {
         // Council debate: one hand gestures now and then, the head turns between colleagues.
         const gesture = reduced ? 0 : Math.max(0, Math.sin(t * 1.1 + phase));
@@ -1035,6 +1189,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       } else if (kind === "watch") {
         p.shoulders.forEach((s) => (s.rotation.x = -0.35)); p.elbows.forEach((e) => (e.rotation.x = -0.9));
         p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.2 + phase) * 0.15;
+        // Half of them with a coffee on the sofa, a sip now and then.
+        if (Math.floor(phase * 3) % 2 === 0) {
+          const sip = reduced ? 0 : Math.max(0, Math.sin(t * 0.5 + phase) - 0.75) * 4;
+          p.mug.visible = true; p.shoulders[1].rotation.x = -0.55 - sip * 0.4; p.elbows[1].rotation.x = -1.3 - sip * 0.5; p.head.rotation.x = -sip * 0.15;
+        }
       } else {
         p.shoulders.forEach((s) => (s.rotation.x = seated ? -0.4 : (reduced ? 0 : Math.sin(t * 1.2 + phase) * 0.04)));
         p.elbows.forEach((e) => (e.rotation.x = seated ? -0.7 : -0.1));
@@ -1063,6 +1222,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       else { pos.x += (dx / dist) * step; pos.z += (dz / dist) * step; p.group.rotation.y = Math.atan2(dx, dz); }
     };
 
+    let shooter: Walker | null = null, shotAt = 0, shotDone = true, poolTurn = 0, poolWait = 1;
     const clock = new THREE.Clock();
     let frame = 0;
     const tick = () => {
@@ -1073,14 +1233,73 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           walk(r, r.path, reduced ? 40 : 2.4, dt);
           pose(r, "walk", t, r.phase);
           if (!r.path.length && r.slot) r.group.rotation.y = r.slot.face;
-        } else if (r.slot) pose(r, r.slot.pose, t, r.phase);
+        } else if (r.slot) {
+          // Pool: only the player whose turn it is leans in with the cue; the others wait holding theirs.
+          if (r.slot.pose === "cue") { pose(r, shooter === r && performance.now() < shotAt ? "cue" : "stand", t, r.phase); r.cue.visible = true; }
+          else pose(r, r.slot.pose, t, r.phase);
+        }
+      }
+      // Pool game: when the balls stop, the next player shoots the cue ball at a coloured ball.
+      {
+        const players = [...people.values()].filter((r) => r.rest?.activity === "POOL" && !r.path.length);
+        const moving = balls.some((b) => !b.potted && Math.hypot(b.vx, b.vz) > 0.01);
+        if (shooter && performance.now() >= shotAt && !shotDone) {
+          const cue = balls[0], targets = balls.filter((b, k) => k && !b.potted);
+          const target = targets[Math.floor(Math.random() * targets.length)];
+          if (target) {
+            const angle = Math.atan2(target.z - cue.z, target.x - cue.x) + (Math.random() - 0.5) * 0.12, speed = 1.4 + Math.random();
+            cue.vx = Math.cos(angle) * speed; cue.vz = Math.sin(angle) * speed;
+          }
+          shotDone = true;
+        }
+        if (!moving && performance.now() > shotAt + 600) {
+          if (balls[0].potted) { balls[0].potted = false; balls[0].mesh.visible = true; balls[0].x = -0.8; balls[0].z = 0; }
+          if (balls.filter((b, k) => k && !b.potted).length <= 1) rack();
+          poolWait -= dt;
+          if (players.length && poolWait <= 0) {
+            shooter = players[poolTurn++ % players.length]; shotAt = performance.now() + 1700; shotDone = false; poolWait = 2.5;
+            if (shooter.bubbleEl.hidden && Math.random() < 0.3) show(shooter.bubbleEl, ["Minha vez!", "Bola 3 na caçapa do canto.", "Essa é fácil..."][poolTurn % 3], 2);
+          }
+        }
+        for (let step = 0; step < 2; step++) {
+          const h = dt / 2;
+          for (const b of balls) {
+            if (b.potted) continue;
+            b.x += b.vx * h; b.z += b.vz * h;
+            const drag = Math.exp(-0.9 * h); b.vx *= drag; b.vz *= drag;
+            if (Math.hypot(b.vx, b.vz) < 0.02) b.vx = b.vz = 0;
+            if (Math.abs(b.x) > FELT.x) { b.x = Math.sign(b.x) * FELT.x; b.vx *= -0.8; }
+            if (Math.abs(b.z) > FELT.z) { b.z = Math.sign(b.z) * FELT.z; b.vz *= -0.8; }
+            if (POCKETS.some(([px, pz]) => Math.hypot(b.x - px, b.z - pz) < 0.09)) { b.potted = true; b.vx = b.vz = 0; b.mesh.visible = false; }
+          }
+          for (let a = 0; a < balls.length; a++) for (let c = a + 1; c < balls.length; c++) {
+            const p = balls[a], q = balls[c];
+            if (p.potted || q.potted) continue;
+            const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
+            if (d === 0 || d >= BALL_R * 2) continue;
+            const nx = dx / d, nz = dz / d, push = (BALL_R * 2 - d) / 2;
+            p.x -= nx * push; p.z -= nz * push; q.x += nx * push; q.z += nz * push;
+            const rel = (q.vx - p.vx) * nx + (q.vz - p.vz) * nz;
+            if (rel < 0) { p.vx += rel * nx; p.vz += rel * nz; q.vx -= rel * nx; q.vz -= rel * nz; }
+          }
+        }
+        for (const b of balls) b.mesh.position.set(POOL_TABLE[0] + b.x, 0.95 + BALL_R, POOL_TABLE[1] + b.z);
+      }
+      // End-of-day meeting: each agent says its part of the minutes, in turn.
+      if (meetingNow && meetingData?.lines.length) {
+        meetingTimer -= dt;
+        if (meetingTimer <= 0) {
+          meetingTimer = 5;
+          const line = meetingData.lines[meetingTurn++ % meetingData.lines.length], speaker = people.get(line.agentId);
+          if (speaker && !speaker.path.length) show(speaker.bubbleEl, line.text.length > 110 ? `${line.text.slice(0, 108)}…` : line.text, 4.8);
+        }
       }
       for (const s of staff) pose(s.person, s.pose, t, s.phase);
       // Assistant routine: desk → boss (report) → desk.
       assistTimer -= dt;
       if (assistState === "desk") {
         pose(assistant, "type", t, 11);
-        if (assistTimer <= 0) { assistState = "going"; assistPath.push([1.6, -7.2], [0.9, -9.5]); }
+        if (assistTimer <= 0) { assistState = "going"; assistPath.push([BOSS_X + 1.6, -7.2], [BOSS_X + 0.9, -9.5]); }
       } else if (assistState === "going" || assistState === "back") {
         if (assistPath.length) { walk(assistant, assistPath, reduced ? 40 : 1.5, dt); pose(assistant, "walk", t, 11); }
         else if (assistState === "going") {
@@ -1090,7 +1309,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         } else { assistant.group.rotation.y = Math.PI; assistState = "desk"; assistTimer = 45 + Math.random() * 30; }
       } else {
         pose(assistant, "stand", t, 11);
-        if (assistTimer <= 0) { assistState = "back"; assistPath.push([1.6, -7.2], ASSIST_DESK); }
+        if (assistTimer <= 0) { assistState = "back"; assistPath.push([BOSS_X + 1.6, -7.2], ASSIST_DESK); }
       }
       // Resting agents move on to another activity every 25 to 45 s.
       for (const r of people.values()) {
@@ -1184,7 +1403,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     };
   }, []);
 
-  useEffect(() => { api.current?.sync(agents, selected, boss); }, [agents, selected, boss]);
+  useEffect(() => { api.current?.sync(agents, selected, boss, meeting); }, [agents, selected, boss, meeting]);
   useEffect(() => { api.current?.tv(tvHeadline, tvLines); }, [tvHeadline, tvLines]);
   useEffect(() => { if (assistantTip) api.current?.tip(assistantTip); }, [assistantTip]);
   useEffect(() => {
@@ -1197,14 +1416,23 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     <div className="office3d">
       <div ref={host} className="office3d-canvas" role="img"
         aria-label={`Escritório 3D com ${agents.length} IAs. ${agents.map((a) => `${a.name}: ${a.activity}`).join(" ")}`} />
-      <div className="office3d-hint">Arraste para mover · botão do meio para girar · rodinha para aproximar · passe o mouse ou toque numa pessoa para ver os detalhes
-        <span className="office3d-legend" aria-label="Legenda das bolinhas">
-          <span><i className="status-dot own" /> tem ações</span><span><i className="status-dot buy" /> vai comprar</span>
-          <span><i className="status-dot council" /> no conselho</span><span><i className="status-dot wait" /> esperando</span>
-          <span><i className="status-dot closed" /> bolsa fechada</span>
-        </span>
-        <button type="button" className="secondary" onClick={() => setSound((on) => !on)} aria-pressed={sound}>{sound ? "Som do escritório: ligado" : "Som do escritório: desligado"}</button>
-        <button type="button" className="secondary" onClick={() => api.current?.reset()}>Centralizar</button>
+      {/* Owner, 26/10/2026: the legend and the controls tucked into a small corner button. */}
+      <div className={`office3d-hint ${help ? "open" : ""}`}>
+        {help && <div className="office3d-help" id="office3d-help">
+          <p>Arraste para mover · botão do meio para girar · rodinha para aproximar · passe o mouse numa pessoa para ver os detalhes</p>
+          <span className="office3d-legend" aria-label="Legenda das bolinhas">
+            <span><i className="status-dot own" /> tem ações</span><span><i className="status-dot buy" /> vai comprar</span>
+            <span><i className="status-dot council" /> no conselho ou reunião</span><span><i className="status-dot wait" /> esperando</span>
+            <span><i className="status-dot closed" /> bolsa fechada</span>
+          </span>
+          <span className="office3d-buttons">
+            <button type="button" className="secondary" onClick={() => setSound((on) => !on)} aria-pressed={sound}>{sound ? "Som do escritório: ligado" : "Som do escritório: desligado"}</button>
+            <button type="button" className="secondary" onClick={() => api.current?.reset()}>Centralizar</button>
+          </span>
+        </div>}
+        <button type="button" className="secondary office3d-help-toggle" aria-expanded={help} aria-controls="office3d-help" onClick={() => setHelp((v) => !v)}>
+          {help ? "Fechar" : "Legenda e controles"}
+        </button>
       </div>
     </div>
   );

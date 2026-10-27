@@ -13,6 +13,8 @@ import { refreshCompanyHealth } from "./company-health";
 import { scoutList } from "./forecast";
 import { contextFor, contextSummary, loadContextSources, type ContextSources } from "./context";
 import { storeBars } from "./market-bars";
+import { holdTeamMeeting } from "./meeting";
+import { notifyBigMoves } from "./movers";
 
 const jobSchema = z.object({
   job_id: z.uuid(),
@@ -43,6 +45,8 @@ export async function runScheduler() {
     await refreshCompanyHealth(db, owner).catch(() => undefined);
     // The assistant's daily scan (~60 light requests): only on the owner's computer, never inside Vercel's 60 s.
     if (!process.env.VERCEL) await scoutList(db, owner).catch(() => undefined);
+    await holdTeamMeeting(db, owner).catch(() => undefined);
+    if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
     return { skipped: "RECENT_TICK", jobs: [] };
   }
   // Housekeeping is bounded and never deletes decisions, orders or financial evidence.
@@ -74,6 +78,8 @@ export async function runScheduler() {
         ? "Scheduler acessível; limpeza do cache indisponível. Confira a migration de retenção."
         : "Scheduler acessível; nenhum agente aguardando análise.",
     );
+    await holdTeamMeeting(db, owner).catch(() => undefined);
+    if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
     return { jobs: [] };
   }
   const [news, macro] = await Promise.allSettled([readNews(), readMacro()]);
@@ -225,6 +231,9 @@ export async function runScheduler() {
   // No simulated contribution: the agents' money comes only from real deposits (register_deposit).
   // Company health from the annual statements: downloads at most once a week.
   await refreshCompanyHealth(db, owner).catch(() => undefined);
+  // End-of-day team meeting (once per trading day after the close).
+  await holdTeamMeeting(db, owner).catch(() => undefined);
+  if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
   return { jobs: results };
 
   async function health(status: string, message: string) {

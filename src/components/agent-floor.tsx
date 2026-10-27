@@ -15,10 +15,11 @@ import { committee } from "@/core/committee";
 import { allocatePot, opportunityScore } from "@/core/boss";
 import { forecastOpinion, type ConsensusView } from "@/core/forecast";
 import { historyAgrees } from "@/core/range";
-import { RANGE_DEFAULTS, turnState } from "@/core/range";
+import { entryCheck, RANGE_DEFAULTS } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
 import { b3Session } from "@/core/b3-calendar";
+import type { Meeting } from "./office-3d";
 import type { HistoricalBar } from "@/providers/types";
 
 type Row = Record<string, unknown>;
@@ -83,6 +84,21 @@ function usePrices(connected: boolean) {
 }
 
 /** What the boss's assistant reports: the best stock outside the team from today's list. */
+/** Latest end-of-day team meeting (minutes saved by the scheduler after the close). Checks every 5 min. */
+function useMeeting(connected: boolean, now: number) {
+  const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const tick = Math.floor(now / 300000);
+  useEffect(() => {
+    if (!connected) return;
+    const controller = new AbortController();
+    fetch("/api/atlas/meeting", { signal: controller.signal }).then((r) => (r.ok ? r.json() : null))
+      .then((b: { meetings?: Meeting[] } | null) => { if (!controller.signal.aborted) setMeeting(b?.meetings?.[0] ?? null); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [connected, tick]);
+  return meeting;
+}
+
 function useAssistantTip(connected: boolean) {
   const [tip, setTip] = useState<string | undefined>();
   useEffect(() => {
@@ -154,6 +170,8 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const ranges = useRanges(assets.map((a) => text(a.ticker)));
   const live = usePrices(connected);
   const tip = useAssistantTip(connected);
+  const meeting = useMeeting(connected, now);
+  const tvTick = Math.floor(useNow(15000) / 15000);
   const account = paper.paper_accounts?.[0];
   const cdiPct = useCdi(account?.created_at ? String(account.created_at).slice(0, 10) : null);
   if (!connected) return null;
@@ -180,7 +198,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const ticker = text(assets.find((a) => a.id === agent.asset_id)?.ticker);
     const r = ranges[ticker]?.range, price = priceNow(agent), level = floor.health?.[ticker]?.level;
     const fo = forecastOpinion(price, ranges[ticker]?.consensus ?? null);
-    return r && price !== null && price <= r.buyBelow && turnState(ranges[ticker]?.turnCloses ?? [], price).turned && level !== "PERIGO" && fo.vote !== "CONTRA" && historyAgrees(ranges[ticker]?.history)
+    return r && price !== null && price <= r.buyBelow && entryCheck(ranges[ticker]?.turnCloses ?? [], price, r.low).ok && level !== "PERIGO" && fo.vote !== "CONTRA" && historyAgrees(ranges[ticker]?.history)
       ? [{ agentId: text(agent.id), price, fee: 0.99, score: opportunityScore(price, r.low, r.high, level === "ATENCAO", fo.upside) }] : [];
   }));
   const office: OfficeAgent[] = alive.map((agent) => {
@@ -229,7 +247,10 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       marketOpen: session.status === "OPEN" };
   });
   const items = news.items ?? [];
-  const top = items.find((i) => readingOf(i).tags.length) ?? items[0] ?? null;
+  // The office TV goes through the eight newest headlines, one every 15 s (owner, 26/10/2026: it used to
+  // stay on the newest headline about a team stock, which could be two days old).
+  const fresh = items.slice(0, 8);
+  const top = fresh.length ? fresh[tvTick % fresh.length] : null;
   const totalPnl = office.reduce((sum, a) => sum + (a.pnl ?? 0), 0);
   const chosen = office.find((a) => a.id === selected || a.name === selected) ?? null;
   const band = items.slice(0, 14);
@@ -241,7 +262,8 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
           marketNote={session.status === "OPEN" ? "As IAs podem comprar e vender (10h05 às 16h50)." : `${session.reason} As IAs só operam das 10h05 às 16h50 em dias úteis.`}
           alive={alive.length} total={alive.length} />
         <div className="office-stage three">
-          <Office3D agents={office} assistantTip={tip} boss={floor.live ? { deposited: floor.live.genial.deposited, free: floor.live.genial.free } : null} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} onSelect={setSelected}
+          <Office3D agents={office} assistantTip={tip} boss={floor.live ? { deposited: floor.live.genial.deposited, free: floor.live.genial.free } : null} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} meeting={meeting}
+            onSelect={(id) => setSelected((current) => (current === id ? "" : id))}
             tvLines={[["Resultado real", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
               ["CDI no período", cdiPct === null || !account ? "—" : `+${formatBrl(((Number(account.initial_cash) * cdiPct) / 100).toFixed(2))}`, "#ffc65c"],
               ["Bolsa", session.status === "OPEN" ? "Aberta" : "Fechada", session.status === "OPEN" ? "#3dffa8" : "#a9c0d6"]]} />

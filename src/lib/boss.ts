@@ -5,11 +5,12 @@ import { agentLevels } from "./levels";
 import { cachedCompanyHealth } from "./company-health";
 import { consensusFor } from "./forecast";
 import { forecastOpinion, type ConsensusView } from "@/core/forecast";
-import { historyAgrees, turnState } from "@/core/range";
+import { entryCheck, historyAgrees } from "@/core/range";
 
 /**
  * The boss's view of the team: which agents' stocks are in their buy zone now (price near the
- * 6-month low and already turning up, company not in danger), ranked best first. Prices are the latest each agent
+ * 6-month low with the right timing — turned up after a big fall, or right at the low in normal ups
+ * and downs — company not in danger), ranked best first. Prices are the latest each agent
  * recorded; `overrides` replaces them (e.g. the live MetaTrader quote). The levels are cached for
  * 60 s so every decision in the same minute sees the same picture.
  */
@@ -46,7 +47,7 @@ export async function teamCandidates(db: SupabaseClient, owner: string, override
   return (await watchList(db, owner))
     .map((w) => ({ ...w, price: overrides[w.ticker] ?? w.price }))
     // In its buy zone, already turning up, and not vetoed by the analysts' forecast.
-    .filter((w) => w.price <= w.buyBelow && turnState(w.turnCloses, w.price).turned && forecastOpinion(w.price, w.consensus).vote !== "CONTRA")
+    .filter((w) => w.price <= w.buyBelow && entryCheck(w.turnCloses, w.price, w.low).ok && forecastOpinion(w.price, w.consensus).vote !== "CONTRA")
     .map((w) => ({ agentId: w.agentId, price: w.price, fee: 0.99,
       score: opportunityScore(w.price, w.low, w.high, w.attention, forecastOpinion(w.price, w.consensus).upside) }));
 }

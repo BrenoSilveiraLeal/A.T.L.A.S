@@ -5,12 +5,18 @@ import { sendAlert } from "./alerts";
 /**
  * Owner notifications (25/10/2026: "qualquer atualização tem que chegar pelo e-mail"): every
  * event is saved for the bell in the app and e-mailed through Resend (RESEND_API_KEY, to
- * ATLAS_ALERT_EMAIL), plus Telegram when configured. Never throws: a failed notification must
- * not change an analysis, an order or a reconciliation. Messages carry no credentials or account
- * numbers. `dedupeKey` + `windowSeconds` silence repeats of the same event.
+ * ATLAS_ALERT_EMAIL), plus Telegram when configured. WhatsApp (26/10/2026) through CallMeBot
+ * (CALLMEBOT_PHONE + CALLMEBOT_APIKEY, the owner's own number) for what matters on the phone:
+ * purchases, sales, problems, big moves of the team's stocks and the end-of-day meeting.
+ * Never throws: a failed notification must not change an analysis, an order or a reconciliation.
+ * Messages carry no credentials or account numbers. `dedupeKey` + `windowSeconds` silence repeats.
  */
 export type NotifyLevel = "info" | "success" | "warning" | "error";
-export interface Notice { level: NotifyLevel; title: string; lines?: readonly string[]; dedupeKey?: string; windowSeconds?: number }
+export interface Notice {
+  level: NotifyLevel; title: string; lines?: readonly string[]; dedupeKey?: string; windowSeconds?: number;
+  /** Also on WhatsApp (default: everything except plain "info" activity). */
+  whatsapp?: boolean;
+}
 
 const ICON: Record<NotifyLevel, string> = { info: "ℹ️", success: "✅", warning: "⚠️", error: "❌" };
 
@@ -31,6 +37,20 @@ export async function sendEmail(subject: string, text: string, transport: typeof
   }
 }
 
+/** WhatsApp to the owner's own number through CallMeBot (free, personal use). */
+export async function sendWhatsApp(text: string, transport: typeof fetch = fetch): Promise<boolean> {
+  const phone = process.env.CALLMEBOT_PHONE, key = process.env.CALLMEBOT_APIKEY;
+  if (!phone || !key || !/^\+?\d{10,15}$/.test(phone)) return false;
+  try {
+    const url = new URL("https://api.callmebot.com/whatsapp.php");
+    url.searchParams.set("phone", phone); url.searchParams.set("text", text.slice(0, 900)); url.searchParams.set("apikey", key);
+    const response = await transport(url, { redirect: "error", signal: AbortSignal.timeout(10000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function notify(notice: Notice): Promise<void> {
   try {
     const db = adminClient(), owner = process.env.ATLAS_OWNER_ID;
@@ -42,6 +62,7 @@ export async function notify(notice: Notice): Promise<void> {
     const body = (notice.lines ?? []).join("\n");
     const emailed = await sendEmail(`ATLAS ${ICON[notice.level]} ${notice.title}`, [notice.title, body].filter(Boolean).join("\n\n"));
     await db.from("notifications").insert({ owner_id: owner, level: notice.level, title: notice.title.slice(0, 160), body: body.slice(0, 2000), emailed });
+    if (notice.whatsapp ?? notice.level !== "info") await sendWhatsApp([`*ATLAS ${ICON[notice.level]} ${notice.title}*`, body].filter(Boolean).join("\n"));
     await sendAlert([notice.title, ...(notice.lines ?? [])]);
   } catch { /* notifications never break the caller */ }
 }

@@ -53,4 +53,15 @@ describe("B3 corporate events", () => {
     expect(corporateActionSuspected(history, "10.10")).toContain("desdobramento");
     expect(corporateActionSuspected(history, "10.10", ["2026-10-19"])).toBeNull();
   });
+
+  it("tells a real crash from a stale feed with a newer close from the stored history (26/10/2026)", () => {
+    const bar = (day: string, close: string) => ({ timestamp: `${day}T03:00:00.000Z`, open: close, high: close, low: close, close, adjustedClose: close, volume: 1 });
+    const stale: MarketHistory = { ticker: "CYRE3", interval: "1d", range: "3mo", retrievedAt: "2026-10-26T22:00:00Z",
+      source: "https://example.test", feed: "EOD", tradable: false, bars: [bar("2026-10-22", "34.30"), bar("2026-10-23", "35.57")] };
+    expect(corporateActionSuspected(stale, "19.63")).toContain("difere");
+    expect(corporateActionSuspected(stale, "19.63", [], [{ date: "2026-10-26", close: 19.63 }])).toBeNull();
+    // An older or far-off close does not clear it.
+    expect(corporateActionSuspected(stale, "19.63", [], [{ date: "2026-10-23", close: 35.57 }])).toContain("difere");
+    expect(corporateActionSuspected(stale, "19.63", [], [{ date: "2026-10-26", close: 30 }])).toContain("difere");
+  });
 });
