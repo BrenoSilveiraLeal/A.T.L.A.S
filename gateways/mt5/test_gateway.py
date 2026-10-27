@@ -23,7 +23,7 @@ class TerminalFixture:
     ORDER_TYPE_BUY_LIMIT, ORDER_TYPE_SELL_LIMIT = 2, 3
     ORDER_TYPE_BUY_STOP, ORDER_TYPE_SELL_STOP = 4, 5
     ORDER_TYPE_BUY_STOP_LIMIT, ORDER_TYPE_SELL_STOP_LIMIT = 6, 7
-    ORDER_TIME_DAY, ORDER_FILLING_RETURN, ORDER_FILLING_IOC, ORDER_FILLING_FOK = 1, 2, 3, 4
+    ORDER_TIME_GTC, ORDER_TIME_DAY, ORDER_FILLING_RETURN, ORDER_FILLING_IOC, ORDER_FILLING_FOK = 0, 1, 2, 3, 4
     ORDER_STATE_STARTED, ORDER_STATE_PLACED, ORDER_STATE_CANCELED = 0, 1, 2
     ORDER_STATE_PARTIAL, ORDER_STATE_FILLED, ORDER_STATE_REJECTED, ORDER_STATE_EXPIRED = 3, 4, 5, 6
     DEAL_TYPE_BUY, DEAL_TYPE_SELL, DEAL_TYPE_BUY_CANCELED, DEAL_TYPE_SELL_CANCELED = 0, 1, 13, 14
@@ -50,6 +50,7 @@ class TerminalFixture:
         self.before_send = None
         self.hide_ack = False
         self.alter_ack = False
+        self.server_expiration = None  # Genial keeps DAY orders as GTC expiring on this server day
 
     def account_info(self):
         return self.account
@@ -71,8 +72,8 @@ class TerminalFixture:
     def history_orders_get(self, *dates, ticket=None):
         return tuple(row for row in self.history if ticket is None or row.ticket == ticket)
 
-    def history_deals_get(self, *dates, ticket=None):
-        return tuple(row for row in self.deals if ticket is None or row.order == ticket)
+    def history_deals_get(self, *dates):  # Like Genial: no ticket= lookup for deals.
+        return tuple(self.deals)
 
     def order_check(self, request):
         return Row(retcode=self.check_code)
@@ -87,7 +88,10 @@ class TerminalFixture:
             value = Row(ticket=100 + len(self.sent), symbol=request["symbol"], type=request["type"],
                         volume_initial=request["volume"], volume_current=request["volume"], state=self.ORDER_STATE_PLACED,
                         price_open=request["price"], type_time=request["type_time"], magic=request["magic"],
-                        comment=request["comment"], time_expiration=0, sl=0, tp=0, price_stoplimit=0)
+                        comment=request["comment"], time_expiration=0, sl=0, tp=0, price_stoplimit=0,
+                        time_setup=1_793_112_597)
+            if self.server_expiration is not None:
+                value.type_time, value.time_expiration = self.ORDER_TIME_GTC, self.server_expiration
             if self.alter_ack:
                 value.volume_initial += 1
             if not self.hide_ack:
@@ -232,6 +236,14 @@ class GatewayTests(unittest.TestCase):
         another.ticket = 999
         self.api.active.append(another)
         self.fails("AMBIGUOUS_DISPATCH_DO_NOT_RETRY", lambda: self.rpc("orderByClientId", {"clientOrderId": "intent-001"}))
+
+    def test_genial_day_order_stored_as_gtc_expiring_today_is_accepted(self):
+        self.api.server_expiration = 1_793_059_200  # start of the same server day as time_setup
+        self.assertEqual("101", self.submit()["brokerOrderId"])
+
+    def test_gtc_expiring_another_day_is_not_a_day_order(self):
+        self.api.server_expiration = 1_793_059_200 + 86_400
+        self.fails("RECOVERY_ORDER_MISMATCH", self.submit)
 
     def test_ack_terms_mismatch_cannot_bind_wrong_order(self):
         self.api.alter_ack = True

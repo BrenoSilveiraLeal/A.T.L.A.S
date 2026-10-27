@@ -136,9 +136,10 @@ export async function runLive(now = new Date()) {
     .in("paper_order_id", (paperOrders.data ?? []).map((o) => o.id));
   const done = new Set((mirrored.data ?? []).map((m) => m.paper_order_id));
   const today = new Date(now).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
-  // A purchase the broker refused pauses that agent for the day; MetaTrader's switch being off does not.
+  // A purchase the broker refused pauses that agent for the day; MetaTrader's switch being off or a
+  // failed terminal check (nothing sent) does not.
   const refused = await db.from("live_orders").select("agent_id").eq("owner_id", owner).eq("status", "REJECTED").eq("side", "BUY")
-    .neq("error", TRADING_SWITCH_OFF).gte("created_at", new Date(`${today}T00:00:00-03:00`).toISOString());
+    .not("error", "in", `(${TRADING_SWITCH_OFF},ORDER_CHECK_FAILED)`).gte("created_at", new Date(`${today}T00:00:00-03:00`).toISOString());
   const refusedToday = new Set((refused.data ?? []).map((o) => o.agent_id));
 
   for (const agent of agents.data ?? []) {

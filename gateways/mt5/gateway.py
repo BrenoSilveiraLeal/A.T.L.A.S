@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import sys
 import json
 import os
 import re
@@ -303,9 +304,16 @@ class Gateway:
 
     def _call(self, method: str, *args, **kwargs):
         self._identity(mutation=method == "order_send")
-        value = getattr(self.api, method)(*args, **kwargs)
+        function = getattr(self.api, method)
+        # 27/10/2026: order_check/order_send refuse even an empty keyword dict ("Unnamed arguments not
+        # allowed", error -2), which made every order fail; pass keywords only when there are some.
+        value = function(*args, **kwargs) if kwargs else function(*args)
+        # Read the terminal's reason before anything else resets it (27/10/2026: "Invalid comment argument").
+        reason = self.api.last_error() if value is None and hasattr(self.api, "last_error") else None
         self._identity()
         if value is None:
+            detail = {k: (type(v).__name__, v) for k, v in args[0].items()} if args and isinstance(args[0], dict) else args
+            print(f"TERMINAL_CALL_FAILED {method}: {reason} {detail}", file=sys.stderr, flush=True)
             raise GatewayError("TERMINAL_CALL_FAILED", 503)
         return value
 
@@ -504,9 +512,13 @@ class Gateway:
             raise GatewayError("UNSUPPORTED_ORDER_TYPE")
         quantity = self._quantity(get(row, "volume_initial"), info)
         filled = 0
-        for deal in self._call("history_deals_get", ticket=get(row, "ticket")):
+        # 27/10/2026: the Genial terminal refuses history_deals_get(ticket=...) ("Invalid params"), so read
+        # the deals from a day before the order was set up (server time) and keep this order's own.
+        since = datetime.fromtimestamp(get(row, "time_setup") - 86_400, UTC)
+        window = self._call("history_deals_get", since, self._server_time(datetime.now(UTC)) + timedelta(days=1))
+        for deal in (item for item in window if get(item, "order") == get(row, "ticket")):
             if get(deal, "type") in (self.api.DEAL_TYPE_BUY, self.api.DEAL_TYPE_SELL):
-                if get(deal, "order") != get(row, "ticket") or get(deal, "symbol") != get(row, "symbol"):
+                if get(deal, "symbol") != get(row, "symbol"):
                     raise GatewayError("GATEWAY_ORDER_MISMATCH")
                 filled += self._quantity(get(deal, "volume"), info)
             elif get(deal, "type") in (self.api.DEAL_TYPE_BUY_CANCELED, self.api.DEAL_TYPE_SELL_CANCELED):
@@ -524,7 +536,7 @@ class Gateway:
         result = {"brokerOrderId": str(get(row, "ticket")), "clientOrderId": client_id,
                   "accountId": self.config.login, "symbol": get(row, "symbol"), "side": "BUY" if order_type in buys else "SELL",
                   "quantity": quantity, "filledQuantity": filled, "status": status, "observedAt": now()}
-        if client_id and order_type in (self.api.ORDER_TYPE_BUY_LIMIT, self.api.ORDER_TYPE_SELL_LIMIT) and get(row, "type_time") == self.api.ORDER_TIME_DAY:
+        if client_id and order_type in (self.api.ORDER_TYPE_BUY_LIMIT, self.api.ORDER_TYPE_SELL_LIMIT) and self._day_order(row):
             # Echo actual terminal terms, never merely repeat the requested change.
             result["request"] = {"clientOrderId": client_id, "accountId": self.config.login,
                                  "symbol": result["symbol"], "side": result["side"], "quantity": quantity,
@@ -562,9 +574,18 @@ class Gateway:
         if (get(row, "symbol") != expected["symbol"] or
             get(row, "type") != (self.api.ORDER_TYPE_BUY_LIMIT if expected["side"] == "BUY" else self.api.ORDER_TYPE_SELL_LIMIT) or
             self._quantity(get(row, "volume_initial"), info) != expected["quantity"] or
-            get(row, "type_time") != self.api.ORDER_TIME_DAY or
+            not self._day_order(row) or
             decimal(get(row, "price_open")) != decimal(expected["limitPrice"])):
             raise GatewayError("RECOVERY_ORDER_MISMATCH")
+
+    def _day_order(self, row) -> bool:
+        if get(row, "type_time") == self.api.ORDER_TIME_DAY:
+            return True
+        # 27/10/2026: the Genial server keeps a DAY order as GTC that expires at the start of the same
+        # trading date (server time), which made the first real fill come back as RECOVERY_ORDER_MISMATCH.
+        expiration = get(row, "time_expiration") or 0
+        return (get(row, "type_time") == getattr(self.api, "ORDER_TIME_GTC", None) and expiration > 0 and
+                expiration // 86400 == (get(row, "time_setup") or 0) // 86400)
 
     def executions(self, cursor):
         until = int(datetime.now(UTC).timestamp() * 1000)
@@ -630,7 +651,9 @@ class Gateway:
         if not self.config.execution_enabled:
             raise GatewayError("EXECUTION_DISABLED")
         self._identity(mutation=True)
-        marker = "ATLAS:" + hashlib.sha256(key.encode()).hexdigest()[:24]
+        # 22 characters: the Genial terminal refused the 30-character comment ("Invalid comment argument",
+        # 27/10/2026); 26 passed order_check. 16 hex characters still identify the order uniquely.
+        marker = "ATLAS:" + hashlib.sha256(key.encode()).hexdigest()[:16]
         if method == "submit":
             request = object_with(params["request"], {"clientOrderId", "accountId", "symbol", "side", "quantity", "kind", "limitPrice", "stopPrice", "timeInForce"})
             if request["clientOrderId"] != key or request["accountId"] != self.config.login:
@@ -658,7 +681,7 @@ class Gateway:
             current = self._order(row)
             if current["clientOrderId"] is None or get(row, "magic") != MAGIC:
                 raise GatewayError("ORDER_NOT_OWNED_BY_ATLAS")
-            if get(row, "type") not in (self.api.ORDER_TYPE_BUY_LIMIT, self.api.ORDER_TYPE_SELL_LIMIT) or get(row, "type_time") != self.api.ORDER_TIME_DAY:
+            if get(row, "type") not in (self.api.ORDER_TYPE_BUY_LIMIT, self.api.ORDER_TYPE_SELL_LIMIT) or not self._day_order(row):
                 raise GatewayError("UNSUPPORTED_ORDER_TERMS")
             if current["status"] not in ("OPEN", "PARTIALLY_FILLED"):
                 raise GatewayError("ORDER_NOT_MODIFIABLE")
@@ -673,7 +696,16 @@ class Gateway:
                           "expiration": get(row, "time_expiration"), "sl": get(row, "sl"), "tp": get(row, "tp"),
                           "stoplimit": get(row, "price_stoplimit")}
         if method != "cancel":
-            checked = self._call("order_check", native)
+            # 27/10/2026: the fractional symbol (EQTL3F) was not in Market Watch and order_check failed.
+            # Select it first; a failed check happens before anything is sent, so it is a definite refusal.
+            if "symbol" in native and hasattr(self.api, "symbol_select"):
+                self._call("symbol_select", native["symbol"], True)
+            try:
+                checked = self._call("order_check", native)
+            except GatewayError as error:
+                if error.code == "TERMINAL_CALL_FAILED":
+                    raise GatewayError("ORDER_CHECK_FAILED") from None
+                raise
             if get(checked, "retcode") != 0:
                 raise GatewayError("ORDER_CHECK_REJECTED")
         self.journal.dispatch(key, method, params, marker)
