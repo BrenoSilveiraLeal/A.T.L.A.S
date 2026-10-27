@@ -18,6 +18,8 @@ export interface RangeOptions {
   buyZonePct?: number;
   /** With confirmBuy, the turn: price up today and at least turnPct above the lowest close of the last turnLookback sessions. */
   turnPct?: number; turnLookback?: number;
+  /** The turn also needs this many rising closes in a row before today (owner, 27/10/2026: "esperar um pouquinho para ver se vai cair mais"). */
+  turnDays?: number;
   /** Holding already: buy more only after the price fell this % below the average price (a new dip, then a new turn). */
   rebuyBelowAvgPct?: number;
   /**
@@ -69,11 +71,13 @@ export function rangeLevels(closes: readonly number[], o: Pick<RangeOptions, "wi
  * Has the fall turned into a rise? The bottom is the lowest close of the last `turnLookback`
  * sessions; the turn needs the price above yesterday's close and `turnPct` above that bottom.
  */
-export function turnState(closes: readonly number[], price: number, o: Pick<RangeOptions, "turnPct" | "turnLookback"> = RANGE_DEFAULTS) {
+export function turnState(closes: readonly number[], price: number, o: Pick<RangeOptions, "turnPct" | "turnLookback" | "turnDays"> = RANGE_DEFAULTS) {
   const recent = closes.slice(-(o.turnLookback ?? 10));
   const bottom = Math.min(price, ...recent), previous = closes[closes.length - 1];
   const rise = bottom > 0 ? price / bottom - 1 : 0;
-  return { bottom, rise, turned: previous !== undefined && price > previous && rise * 100 >= (o.turnPct ?? 0) };
+  const n = closes.length, days = o.turnDays ?? 0;
+  const rising = Array.from({ length: days }, (_, k) => n - 1 - k).every((j) => j >= 1 && closes[j] > closes[j - 1]);
+  return { bottom, rise, turned: previous !== undefined && price > previous && rise * 100 >= (o.turnPct ?? 0) && rising };
 }
 
 /**
