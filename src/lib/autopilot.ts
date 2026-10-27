@@ -18,6 +18,7 @@ import { bridgeReachable } from "./prices";
 import { consensusFor } from "./forecast";
 import { nearLowHistory } from "@/core/forecast";
 import { analysts } from "@/core/committee";
+import { focusOutlook, valuationFor } from "./market-data";
 import { collapse, RANGE_DEFAULTS } from "@/core/range";
 import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
@@ -113,6 +114,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     price: Number(quote.price), forecast: await consensusFor(input.ticker).catch(() => null),
     history: trailing ? nearLowHistory(trailing.closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) : null,
     market: await teamMarket(db, owner).catch(() => null),
+    valuation: await valuationFor(input.ticker).catch(() => null), macro: await focusOutlook().catch(() => null),
   });
   const context = input.context?.action === "EXIT" ? input.context
     : council.consensus.veto ? { action: "BLOCK_BUY" as const, summary: `conselho: ${council.consensus.text}. ${council.consensus.veto}` } : input.context;

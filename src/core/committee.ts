@@ -3,15 +3,18 @@ import type { HealthLevel } from "./company-health";
 import { forecastOpinion, type ConsensusView } from "./forecast";
 import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS } from "./range";
 import { minimumSellPrice } from "./live";
+import { focusView, valuationView, type FocusTrend, type Valuation } from "./valuation";
 
 /**
  * The council (owner, 27/10/2026: "são 4 analistas... cada analista busca ver um lado diferente...
  * se todos tiverem a mesma decisão e não pensarem por outros lados, podem tomar decisões ruins").
  * Four analysts look at the same stock from opposite sides, with real numbers only:
- * - Otimista: reasons to rise — analysts' target, what followed past visits to the low, healthy books;
+ * - Otimista: reasons to rise — analysts' target, what followed past visits to the low, healthy books,
+ *   a low price for the profit, good dividends, economists expecting lower rates;
  * - Pessimista: what is wrong with the company — its books, a collapse, analysts against, a low that
- *   did not hold before;
- * - Riscos do mundo: what outside can make it fall — news, dollar, oil, and the whole market falling
+ *   did not hold before, a loss or a very high price for the profit, heavy debt;
+ * - Riscos do mundo: what outside can make it fall — news, dollar, oil, economists expecting higher
+ *   rates or inflation (Boletim Focus), and the whole market falling
  *   together (in the 2022 election the team's stocks fell another 24% after the shock,
  *   docs/HISTORIA_CRISES.md);
  * - Realista: the owner's rule (buy near the 6-month low once the fall turned, sell near the high and
@@ -40,6 +43,10 @@ export interface AnalystInput {
   history?: { samples: number; upShare: number; average: number } | null;
   /** Team stocks 10%+ below their highest close of the last 20 sessions, of those known. */
   market?: { falling: number; total: number } | null;
+  /** Price/earnings, dividends, ROE and debt (Fundamentus), null when unavailable. */
+  valuation?: Valuation | null;
+  /** Economists' Selic and inflation expectations now and 4 weeks ago (Boletim Focus). */
+  macro?: FocusTrend | null;
 }
 export interface Consensus { veto: string | null; fraction: number; text: string }
 
@@ -58,6 +65,9 @@ export function analysts(i: AnalystInput): { optimist: Opinion; pessimist: Opini
   if (forecast.upside !== null && forecast.upside >= 0.1) ups.push(`analistas veem ${pct(forecast.upside)} até o preço-alvo`);
   if (h && h.samples >= 3 && historyAgrees(h)) ups.push(`nas ${h.samples} vezes em que chegou perto da mínima, subiu depois em ${Math.round(h.upShare * 100)}%`);
   if (i.health?.level === "SAUDAVEL") ups.push("balanço saudável");
+  const numbers = valuationView(i.valuation), outlook = focusView(i.macro);
+  ups.push(...numbers.ups);
+  if (outlook.up) ups.push(outlook.up);
   const up = Math.min(ups.length, 2);
   // Said, not counted: it comes with every market-wide fall, so it would always cancel that risk.
   if (shock) ups.push("em 6 de 8 crises desde 2002 as ações do time estavam mais altas um ano depois");
@@ -73,6 +83,7 @@ export function analysts(i: AnalystInput): { optimist: Opinion; pessimist: Opini
   if (i.health?.level === "ATENCAO") worries.push(`balanço pede atenção: ${i.health.reason}`);
   if (h && h.samples >= 3 && !historyAgrees(h)) worries.push(`perto da mínima ela subiu depois só em ${Math.round(h.upShare * 100)}% das ${h.samples} vezes`);
   if (forecast.upside !== null && forecast.upside < 0) worries.push(`o preço já passou do alvo dos analistas (${pct(forecast.upside)})`);
+  worries.push(...numbers.worries);
   const pessimist: Opinion = grave ? { role: "Pessimista", vote: "CONTRA", text: `Risco grave: ${grave}.` }
     : worries.length ? { role: "Pessimista", vote: "NEUTRO", text: `Risco moderado: ${worries.join("; ")}.` }
       : { role: "Pessimista", vote: "A_FAVOR", text: !i.health || i.health.level === "SEM_DADOS" ? "Procurei problemas e não achei, mas o balanço ainda não foi conferido." : "Procurei problemas na empresa e não achei nada sério." };
@@ -82,6 +93,7 @@ export function analysts(i: AnalystInput): { optimist: Opinion; pessimist: Opini
   const outside: string[] = [];
   if (shock) outside.push(`o mercado inteiro está caindo junto (${i.market!.falling} de ${i.market!.total} ações do time caíram 10% ou mais em 20 pregões; em 2022 caíram mais 24% antes de voltar)`);
   if (i.context?.action === "REDUCE") outside.push(i.context.summary);
+  if (outlook.risk) outside.push(outlook.risk);
   const world: Opinion = news ? { role: "Riscos do mundo", vote: "CONTRA", text: `Risco grave: ${news.action === "EXIT" ? "pede para sair" : "segura as compras"}: ${news.summary}` }
     : outside.length ? { role: "Riscos do mundo", vote: "NEUTRO", text: `Risco moderado: ${outside.join("; ")}.` }
       : { role: "Riscos do mundo", vote: i.context ? "A_FAVOR" : "NEUTRO", text: i.context ? "Nenhuma notícia grave, dólar e petróleo sem choque, mercado sem queda geral." : "Ainda sem leitura das notícias, do dólar e do petróleo." };

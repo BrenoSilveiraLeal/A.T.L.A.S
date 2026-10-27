@@ -7,6 +7,7 @@ import { loadBars } from "./market-bars";
 import { collapse, RANGE_DEFAULTS, rangeLevels } from "@/core/range";
 import { nearLowHistory } from "@/core/forecast";
 import { consensusFor } from "./forecast";
+import { focusOutlook, valuationFor } from "./market-data";
 import { softCached } from "./context";
 import { saoPauloClock } from "@/core/b3-calendar";
 
@@ -34,6 +35,8 @@ export async function agentLevels(db: SupabaseClient, ticker: string) {
     // Closes before today (oldest first), to tell whether the fall has turned into a rise.
     turnCloses: adjusted.filter((_, i) => bars[i].trade_date < saoPauloClock(new Date()).date).slice(-Math.max(RANGE_DEFAULTS.turnLookback ?? 10, RANGE_DEFAULTS.dropLookback ?? 20)).map((b) => Number(b.close)),
     consensus: await consensusFor(ticker).catch(() => null), history: nearLowHistory(closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63),
+    // The council's valuation and economists' outlook, as the autopilot reads them (lib/market-data).
+    valuation: await valuationFor(ticker).catch(() => null), macro: await focusOutlook().catch(() => null),
     // Daily candles of the same 6 months, for the chart in the agent's card.
     bars6m: adjusted.slice(-RANGE_DEFAULTS.window).map((b, i) => ({ date: recent[i].trade_date,
       open: Number(recent[i].open) * (Number(b.close) / Number(recent[i].close)), high: Number(b.high), low: Number(b.low), close: Number(b.close) })) };

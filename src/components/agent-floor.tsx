@@ -20,6 +20,7 @@ import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
 import { B3_CALENDAR, b3Session, saoPauloClock } from "@/core/b3-calendar";
 import { meetingClock } from "@/core/meeting";
+import type { FocusTrend, Valuation } from "@/core/valuation";
 import type { Meeting } from "./office-3d";
 import type { HistoricalBar } from "@/providers/types";
 
@@ -53,7 +54,7 @@ function useFloor(connected: boolean, revision: number): Floor {
 }
 
 type Range = { low: number; high: number; buyBelow: number; sellAbove: number; months: number; lowDate: string | null; highDate: string | null };
-type Forecast = { consensus: ConsensusView | null; history: { samples: number; average: number; upShare: number } | null; bars6m: Bar6m[]; turnCloses: number[]; collapse: number | null };
+type Forecast = { consensus: ConsensusView | null; history: { samples: number; average: number; upShare: number } | null; bars6m: Bar6m[]; turnCloses: number[]; collapse: number | null; valuation: Valuation | null; macro: FocusTrend | null };
 type Bar6m = { date: string; open: number; high: number; low: number; close: number };
 
 /**
@@ -131,8 +132,8 @@ function useRanges(tickers: string[]) {
     const controller = new AbortController();
     Promise.all(key.split(",").map((ticker) => fetch(`/api/atlas/levels?ticker=${encodeURIComponent(ticker)}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((b: ({ range?: Range | null } & Partial<Forecast>) | null) => [ticker, { range: b?.range ?? null, consensus: b?.consensus ?? null, history: b?.history ?? null, bars6m: b?.bars6m ?? [], turnCloses: b?.turnCloses ?? [], collapse: b?.collapse ?? null }] as const)
-      .catch(() => [ticker, { range: null, consensus: null, history: null, bars6m: [], turnCloses: [], collapse: null }] as const)))
+      .then((b: ({ range?: Range | null } & Partial<Forecast>) | null) => [ticker, { range: b?.range ?? null, consensus: b?.consensus ?? null, history: b?.history ?? null, bars6m: b?.bars6m ?? [], turnCloses: b?.turnCloses ?? [], collapse: b?.collapse ?? null, valuation: b?.valuation ?? null, macro: b?.macro ?? null }] as const)
+      .catch(() => [ticker, { range: null, consensus: null, history: null, bars6m: [], turnCloses: [], collapse: null, valuation: null, macro: null }] as const)))
       .then((rows) => { if (!controller.signal.aborted) setRanges(Object.fromEntries(rows)); });
     return () => controller.abort();
   }, [key, tick]);
@@ -254,6 +255,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       context: ctx ? { action: ctx.action, summary: ctx.reasons?.[0]?.text ?? "" } : null, health, market,
       holding, averageCost, price: last ?? bars.at(-1)?.close ?? null,
       budgetRoom: budget, range, minGainPct: RANGE_DEFAULTS.minGainPct, forecast, history, recent: ranges[ticker]?.turnCloses,
+      valuation: ranges[ticker]?.valuation ?? null, macro: ranges[ticker]?.macro ?? null,
     });
     return { id: text(agent.id), name: text(agent.name), ticker, company: text(asset?.company_name ?? ticker), ...place,
       pnl: holding > 0 || realized ? realized + holding * (last ?? bars.at(-1)?.close ?? averageCost ?? 0) - cost : null,
