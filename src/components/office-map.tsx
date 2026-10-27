@@ -106,7 +106,7 @@ export function OfficeLegend() {
   return (
     <ul className="office-legend" aria-label="O que cada lugar significa">
       <li><Monitor size={15} /> <b>Computador</b> = trabalhando</li>
-      <li><Users size={15} /> <b>Reunião</b> = debatendo com os especialistas</li>
+      <li><Users size={15} /> <b>Reunião</b> = debatendo com os 4 analistas</li>
       <li><Coffee size={15} /> <b>Lanchonete</b>, <CircleDot size={15} /> <b>Sala de TV</b> e <b>sofás do Mercado</b> = descansando</li>
       <li><Users size={15} /> <b>Sala de reuniões</b> = reunião de fim de dia (17h10) com o Chefe e a Supervisora</li>
       <li>Camisa <span className="dot risk" /> Risco · <span className="dot balance" /> Balanço · <span className="dot forecast" /> Previsão · <span className="dot strategy" /> Estratégia</li>
@@ -232,7 +232,7 @@ export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null;
       <div className="ac-cols">
       <div className="ac-col">
       {agent.debate && <div className="committee">
-        <span className="score-kicker">Reunião com os especialistas</span>
+        <span className="score-kicker">Reunião com os 4 analistas</span>
         <ul>{agent.debate.opinions.map((o) => <li key={o.role} className={`vote ${o.vote.toLowerCase()}`}><b>{o.role}</b> {o.text}</li>)}</ul>
         <strong>{agent.debate.summary}</strong>
       </div>}

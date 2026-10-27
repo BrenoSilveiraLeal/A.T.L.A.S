@@ -204,6 +204,10 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     return r && price !== null && price <= r.buyBelow && entryCheck(ranges[ticker]?.turnCloses ?? [], price, r.low).ok && level !== "PERIGO" && fo.vote !== "CONTRA" && historyAgrees(ranges[ticker]?.history)
       ? [{ agentId: text(agent.id), price, fee: 0.99, score: opportunityScore(price, r.low, r.high, level === "ATENCAO", fo.upside) }] : [];
   }));
+  // The whole team at once, as the autopilot reads it (lib/autopilot teamMarket): stocks 10%+ below
+  // their highest close of the last 20 sessions.
+  const known = alive.map((a) => ranges[text(assets.find((x) => x.id === a.asset_id)?.ticker)]?.turnCloses ?? []).filter((c) => c.length >= 10);
+  const market = { falling: known.filter((c) => c[c.length - 1] <= Math.max(...c) * 0.9).length, total: known.length };
   const office: OfficeAgent[] = alive.map((agent) => {
     const asset = assets.find((a) => a.id === agent.asset_id);
     const ticker = text(asset?.ticker);
@@ -242,7 +246,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const decision = floor.decisions.find((d) => d.agent_id === agent.id);
     const ctx = (decision?.inputs as { context?: { action: ContextAction; reasons?: { text: string }[] } } | undefined)?.context;
     const debate = committee({
-      context: ctx ? { action: ctx.action, summary: ctx.reasons?.[0]?.text ?? "" } : null, health,
+      context: ctx ? { action: ctx.action, summary: ctx.reasons?.[0]?.text ?? "" } : null, health, market,
       holding, averageCost, price: last ?? bars.at(-1)?.close ?? null,
       budgetRoom: budget, range, minGainPct: RANGE_DEFAULTS.minGainPct, forecast, history, recent: ranges[ticker]?.turnCloses,
     });
@@ -321,7 +325,7 @@ function TeamStatus({ agents, onSelect }: { agents: OfficeAgent[]; onSelect: (id
           </li>
         );
       })}</ul>
-      <p className="muted">Toque numa IA para ver a reunião dela com os especialistas (Risco, Balanço, Previsão e Estratégia), o plano e a última notícia.</p>
+      <p className="muted">Toque numa IA para ver a reunião dela com os 4 analistas (Otimista, Pessimista, Riscos do mundo e Realista), o consenso, o plano e a última notícia.</p>
     </section>
   );
 }

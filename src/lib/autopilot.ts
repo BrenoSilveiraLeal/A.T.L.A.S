@@ -16,7 +16,8 @@ import { bossRelease } from "./boss";
 import { notify } from "./notify";
 import { bridgeReachable } from "./prices";
 import { consensusFor } from "./forecast";
-import { forecastOpinion, nearLowHistory } from "@/core/forecast";
+import { nearLowHistory } from "@/core/forecast";
+import { analysts } from "@/core/committee";
 import { collapse, RANGE_DEFAULTS } from "@/core/range";
 import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
@@ -105,12 +106,16 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
   const health = (await cachedCompanyHealth(db, owner).catch(() => null))?.[input.ticker];
   // A stock that collapsed and never came back gets no new money, even if the company still earns.
   const fallen = trailing ? collapse(trailing.closes, Number(quote.price)) : null;
-  // Analysts' consensus: no new purchase when they recommend selling or see the price falling.
-  const forecast = forecastOpinion(Number(quote.price), await consensusFor(input.ticker).catch(() => null));
+  // The four analysts (owner, 27/10/2026): a "contra" from the Pessimista (books, collapse, analysts)
+  // or Riscos do mundo (news, dollar, oil) vetoes; their caution buys only a part now.
+  const council = analysts({
+    context: input.context ?? null, health: health ? { level: health.level, reason: health.reasons[0] ?? "" } : null, collapse: fallen,
+    price: Number(quote.price), forecast: await consensusFor(input.ticker).catch(() => null),
+    history: trailing ? nearLowHistory(trailing.closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) : null,
+    market: await teamMarket(db, owner).catch(() => null),
+  });
   const context = input.context?.action === "EXIT" ? input.context
-    : health?.level === "PERIGO" ? { action: "BLOCK_BUY" as const, summary: `saúde da empresa em perigo: ${health.reasons[0]}` }
-      : fallen !== null ? { action: "BLOCK_BUY" as const, summary: `a ação desabou ${Math.round(fallen * 100)}% do topo e não se recuperou: sem compras novas` }
-      : forecast.vote === "CONTRA" ? { action: "BLOCK_BUY" as const, summary: `previsão dos analistas contra: ${forecast.text}` } : input.context;
+    : council.consensus.veto ? { action: "BLOCK_BUY" as const, summary: `conselho: ${council.consensus.text}. ${council.consensus.veto}` } : input.context;
   const steady = { peak: trailing?.peak ?? null, targetPct: SELL_TARGET_PCT, turnPct: SELL_TURN_PCT };
   const decision = autopilotDecision({
     ticker: input.ticker, quote, history: input.history, now: new Date().toISOString(),
@@ -125,7 +130,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     fixedFee: Number(account.fee_fraction ?? 0) + (Number(quote.price) * 100 <= Number(rows(agent).budget) ? Number(account.fee_lot ?? 0) : 0),
     minOrderValue: MIN_ORDER_VALUE,
     minSellPrice: held.quantity > 0 ? minimumSellPrice(basis.toNumber(), held.quantity) : undefined,
-    context,
+    context, council: { fraction: council.consensus.fraction, text: council.consensus.text },
     // Owner's rule: buy near the 6-month low, sell near the 6-month high (never at a loss).
     range: trailing ? { closes: trailing.closes, history: nearLowHistory(trailing.closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) } : undefined,
     steady: trailing ? undefined : steady,
@@ -194,3 +199,27 @@ async function trailingInputs(db: SupabaseClient, owner: string, agentId: string
   };
 }
 
+let marketCache: { at: number; owner: string; value: { falling: number; total: number } } | null = null;
+/**
+ * The whole team at once: how many of its stocks closed 10%+ below their highest close of the last
+ * 20 sessions (stored B3/Yahoo bars). Several falling together is a market shock (core/committee).
+ */
+export async function teamMarket(db: SupabaseClient, owner: string) {
+  if (marketCache && marketCache.owner === owner && Date.now() - marketCache.at < 300000) return marketCache.value;
+  const [agents, assets] = await Promise.all([
+    db.from("agents").select("status,asset_id").eq("owner_id", owner),
+    db.from("assets").select("id,ticker").eq("owner_id", owner),
+  ]);
+  if (agents.error || assets.error) throw new Error("TEAM_MARKET_UNAVAILABLE");
+  const tickers = [...new Set(agents.data.filter((a) => !["DEAD", "FIRED"].includes(a.status))
+    .map((a) => assets.data.find((x) => x.id === a.asset_id)?.ticker).filter((t): t is string => !!t))];
+  let falling = 0, total = 0;
+  for (const ticker of tickers) {
+    const closes = (await loadBars(db, ticker, 21).catch(() => [])).map((b) => Number(b.close));
+    if (closes.length < 10) continue;
+    total++;
+    if (closes[closes.length - 1] <= Math.max(...closes) * 0.9) falling++;
+  }
+  marketCache = { at: Date.now(), owner, value: { falling, total } };
+  return marketCache.value;
+}

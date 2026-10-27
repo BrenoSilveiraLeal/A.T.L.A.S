@@ -59,6 +59,8 @@ export interface AutopilotInput {
   stopLossPct: number;
   /** Rule-based context; it can only brake: block buys, halve size or force an exit. */
   context?: { action: ContextAction; summary: string };
+  /** The four analysts' consensus (core/committee): share of the room to buy now (owner, 27/10/2026). */
+  council?: { fraction: number; text: string };
   /**
    * Trailing-stop rule inputs from the long adjusted history: highest close since the
    * current position was opened (null without position), highest close of the prior
@@ -124,7 +126,7 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
       return hold(`sinal de compra bloqueado pelo contexto: ${input.context.summary}`);
     const limit = toTick(price.times(1 + (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "up");
     const fullRoom = D.min(new D(input.budgetRoom), new D(input.maxOrderValue), new D(input.availableCash)).minus(input.fixedFee ?? 0);
-    const room = input.context?.action === "REDUCE" ? fullRoom.div(2) : fullRoom;
+    const room = input.council ? fullRoom.times(input.council.fraction) : input.context?.action === "REDUCE" ? fullRoom.div(2) : fullRoom;
     const perShare = limit.times(1 + input.feeBps / 10000);
     const lots = room.lte(0) ? 0 : room.div(perShare.times(input.lotSize)).floor().toNumber();
     // Order value is checked against the limit price, which is what the risk review uses.
@@ -134,7 +136,7 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     if (input.minOrderValue && limit.times(quantity).lt(input.minOrderValue))
       return hold(`sinal de compra, mas a ordem (R$ ${limit.times(quantity).toFixed(2)}) é pequena demais: a corretagem pesaria mais de 1%. Espera juntar pelo menos R$ ${input.minOrderValue.toFixed(2)}.`);
     return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
-      reason: `${input.ticker}: compra automática (${why}${input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${ruleVersion(input)}.` };
+      reason: `${input.ticker}: compra automática (${why}${input.council ? (input.council.fraction < 1 ? `; conselho: ${input.council.text}` : "") : input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${ruleVersion(input)}.` };
   };
   if (input.range) {
     const decision = rangeDecision({ closes: input.range.closes, price: price.toNumber(), quantity: input.position.quantity,

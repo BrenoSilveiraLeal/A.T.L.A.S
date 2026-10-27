@@ -77,7 +77,7 @@ const seatOf = (d: DeskSpot): V2 => [d.x, d.z + d.dir * 1.05];
 // boss's office (x 2.67 to 10.67) and the team meeting room (x 10.67 to 24).
 const COUNCILS = [[-24, -17.33], [-17.33, -10.67], [-10.67, -4], [-4, 2.67]]
   .map(([x1, x2]) => ({ x1, x2, table: [(x1 + x2) / 2, -10.4] as V2, door: x2 - 1.4 }));
-const SPECIALIST_SHIRTS = ["#f28c28", "#2f6fd6", "#22a06b", "#9b6bff"]; // Risco, Balanço, Estratégia, Previsão
+const SPECIALIST_SHIRTS = ["#22a06b", "#2f6fd6", "#f28c28", "#9b6bff"]; // Otimista, Pessimista, Riscos do mundo, Realista
 // Snack bar (front right): two high tables and the counter along the right wall.
 const KITCHEN_TABLES: V2[] = [[16.4, 7.6], [16.4, 11.4]];
 const BAR_SPOTS: V2[] = [[21.5, 7.4], [21.5, 8.8], [21.5, 10.2], [21.5, 11.6]];
@@ -1200,7 +1200,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const el = document.createElement("div"); el.className = "speech-bubble council"; el.hidden = true;
       const o = new CSS2DObject(el); o.position.set(0, 2.3, 0); person.rig.add(o); councilBubbles[roomIndex].push(el);
     }));
-    const SPEAKER: Record<string, number> = { Risco: 0, "Balanço": 1, "Estratégia": 2, "Previsão": 3 };
+    const SPEAKER: Record<string, number> = { Otimista: 0, Pessimista: 1, "Riscos do mundo": 2, Realista: 3 };
     const roomTalk = COUNCILS.map(() => ({ agentId: "", turn: 0, timer: 0 }));
     let roomAgents: (OfficeAgent | null)[] = COUNCILS.map(() => null);
     // Staff show only the name; the role appears when the mouse is over it (owner, 26/10/2026).
