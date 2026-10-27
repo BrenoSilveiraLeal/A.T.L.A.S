@@ -49,7 +49,7 @@ export async function holdTeamMeeting(db: SupabaseClient, owner: string, now = n
     lessons: minutes.lessons, suggestions: minutes.suggestions });
   if (saved.error) return null; // another runner held it first
   // Full minutes by e-mail and in the bell; the phone gets the short version.
-  await notify({ level: "info", whatsapp: false, title: `Reunião de fim de dia (${day.split("-").reverse().join("/")})`,
+  await notify({ level: "info", whatsapp: false, email: true, title: `Reunião de fim de dia (${day.split("-").reverse().join("/")})`,
     lines: [...minutes.summary, "", "O que aprendemos:", ...minutes.lessons, ...(minutes.suggestions.length ? ["", "Sugestões para você:", ...minutes.suggestions] : []),
       "", "O que cada IA disse:", ...minutes.lines.map((l) => `${l.name}: ${l.text}`)] });
   await sendWhatsApp([`*ATLAS ℹ️ Reunião de fim de dia (${day.split("-").reverse().join("/")})*`, ...minutes.summary, ...minutes.lessons,

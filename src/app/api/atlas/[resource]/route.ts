@@ -292,7 +292,7 @@ export async function POST(request: Request, context: RouteContext) {
     if (resource === "contribution") return json(await mutateContribution(admin, user.id, body));
     if (resource === "live") return json(await mutateLive(admin, user.id, body));
     if (resource === "notifications" && (body as { action?: string } | null)?.action === "test") {
-      await notify({ level: "info", title: "Teste de aviso do ATLAS", lines: ["Se você recebeu este e-mail, os avisos estão funcionando."] });
+      await notify({ level: "info", email: true, title: "Teste de aviso do ATLAS", lines: ["Se você recebeu este e-mail, os avisos estão funcionando."] });
       return json({ ok: true, email: Boolean(process.env.RESEND_API_KEY) });
     }
     if (resource === "notifications") {

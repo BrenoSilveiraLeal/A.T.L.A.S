@@ -6,12 +6,13 @@ import { notify } from "./notify";
 
 /**
  * Big moves of the team's stocks during the session (owner, 26/10/2026: "se uma ação subiu, se uma
- * ação caiu... pelo meu WhatsApp"): every 3% step of today's move against yesterday's close, once
- * per stock, direction and step per day. Checked at most every 5 minutes, with the Genial price.
+ * ação caiu"): when today's move against yesterday's close crosses 3%, 6%, 10% and 20%, once per
+ * stock, direction and level per day (a crash day does not flood the inbox). Checked at most every
+ * 5 minutes, with the Genial price.
  */
-export const MOVE_STEP = 0.03;
+export const MOVE_LEVELS = [0.03, 0.06, 0.1, 0.2] as const;
 
-export function moveStep(change: number) { return Math.floor(Math.abs(change) / MOVE_STEP); }
+export function moveStep(change: number) { return MOVE_LEVELS.filter((level) => Math.abs(change) >= level).length; }
 
 export async function notifyBigMoves(db: SupabaseClient, owner: string, now = new Date()) {
   if (b3Session(now).status !== "OPEN") return;

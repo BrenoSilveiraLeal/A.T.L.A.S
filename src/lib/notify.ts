@@ -16,6 +16,12 @@ export interface Notice {
   level: NotifyLevel; title: string; lines?: readonly string[]; dedupeKey?: string; windowSeconds?: number;
   /** Also on WhatsApp (default: everything except plain "info" activity). */
   whatsapp?: boolean;
+  /**
+   * Also by e-mail (owner, 27/10/2026: "coisas importantes, como comprou, vendeu ou deu erro").
+   * Default: purchases and sales done, deposits, refusals, missing money, big moves and errors
+   * (every level but "info"); routine activity stays in the bell only.
+   */
+  email?: boolean;
 }
 
 const ICON: Record<NotifyLevel, string> = { info: "ℹ️", success: "✅", warning: "⚠️", error: "❌" };
@@ -60,7 +66,7 @@ export async function notify(notice: Notice): Promise<void> {
       if (allowed.error || !allowed.data) return;
     }
     const body = (notice.lines ?? []).join("\n");
-    const emailed = await sendEmail(`ATLAS ${ICON[notice.level]} ${notice.title}`, [notice.title, body].filter(Boolean).join("\n\n"));
+    const emailed = (notice.email ?? notice.level !== "info") && await sendEmail(`ATLAS ${ICON[notice.level]} ${notice.title}`, [notice.title, body].filter(Boolean).join("\n\n"));
     await db.from("notifications").insert({ owner_id: owner, level: notice.level, title: notice.title.slice(0, 160), body: body.slice(0, 2000), emailed });
     if (notice.whatsapp ?? notice.level !== "info") await sendWhatsApp([`*ATLAS ${ICON[notice.level]} ${notice.title}*`, body].filter(Boolean).join("\n"));
     await sendAlert([notice.title, ...(notice.lines ?? [])]);
