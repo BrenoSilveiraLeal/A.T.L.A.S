@@ -2,6 +2,7 @@ import type { ContextAction } from "./context";
 import type { HealthLevel } from "./company-health";
 import { forecastOpinion, type ConsensusView } from "./forecast";
 import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS } from "./range";
+import { minimumSellPrice } from "./live";
 
 /**
  * The council (owner, 24–25/10/2026: "debater com outras IAs sobre o risco, sobre valores, sobre
@@ -48,7 +49,9 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
       : i.health.level === "ATENCAO" ? { role: "Balanço", vote: "NEUTRO", text: `Atenção: ${i.health.reason}` }
         : { role: "Balanço", vote: "A_FAVOR", text: `Empresa saudável. ${i.health.reason}` };
   const r = i.range, price = i.price;
-  const floor = i.holding > 0 && i.averageCost ? i.averageCost * (1 + i.minGainPct / 100) : null;
+  // The real order's floor too: both fees paid and 3% net left (core/live minimumSellPrice).
+  const floor = i.holding > 0 && i.averageCost
+    ? Math.max(i.averageCost * (1 + i.minGainPct / 100), Number(minimumSellPrice(i.averageCost * i.holding, i.holding))) : null;
   const sellNow = r !== null && price !== null && i.holding > 0 && price >= r.sellAbove && floor !== null && price >= floor;
   const zone = r !== null && price !== null && price <= r.buyBelow;
   const badHistory = zone && !historyAgrees(i.history);

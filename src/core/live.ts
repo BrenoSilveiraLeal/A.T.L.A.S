@@ -77,8 +77,10 @@ export const sendOutcome = (code: string): "REJECTED" | "UNKNOWN" => (NOT_SENT.h
 /**
  * "Never sell at a loss": the lowest sell price per share that gives back everything paid
  * (cost already includes the buy fees) after the sell's brokerage and B3 fees, plus a margin.
+ * Owner, 27/10/2026: "se o lucro for de R$ 3, vendi por zero" — the margin is net profit after both
+ * fees, 3% of what was paid (was 0,5%).
  */
-export function minimumSellPrice(cost: number, quantity: number, marginPct = 0.5): string {
+export function minimumSellPrice(cost: number, quantity: number, marginPct = 3): string {
   const fixed = (quantity >= 100 ? LIVE.lotFee : 0) + (quantity % 100 ? LIVE.fractionFee : 0);
   const price = ((cost + fixed) / (quantity * (1 - LIVE.b3Bps / 10000))) * (1 + marginPct / 100);
   return (Math.ceil(price * 100 - 1e-9) / 100).toFixed(2);

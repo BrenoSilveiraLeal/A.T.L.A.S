@@ -61,9 +61,16 @@ describe("real-money decisions", () => {
 });
 
 describe("never sell at a loss", () => {
-  it("covers the price paid, both fees and a 0,5% margin", () => {
-    // 5 shares that cost R$ 150,54 with fees: (150,54 + 0,99) / (5 × 0,9997) × 1,005 = 30,47.
-    expect(minimumSellPrice(150.54, 5)).toBe("30.47");
-    expect(minimumSellPrice(3009.9, 100)).toBe("30.29");
+  it("covers the price paid, both fees and 3% net profit", () => {
+    // 5 shares that cost R$ 150,54 with fees: (150,54 + 0,99) / (5 × 0,9997) × 1,03 = 31,23.
+    expect(minimumSellPrice(150.54, 5)).toBe("31.23");
+    expect(minimumSellPrice(3009.9, 100)).toBe("31.05");
+  });
+
+  it("leaves at least 3% of what was paid after the sale's fees (Beatriz, 6 EQTL3 for R$ 215,26)", () => {
+    const price = Number(minimumSellPrice(215.26, 6));
+    const net = 6 * price * (1 - 3 / 10000) - 0.99 - 215.26;
+    expect(price).toBe(37.14);
+    expect(net).toBeGreaterThanOrEqual(215.26 * 0.03);
   });
 });
