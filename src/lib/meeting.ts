@@ -37,7 +37,14 @@ export async function holdTeamMeeting(db: SupabaseClient, owner: string, now = n
       range: ready?.range ?? null, history: ready?.history ?? null, consensus: ready?.consensus ?? null });
   }
   if (!team.length) return null;
-  const minutes = meetingMinutes(day, team, { deposited: live.genial.deposited, free: live.genial.free });
+  // The supervisor's report: the day's analyses and real fills.
+  const since = new Date(`${day}T00:00:00-03:00`).toISOString();
+  const [analyses, fills] = await Promise.all([
+    db.from("decisions").select("id", { count: "exact", head: true }).eq("owner_id", owner).gte("created_at", since),
+    db.from("live_fills").select("side").eq("owner_id", owner).gte("executed_at", since),
+  ]);
+  const minutes = meetingMinutes(day, team, { deposited: live.genial.deposited, free: live.genial.free, analyses: analyses.count ?? 0,
+    buys: (fills.data ?? []).filter((f) => f.side === "BUY").length, sells: (fills.data ?? []).filter((f) => f.side === "SELL").length });
   const saved = await db.from("team_meetings").insert({ owner_id: owner, day, lines: minutes.lines, summary: minutes.summary,
     lessons: minutes.lessons, suggestions: minutes.suggestions });
   if (saved.error) return null; // another runner held it first

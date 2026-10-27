@@ -81,14 +81,15 @@ const MARKET_SEATS: [V2, number][] = [[[15.8, 1.4], Math.PI], [[16.8, 1.4], Math
 const MARKET_LANE = 22.4;
 const LOUNGE_LANE = 9;
 const BOSS_X = 6.67;
-// Team meeting room: long table, five chairs each side and one at each end; the door is where the
-// fifth council room's door was.
+// Team meeting room: six chairs each side for the agents, the boss at the head of the table and the
+// supervisor at the other end (owner, 26/10/2026); the door is where the fifth council room's was.
 const MEETING_TABLE: V2 = [17.3, -10];
 const MEETING_DOOR = 12.07;
+const SIDE_X = [13.05, 14.75, 16.45, 18.15, 19.85, 21.55];
 const MEETING_SEATS: { pos: V2; face: number }[] = [
-  ...[13.3, 15.3, 17.3, 19.3, 21.3].map((x) => ({ pos: [x, -8.55] as V2, face: Math.PI })),
-  ...[13.3, 15.3, 17.3, 19.3, 21.3].map((x) => ({ pos: [x, -11.45] as V2, face: 0 })),
-  { pos: [11.6, -10], face: Math.PI / 2 }, { pos: [23.0, -10], face: -Math.PI / 2 }];
+  ...SIDE_X.map((x) => ({ pos: [x, -8.55] as V2, face: Math.PI })),
+  ...SIDE_X.map((x) => ({ pos: [x, -11.45] as V2, face: 0 }))];
+const BOSS_SEAT: V2 = [11.6, -10], SUPERVISOR_SEAT: V2 = [23.0, -10];
 function meetingSlot(i: number): Slot {
   const { pos, face } = MEETING_SEATS[i % MEETING_SEATS.length], [x] = pos;
   const door: V2[] = [[MEETING_DOOR, CORRIDOR_Z], [MEETING_DOOR, -7.2]];
@@ -774,6 +775,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       box(9.4, 0.08, 2.2, mx, 0.95, mz, wood);
       for (const dx of [-3.6, 0, 3.6]) box(0.5, 0.9, 0.5, mx + dx, 0.46, mz, metal);
       MEETING_SEATS.forEach(({ pos, face }) => chair(pos[0], pos[1], face, "#3b3f47"));
+      chair(BOSS_SEAT[0], BOSS_SEAT[1], Math.PI / 2, "#1f2a44"); chair(SUPERVISOR_SEAT[0], SUPERVISOR_SEAT[1], -Math.PI / 2, "#b8860b");
       plant(11.4, -13.2, 0.8); plant(23.3, -13.2, 0.8);
     }
     const meetingScreen = canvasTexture(1600, 520);
@@ -932,7 +934,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const bossPerson = makePerson({ presentation: "masculine", skin: "#d9a07a", hair: "#9a9a9a", hairStyle: "short", shirt: "#f4f4f4", pants: "#1b1e24", jacket: "#1f2a44", glasses: true });
     bossPerson.group.position.set(BOSS_X, 0, -11.6); scene.add(bossPerson.group);
     const bossTag = tagged(bossPerson, "Chefe", "cuida do dinheiro");
-    staff.push({ person: bossPerson, pose: "type", phase: 7 });
+    const bossStaff: { person: Person; pose: Pose; phase: number } = { person: bossPerson, pose: "type", phase: 7 };
+    staff.push(bossStaff);
+    const BOSS_DESK: V2 = [BOSS_X, -11.6];
+    // Boss and supervisor walk to the meeting room at 17:10 and back afterwards.
+    const toMeeting = (from: V2, seat: V2): V2[] => [[from[0], -7.2], [from[0], CORRIDOR_Z], [MEETING_DOOR, CORRIDOR_Z], [MEETING_DOOR, -7.2], [seat[0], -7.2], seat];
+    const fromMeeting = (seat: V2, to: V2): V2[] => [[seat[0], -7.2], [MEETING_DOOR, -7.2], [MEETING_DOOR, CORRIDOR_Z], [to[0], CORRIDOR_Z], [to[0], -7.2], to];
+    let bossState: "desk" | "going" | "meeting" | "back" = "desk", supState: "patrol" | "going" | "meeting" = "patrol";
+    const bossPath: V2[] = [];
     // The boss's assistant watches stocks outside the team (the list under the office).
     box(1.3, 0.06, 0.7, BOSS_X + 2.8, 0.95, -8.4, white); box(0.6, 0.4, 0.04, BOSS_X + 2.8, 1.25, -8.7, metal);
     const assistant = makePerson({ presentation: "masculine", skin: "#c68863", hair: "#2b1a12", hairStyle: "curly", shirt: "#5c6bc0", pants: "#2d3142" });
@@ -1290,11 +1299,20 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         meetingTimer -= dt;
         if (meetingTimer <= 0) {
           meetingTimer = 5;
-          const line = meetingData.lines[meetingTurn++ % meetingData.lines.length], speaker = people.get(line.agentId);
-          if (speaker && !speaker.path.length) show(speaker.bubbleEl, line.text.length > 110 ? `${line.text.slice(0, 108)}…` : line.text, 4.8);
+          const line = meetingData.lines[meetingTurn++ % meetingData.lines.length];
+          const text = line.text.length > 110 ? `${line.text.slice(0, 108)}…` : line.text;
+          if (line.agentId === "BOSS") { if (bossState === "meeting") show(bossBubble, text, 4.8); }
+          else if (line.agentId === "SUPERVISOR") { if (supState === "meeting") { supBubbleEl.textContent = text; supBubbleEl.hidden = false; supTalkUntil = performance.now() + 4800; } }
+          else { const speaker = people.get(line.agentId); if (speaker && !speaker.path.length) show(speaker.bubbleEl, text, 4.8); }
         }
       }
-      for (const s of staff) pose(s.person, s.pose, t, s.phase);
+      // Boss: to the head of the meeting table at 17:10, back to the desk afterwards.
+      if (meetingNow && bossState === "desk") { bossState = "going"; bossPath.push(...toMeeting(BOSS_DESK, BOSS_SEAT)); }
+      if (!meetingNow && bossState === "meeting") { bossState = "back"; bossPath.push(...fromMeeting(BOSS_SEAT, BOSS_DESK)); }
+      if (bossPath.length) { walk(bossPerson, bossPath, reduced ? 40 : 1.6, dt); pose(bossPerson, "walk", t, 7); }
+      else if (bossState === "going") { bossState = "meeting"; bossPerson.group.rotation.y = Math.PI / 2; bossStaff.pose = "talk"; }
+      else if (bossState === "back") { bossState = "desk"; bossPerson.group.rotation.y = 0; bossStaff.pose = "type"; }
+      for (const s of staff) if (s !== bossStaff || !bossPath.length) pose(s.person, s.pose, t, s.phase);
       // Assistant routine: desk → boss (report) → desk.
       assistTimer -= dt;
       if (assistState === "desk") {
@@ -1354,8 +1372,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         const agent = r && latest.get(r.group.userData.agentId as string);
         if (r && agent) show(r.bubbleEl, chatLine(agent), 4);
       }
-      // Supervisor patrol: walk, stop at each desk and say what that agent is doing.
-      if (supPath.length) { walk(supervisor, supPath, reduced ? 40 : 1.6, dt); pose(supervisor, "walk", t, 3); }
+      // Supervisor: to the end of the meeting table at 17:10; otherwise the patrol.
+      if (meetingNow && supState === "patrol") { supState = "going"; supPath.length = 0; patrolWait = 0; supPath.push(...toMeeting([supervisor.group.position.x, supervisor.group.position.z], SUPERVISOR_SEAT)); }
+      if (!meetingNow && supState !== "patrol") { supState = "patrol"; supPath.length = 0; supPath.push([SUPERVISOR_SEAT[0], -7.2], [MEETING_DOOR, -7.2], [MEETING_DOOR, CORRIDOR_Z]); }
+      if (supState !== "patrol") {
+        if (supPath.length) { walk(supervisor, supPath, reduced ? 40 : 1.6, dt); pose(supervisor, "walk", t, 3); }
+        else { supState = "meeting"; supervisor.group.rotation.y = -Math.PI / 2; pose(supervisor, "talk", t, 3); }
+      } else if (supPath.length) { walk(supervisor, supPath, reduced ? 40 : 1.6, dt); pose(supervisor, "walk", t, 3); }
       else if (patrolWait > 0) { patrolWait -= dt; pose(supervisor, "stand", t, 3); }
       else {
         const stop = patrol[patrolIndex % patrol.length];

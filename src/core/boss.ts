@@ -29,13 +29,16 @@ export function bossGrant(i: GrantInput): number {
 }
 
 /**
- * The boss compares the whole team (owner, 25/10/2026: "comparar as 6 opções ... gasta na que
- * está com um bom momento ... e compra mais de uma"). Candidates are the agents whose stock is in
- * its buy zone now; `score` ranks them (lower = better: closer to the 6-month low within the
- * 6-month range, worse for a company flagged "Atenção"). The best gets money first — at least one
- * share, or its fair part of what is left — then the next, until the pot is empty. A single
- * candidate gets the whole free pot and may buy several shares.
+ * The boss compares the whole team (owner, 25–26/10/2026: "comprar o máximo possível daquela que vai
+ * retornar o máximo possível; se faltar dinheiro, a segunda melhor"). Candidates are the agents whose
+ * stock is in its buy zone at the right moment; `score` ranks them (lower = better: closer to the
+ * 6-month low within the range, more analyst upside, worse for a company flagged "Atenção").
+ * The free money goes 50% to the best, 30% to the second and 20% to the third (at least one share
+ * each while money lasts; one that cannot pay a share passes its part to the next). A single
+ * candidate gets the whole pot. On the team's B3 history 2023–2026 this split matched putting
+ * everything on the best in the good years and avoided its bad years (docs/BACKTEST_CAIXA.md).
  */
+export const POT_SPLIT = [0.5, 0.3, 0.2] as const;
 export interface Candidate { agentId: string; price: number; fee: number; score: number }
 
 export function opportunityScore(price: number, low: number, high: number, attention: boolean, upside: number | null = null) {
@@ -46,14 +49,19 @@ export function opportunityScore(price: number, low: number, high: number, atten
 
 export function allocatePot(pool: number, candidates: readonly Candidate[]): Record<string, number> {
   const ranked = [...candidates].sort((a, b) => a.score - b.score);
-  const out: Record<string, number> = {};
-  let left = Math.max(0, pool);
-  ranked.forEach((c, i) => {
+  const out: Record<string, number> = Object.fromEntries(ranked.map((c) => [c.agentId, 0]));
+  const total = Math.max(0, pool);
+  let left = total, slot = 0;
+  for (const c of ranked) {
+    if (slot >= POT_SPLIT.length) break;
     const oneShare = c.price * 1.01 + c.fee;
-    const fair = left / (ranked.length - i);
-    const give = left >= oneShare ? Math.min(left, Math.max(fair, oneShare)) : 0;
+    if (left < oneShare) continue; // cannot pay one share: its part goes to the next
+    const weights = POT_SPLIT.slice(0, Math.min(POT_SPLIT.length, ranked.length));
+    const last = slot === weights.length - 1 || ranked.indexOf(c) === ranked.length - 1;
+    const part = (total * weights[slot]) / weights.reduce((s, w) => s + w, 0);
+    const give = last ? left : Math.min(left, Math.max(part, oneShare));
     out[c.agentId] = Math.floor(give * 100) / 100;
-    left -= out[c.agentId];
-  });
+    left -= out[c.agentId]; slot++;
+  }
   return out;
 }

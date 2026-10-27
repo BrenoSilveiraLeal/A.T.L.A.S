@@ -29,6 +29,10 @@ describe("end-of-day team meeting", () => {
     expect(said["João"]).toContain("não vale comprar");
     expect(m.summary[0]).toContain("R$ 16,00 livres de R$ 100,00");
     expect(m.suggestions.join(" ")).toContain("João (VALE3)");
+    // The boss opens with who gets the money first and evaluates each agent.
+    expect(m.lines[0]).toMatchObject({ agentId: "BOSS", name: "Chefe" });
+    expect(m.lines[0].text).toContain("1º LREN3");
+    expect(m.lines.filter((l) => l.agentId === "BOSS").map((l) => l.text).join(" ")).toContain("Maria: posição");
   });
 
   it("checks the rule: buying at the first touch of the buy zone vs today", () => {

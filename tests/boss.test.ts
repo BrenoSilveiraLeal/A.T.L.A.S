@@ -68,12 +68,18 @@ describe("the boss compares the six stocks", () => {
   it("gives the whole pot to the only stock in its buy zone, so it can buy several shares", () => {
     expect(allocatePot(100, [{ agentId: "joao", price: 30, fee: 0.99, score: 0.02 }])).toEqual({ joao: 100 });
   });
-  it("serves the best opportunity first, at least one share each, while money lasts", () => {
+  it("splits 50/30/20 among the three best, at least one share each, while money lasts", () => {
     const a = allocatePot(100, [{ agentId: "ana", price: 49, fee: 0.99, score: 0.3 }, { agentId: "joao", price: 62, fee: 0.99, score: 0.01 }]);
     expect(a.joao).toBeCloseTo(63.61, 2);
     expect(a.ana).toBe(0); // R$ 36,39 left does not pay one ITUB4
     const b = allocatePot(300, [{ agentId: "ana", price: 49, fee: 0.99, score: 0.3 }, { agentId: "joao", price: 62, fee: 0.99, score: 0.01 }]);
-    expect([b.joao, b.ana]).toEqual([150, 150]);
+    expect([b.joao, b.ana]).toEqual([187.5, 112.5]); // two candidates: 50/30 → 62.5% and the rest
+    const c = allocatePot(500, [{ agentId: "a", price: 10, fee: 0.99, score: 0.1 }, { agentId: "b", price: 10, fee: 0.99, score: 0.2 },
+      { agentId: "c", price: 10, fee: 0.99, score: 0.3 }, { agentId: "d", price: 10, fee: 0.99, score: 0.4 }]);
+    expect([c.a, c.b, c.c, c.d]).toEqual([250, 150, 100, 0]);
+    // The best costs more than the pot: the money goes to the next one.
+    const d = allocatePot(100, [{ agentId: "x", price: 120, fee: 0.99, score: 0 }, { agentId: "y", price: 20, fee: 0.99, score: 0.1 }]);
+    expect([d.x, d.y]).toEqual([0, 100]);
   });
   it("ranks closeness to the 6-month low and penalises a company flagged Atenção", () => {
     expect(opportunityScore(41, 40, 60, false)).toBeCloseTo(0.05);

@@ -1,5 +1,6 @@
 import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS } from "./range";
 import { forecastOpinion, type ConsensusView } from "./forecast";
+import { opportunityScore } from "./boss";
 import { B3_CALENDAR, saoPauloClock } from "./b3-calendar";
 
 /**
@@ -19,7 +20,11 @@ export interface MeetingAgent {
   history: { samples: number; upShare: number; average: number } | null;
   consensus: ConsensusView | null;
 }
-export interface MeetingTeam { deposited: number; free: number }
+export interface MeetingTeam {
+  deposited: number; free: number;
+  /** The day's work, for the supervisor: analyses done, real purchases and sales. */
+  analyses?: number; buys?: number; sells?: number;
+}
 export interface Minutes {
   day: string;
   lines: { agentId: string; name: string; ticker: string; text: string }[];
@@ -62,8 +67,39 @@ function opinion(a: MeetingAgent): string {
   return `${head}${today}. Ainda ${pct(a.price / r.buyBelow - 1)} acima da faixa de compra (até ${brl(r.buyBelow)}). Sem pressa.${analysts}`;
 }
 
+/**
+ * The boss chairs the meeting (owner, 26/10/2026: "o chefe participa para avaliar o desempenho de
+ * cada funcionário"): opens with who gets the money first, then evaluates each agent from its
+ * real position; the supervisor reports the day's work.
+ */
+function bossLines(agents: readonly MeetingAgent[]) {
+  const ready = agents.filter((a) => a.range && a.holding === 0 && historyAgrees(a.history) && a.price <= a.range.buyBelow)
+    .map((a) => ({ a, ok: entryCheck(a.closes, a.price, a.range!.low).ok, score: opportunityScore(a.price, a.range!.low, a.range!.high, false, forecastOpinion(a.price, a.consensus).upside) }))
+    .sort((x, y) => Number(y.ok) - Number(x.ok) || x.score - y.score);
+  const opening = ready.length
+    ? `Prioridade do caixa amanhã: ${ready.slice(0, 3).map((r, i) => `${i + 1}º ${r.a.ticker}${r.ok ? "" : " (se virar)"}`).join(", ")}. O dinheiro vai primeiro para quem estiver na hora certa.`
+    : "Nenhuma ação na faixa de compra: o caixa fica guardado até aparecer uma boa oportunidade.";
+  const evaluations = agents.map((a) => {
+    if (a.holding > 0) {
+      const result = a.price / (a.cost / a.holding) - 1;
+      return `${a.name}: posição ${pct(result)}. ${result >= 0 ? "Bom trabalho, segure até perto da máxima." : "Sem pânico: só vendemos com lucro."}`;
+    }
+    if (a.history && !historyAgrees(a.history)) return `${a.name}: a ${a.ticker} quase nunca sobe depois da mínima; estou avaliando trocar essa ação.`;
+    if (a.range && a.price <= a.range.buyBelow) return `${a.name}: ${a.ticker} está na faixa; fique atento à virada.`;
+    return null;
+  }).filter((x): x is string => x !== null);
+  return { opening, evaluations };
+}
+
 export function meetingMinutes(day: string, agents: readonly MeetingAgent[], team: MeetingTeam): Minutes {
-  const lines = agents.map((a) => ({ agentId: a.agentId, name: a.name, ticker: a.ticker, text: opinion(a) }));
+  const boss = bossLines(agents);
+  const lines = [
+    { agentId: "BOSS", name: "Chefe", ticker: "", text: boss.opening },
+    ...agents.map((a) => ({ agentId: a.agentId, name: a.name, ticker: a.ticker, text: opinion(a) })),
+    ...(team.analyses !== undefined ? [{ agentId: "SUPERVISOR", name: "Supervisora", ticker: "",
+      text: `Hoje: ${team.analyses} análises, ${team.buys ?? 0} compra(s) e ${team.sells ?? 0} venda(s) na Genial. Equipe completa: ${agents.length} IAs.` }] : []),
+    ...boss.evaluations.slice(0, 6).map((text) => ({ agentId: "BOSS", name: "Chefe", ticker: "", text })),
+  ];
   const held = agents.filter((a) => a.holding > 0);
   const invested = held.reduce((s, a) => s + a.cost, 0), value = held.reduce((s, a) => s + a.holding * a.price, 0);
   const inZone = agents.filter((a) => a.range && a.price <= a.range.buyBelow && a.holding === 0 && historyAgrees(a.history));
