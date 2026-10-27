@@ -43,7 +43,7 @@ import { LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
  * Walls work like The Sims "cutaway". Falls back to the 2D map without WebGL.
  */
 type V2 = [number, number];
-type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch" | "cue" | "look" | "phone";
+type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch" | "cue" | "look" | "phone" | "sitPhone";
 interface Slot { pos: V2; face: number; pose: Pose; route: V2[] }
 interface Person {
   group: THREE.Group; rig: THREE.Group; head: THREE.Group; hips: THREE.Group[]; knees: THREE.Group[];
@@ -1532,7 +1532,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const swing = reduced ? 0 : Math.sin(t * 7 + phase);
       p.mug.visible = kind === "chat"; p.cue.visible = kind === "cue"; p.phone.visible = false;
       p.shoulders.forEach((s) => (s.rotation.z = 0));
-      const seated = kind === "sit" || kind === "type" || kind === "talk" || kind === "watch";
+      const seated = kind === "sit" || kind === "type" || kind === "talk" || kind === "watch" || kind === "sitPhone";
       p.rig.position.y = seated ? SEAT_Y / S - 0.92 : kind === "walk" ? Math.abs(swing) * 0.02 : 0;
       p.head.rotation.set(0, 0, 0);
       if (kind === "walk") {
@@ -1584,8 +1584,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         p.head.rotation.x = -0.18; p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.3 + phase) * 0.3;
         p.shoulders[0].rotation.x = 0; p.elbows[0].rotation.x = -0.1;
         p.shoulders[1].rotation.x = -0.5 * think; p.elbows[1].rotation.x = -2.2 * think;
-      } else if (kind === "phone") {
-        // Break in a corner of the room: phone in front of the face, head down, thumb scrolling.
+      } else if (kind === "phone" || kind === "sitPhone") {
+        // On a break: phone in front of the face, head down, thumb scrolling (standing or on a sofa).
         p.phone.visible = true;
         const scroll = reduced ? 0 : Math.sin(t * 3 + phase) * 0.04;
         p.shoulders[0].rotation.x = -0.95; p.shoulders[0].rotation.z = 0.25; p.elbows[0].rotation.x = -1.55 + scroll;
@@ -1644,6 +1644,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         } else if (r.slot) {
           // Pool: only the player whose turn it is leans in with the cue; the others wait holding theirs.
           if (r.slot.pose === "cue") { pose(r, shooter === r && performance.now() < shotAt ? "cue" : "stand", t, r.phase); r.cue.visible = true; }
+          // Resting agents pick up the phone now and then (owner, 27/10/2026): about a quarter of the time.
+          else if (r.rest && !meetingNow && !reduced && (t / 70 + r.phase * 0.37) % 1 < 0.25 && ["chat", "stand", "watch"].includes(r.slot.pose))
+            pose(r, r.slot.pose === "watch" ? "sitPhone" : "phone", t, r.phase);
           else pose(r, r.slot.pose, t, r.phase);
         }
         keepUpright(r);
