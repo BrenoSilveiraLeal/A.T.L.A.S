@@ -43,7 +43,7 @@ import { LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
  * Walls work like The Sims "cutaway". Falls back to the 2D map without WebGL.
  */
 type V2 = [number, number];
-type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch" | "cue" | "look";
+type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch" | "cue" | "look" | "phone";
 interface Slot { pos: V2; face: number; pose: Pose; route: V2[] }
 interface Person {
   group: THREE.Group; rig: THREE.Group; head: THREE.Group; hips: THREE.Group[]; knees: THREE.Group[];
@@ -1209,7 +1209,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const councilBubbles: HTMLDivElement[][] = COUNCILS.map(() => []);
     // Owner, 27/10/2026: outside working hours the analysts are free like everyone else (all of them may
     // leave at once) and are back at 09:30, before the open. Only the boss works all the time.
-    type Analyst = { member: (typeof staff)[number]; room: number; seat: number; state: "seat" | "going" | "out" | "back"; path: V2[]; timer: number; spot: number };
+    // Sometimes one stays behind on the phone in a corner of the room (owner, 27/10/2026).
+    type Analyst = { member: (typeof staff)[number]; room: number; seat: number; state: "seat" | "going" | "out" | "back"; path: V2[]; timer: number; spot: number; corner: boolean };
     const analysts: Analyst[] = [];
     COUNCILS.forEach((_, roomIndex) => SPECIALIST_SHIRTS.forEach((shirt, s) => {
       const person = makePerson({ ...STAFF_LOOKS[(s + roomIndex) % 3], shirt });
@@ -1217,7 +1218,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       person.group.position.set(pos[0], 0, pos[1]); person.group.rotation.y = face; scene.add(person.group);
       const member = { person, pose: "talk" as Pose, phase: roomIndex * 2 + s };
       staff.push(member);
-      analysts.push({ member, room: roomIndex, seat: s, state: "seat", path: [], timer: 30 + Math.random() * 200, spot: -1 });
+      analysts.push({ member, room: roomIndex, seat: s, state: "seat", path: [], timer: 30 + Math.random() * 200, spot: -1, corner: false });
       const el = document.createElement("div"); el.className = "speech-bubble council"; el.hidden = true;
       const o = new CSS2DObject(el); o.position.set(0, 2.3, 0); person.rig.add(o); councilBubbles[roomIndex].push(el);
     }));
@@ -1227,6 +1228,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       return [[pos[0], -12.6], [end, -12.6], [end, -8.0], [door, -8.0], [door, -7.2], [door, CORRIDOR_Z]];
     };
     const takenSpots = new Set<number>();
+    // From the chair to the back-left corner of the room, behind the other chairs.
+    const toCorner = (room: number, seat: number): V2[] => {
+      const { pos } = councilSeat(room, seat), x = COUNCILS[room].x1 + 0.75;
+      return [[pos[0], -12.6], [x, -12.6], [x, -13.3]];
+    };
     const SPEAKER: Record<string, number> = { Otimista: 0, Pessimista: 1, "Riscos do mundo": 2, Realista: 3 };
     const roomTalk = COUNCILS.map(() => ({ agentId: "", turn: 0, timer: 0 }));
     let roomAgents: (OfficeAgent | null)[] = COUNCILS.map(() => null);
@@ -1578,6 +1584,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         p.head.rotation.x = -0.18; p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.3 + phase) * 0.3;
         p.shoulders[0].rotation.x = 0; p.elbows[0].rotation.x = -0.1;
         p.shoulders[1].rotation.x = -0.5 * think; p.elbows[1].rotation.x = -2.2 * think;
+      } else if (kind === "phone") {
+        // Break in a corner of the room: phone in front of the face, head down, thumb scrolling.
+        p.phone.visible = true;
+        const scroll = reduced ? 0 : Math.sin(t * 3 + phase) * 0.04;
+        p.shoulders[0].rotation.x = -0.95; p.shoulders[0].rotation.z = 0.25; p.elbows[0].rotation.x = -1.55 + scroll;
+        p.shoulders[1].rotation.x = -0.6; p.elbows[1].rotation.x = -1.3;
+        p.head.rotation.x = 0.4; p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.15 + phase) * 0.1;
       } else if (kind === "watch") {
         p.shoulders.forEach((s) => (s.rotation.x = -0.35)); p.elbows.forEach((e) => (e.rotation.x = -0.9));
         p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.2 + phase) * 0.15;
@@ -1725,6 +1738,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           a.timer -= dt;
           if (a.timer > 0) continue;
           a.timer = 30 + Math.random() * 150;
+          if (Math.random() < 0.3 && !analysts.some((x) => x.room === a.room && x.corner)) {
+            Object.assign(a, { state: "going", corner: true, path: toCorner(a.room, a.seat) });
+            a.member.away = true;
+            continue;
+          }
           const free = BREAK_SPOTS.map((_, i) => i).filter((i) => !takenSpots.has(i));
           if (!free.length) continue;
           const spot = free[Math.floor(Math.random() * free.length)], exit = roomExit(a.room, a.seat);
@@ -1737,15 +1755,21 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           if (a.path.length) { walk(p, a.path, reduced ? 40 : 1.4, dt); pose(p, "walk", t, a.member.phase); continue; }
           if (a.state === "going") {
             Object.assign(a, { state: "out", timer: 90 + Math.random() * 180 });
-            p.group.rotation.y = BREAK_SPOTS[a.spot][1];
+            // In the corner, facing into the room.
+            p.group.rotation.y = a.corner ? Math.PI / 4 : BREAK_SPOTS[a.spot][1];
           } else {
             const { face } = councilSeat(a.room, a.seat);
-            p.group.rotation.y = face; a.state = "seat"; a.member.away = false;
+            p.group.rotation.y = face; a.state = "seat"; a.member.away = false; a.corner = false;
           }
         } else {
-          pose(p, "stand", t, a.member.phase);
+          pose(p, a.corner ? "phone" : "stand", t, a.member.phase);
           a.timer -= dt;
-          if (Math.random() < dt / 40) show(councilBubbles[a.room][a.seat], BREAK_CHAT[Math.floor(Math.random() * BREAK_CHAT.length)], 3);
+          if (!a.corner && Math.random() < dt / 40) show(councilBubbles[a.room][a.seat], BREAK_CHAT[Math.floor(Math.random() * BREAK_CHAT.length)], 3);
+          if (a.corner && (a.timer <= 0 || analystsOn)) {
+            const { pos } = councilSeat(a.room, a.seat);
+            Object.assign(a, { state: "back", path: [...toCorner(a.room, a.seat).reverse().slice(1), pos] });
+            continue;
+          }
           // Back at the end of the break, or at once at 09:30.
           if (a.timer <= 0 || analystsOn) {
             const exit = roomExit(a.room, a.seat), way = nav.path(BREAK_SPOTS[a.spot][0], exit.at(-1)!);
