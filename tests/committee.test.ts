@@ -15,7 +15,7 @@ describe("council: buy near the 6-month low, sell near the 6-month high", () => 
   it("buys near the low when the boss has money and nobody objects", () => {
     expect(committee({ ...base, price: 40.5 }).verdict).toBe("COMPRAR");
     expect(committee({ ...base, price: 40.5, budgetRoom: 0 }).verdict).toBe("ESPERAR");
-    expect(committee({ ...base, price: 40.5, health: { level: "PERIGO", reason: "Patrimônio negativo." } }).summary).toContain("Pessimista contra");
+    expect(committee({ ...base, price: 40.5, health: { level: "PERIGO", reason: "Patrimônio negativo." } }).summary).toContain("Pessimista vê risco grave");
     expect(committee({ ...base, price: 40.5, context: { action: "BLOCK_BUY", summary: "fato relevante" } }).verdict).toBe("ESPERAR");
   });
 
@@ -36,7 +36,7 @@ describe("council: analysts against", () => {
   it("vetoes a purchase when analysts recommend selling", () => {
     const forecast = { targetMean: 35, targetLow: 30, targetHigh: 40, recommendation: "sell", analysts: 8 };
     const c = committee({ ...base, price: 40.5, forecast });
-    expect([c.verdict, c.summary]).toEqual(["ESPERAR", expect.stringContaining("Pessimista contra")]);
+    expect([c.verdict, c.summary]).toEqual(["ESPERAR", expect.stringContaining("Pessimista vê risco grave")]);
   });
 });
 
@@ -53,20 +53,28 @@ describe("council: four analysts, four sides (owner, 27/10/2026)", () => {
     expect([c.optimist.vote, c.pessimist.vote, c.world.vote, c.consensus.fraction]).toEqual(["A_FAVOR", "A_FAVOR", "A_FAVOR", 1]);
   });
 
-  it("buys in parts when the whole market falls together", () => {
+  it("weighs moderate risks against reasons to rise (owner: risco moderado)", () => {
     const shock = { falling: 12, total: 16 };
-    const c = analysts({ ...base, price: 40.5, forecast, history, market: shock });
-    expect([c.world.vote, c.consensus.fraction]).toEqual(["NEUTRO", 0.5]);
-    expect(c.world.text).toContain("12 de 16");
-    // Caution from both the pessimist and the world: a third.
-    const both = analysts({ ...base, price: 40.5, forecast, history, market: shock, health: { level: "ATENCAO", reason: "dívida subindo" } });
-    expect(both.consensus.fraction).toBeCloseTo(1 / 3);
-    expect(committee({ ...base, price: 40.5, forecast, history, market: shock }).summary).toBe("Decisão: comprar metade agora, aos poucos.");
+    // Market-wide fall (-1) against analysts' upside and a good history (+2): buys the whole amount.
+    const strong = analysts({ ...base, price: 40.5, forecast, history, market: shock });
+    expect([strong.world.vote, strong.consensus.fraction]).toEqual(["NEUTRO", 1]);
+    expect(strong.world.text).toContain("12 de 16");
+    // The same fall with no reason to rise: half.
+    expect(analysts({ ...base, price: 40.5, health: null, market: shock }).consensus.fraction).toBe(0.5);
+    expect(committee({ ...base, price: 40.5, health: null, market: shock }).summary).toBe("Decisão: comprar metade agora, aos poucos.");
+    // Two moderate risks and nothing in favour: a third.
+    const two = analysts({ ...base, price: 40.5, market: shock, health: { level: "ATENCAO", reason: "dívida subindo" } });
+    expect(two.consensus.fraction).toBeCloseTo(1 / 3);
   });
 
-  it("with caution and no reason to rise, a third", () => {
-    const c = analysts({ ...base, price: 40.5, health: null, market: { falling: 10, total: 16 } });
-    expect([c.optimist.vote, c.consensus.fraction]).toEqual(["NEUTRO", 1 / 3]);
+  it("a cautious pessimist alone does not stop a good purchase", () => {
+    const c = analysts({ ...base, price: 40.5, forecast, history, health: { level: "ATENCAO", reason: "dívida subindo" } });
+    expect([c.pessimist.vote, c.consensus.fraction]).toEqual(["NEUTRO", 1]);
+  });
+
+  it("shows how far it expects to sell, not just the 3% floor", () => {
+    expect(committee({ ...base, price: 40.5, forecast }).opinions[3].text).toContain("a partir de R$ 58,80");
+    expect(committee({ ...base, holding: 1, averageCost: 41, price: 45 }).opinions[3].text).toContain("piso de proteção");
   });
 
   it("a collapse or bad news vetoes, whatever the optimist says", () => {

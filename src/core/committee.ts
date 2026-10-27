@@ -16,10 +16,12 @@ import { minimumSellPrice } from "./live";
  *   docs/HISTORIA_CRISES.md);
  * - Realista: the owner's rule (buy near the 6-month low once the fall turned, sell near the high and
  *   never below what was paid with both fees) and the consensus of the other three.
- * Consensus, which the autopilot applies to real orders: a "contra" from the Pessimista or Riscos do
- * mundo vetoes a purchase; each of them asking for caution cuts it (half, a third when both do, or
- * when one does and the Otimista finds nothing in favour), so in doubt the agent buys in parts and the
- * rule buys more only after a new dip.
+ * Consensus, which the autopilot applies to real orders (owner, 27/10/2026: "o pessimista sempre vai ser
+ * pessimista... tem que ser um risco moderado"): only a grave risk vetoes (a collapse, a company in
+ * danger, analysts recommending a sale, grave news). Everything else is weighed: each moderate risk
+ * the Pessimista or Riscos do mundo finds counts -1, each strong reason the Otimista finds counts +1
+ * (at most 2 each side). A score of 0 or more buys the whole amount; -1 half; -2 or less a third,
+ * the rest only after a new dip.
  */
 export type Vote = "A_FAVOR" | "CONTRA" | "NEUTRO";
 export type Role = "Otimista" | "Pessimista" | "Riscos do mundo" | "Realista";
@@ -49,41 +51,51 @@ export const marketShock = (m: AnalystInput["market"]) => !!m && m.total >= 4 &&
 export function analysts(i: AnalystInput): { optimist: Opinion; pessimist: Opinion; world: Opinion; consensus: Consensus } {
   const forecast = forecastOpinion(i.price, i.forecast ?? null);
   const h = i.history;
-  const goodHistory = !!h && h.samples >= 3 && historyAgrees(h);
+  const shock = marketShock(i.market);
 
+  // Otimista: +1 per strong reason to rise.
   const ups: string[] = [];
   if (forecast.upside !== null && forecast.upside >= 0.1) ups.push(`analistas veem ${pct(forecast.upside)} até o preço-alvo`);
-  if (goodHistory) ups.push(`nas ${h!.samples} vezes em que chegou perto da mínima, subiu depois em ${Math.round(h!.upShare * 100)}%`);
+  if (h && h.samples >= 3 && historyAgrees(h)) ups.push(`nas ${h.samples} vezes em que chegou perto da mínima, subiu depois em ${Math.round(h.upShare * 100)}%`);
   if (i.health?.level === "SAUDAVEL") ups.push("balanço saudável");
-  if (marketShock(i.market)) ups.push("em 6 de 8 crises desde 2002 as ações do time estavam mais altas um ano depois");
-  const optimist: Opinion = ups.length >= 2 || (ups.length === 1 && forecast.upside !== null && forecast.upside >= 0.2)
-    ? { role: "Otimista", vote: "A_FAVOR", text: `Vejo motivos para subir: ${ups.join("; ")}.` }
-    : { role: "Otimista", vote: "NEUTRO", text: ups.length ? `Algum motivo para subir (${ups.join("; ")}), mas pouco.` : "Não encontro motivo forte para subir agora." };
+  const up = Math.min(ups.length, 2);
+  // Said, not counted: it comes with every market-wide fall, so it would always cancel that risk.
+  if (shock) ups.push("em 6 de 8 crises desde 2002 as ações do time estavam mais altas um ano depois");
+  const optimist: Opinion = up >= 2 ? { role: "Otimista", vote: "A_FAVOR", text: `Vejo motivos fortes para subir: ${ups.join("; ")}.` }
+    : up === 1 ? { role: "Otimista", vote: "A_FAVOR", text: `Um motivo forte para subir: ${ups.join("; ")}.` }
+      : { role: "Otimista", vote: "NEUTRO", text: ups.length ? `Nenhum motivo forte, só que ${ups[0]}.` : "Não encontro motivo forte para subir agora." };
 
-  const pessimist: Opinion = i.collapse != null
-    ? { role: "Pessimista", vote: "CONTRA", text: `A ação desabou ${Math.round(i.collapse * 100)}% do topo e não voltou: pode ser problema sério da empresa.` }
-    : i.health?.level === "PERIGO" ? { role: "Pessimista", vote: "CONTRA", text: `Empresa em perigo: ${i.health.reason}` }
-      : forecast.vote === "CONTRA" ? { role: "Pessimista", vote: "CONTRA", text: `Os analistas estão contra: ${forecast.text}` }
-        : i.health?.level === "ATENCAO" ? { role: "Pessimista", vote: "NEUTRO", text: `Cautela com o balanço: ${i.health.reason}` }
-          : h && h.samples >= 3 && !historyAgrees(h) ? { role: "Pessimista", vote: "NEUTRO", text: `Perto da mínima ela nem sempre voltou: subiu só em ${Math.round(h.upShare * 100)}% das ${h.samples} vezes.` }
-            : forecast.upside !== null && forecast.upside < 0 ? { role: "Pessimista", vote: "NEUTRO", text: `O preço já passou do alvo dos analistas (${pct(forecast.upside)}).` }
-              : { role: "Pessimista", vote: "A_FAVOR", text: !i.health || i.health.level === "SEM_DADOS" ? "Procurei problemas e não achei, mas o balanço ainda não foi conferido." : "Procurei problemas na empresa e não achei nada grave." };
+  // Pessimista: a grave problem vetoes; moderate ones count -1 each.
+  const grave = i.collapse != null ? `a ação desabou ${Math.round(i.collapse * 100)}% do topo e não voltou`
+    : i.health?.level === "PERIGO" ? `empresa em perigo: ${i.health.reason}`
+      : forecast.vote === "CONTRA" ? `os analistas recomendam vender: ${forecast.text}` : null;
+  const worries: string[] = [];
+  if (i.health?.level === "ATENCAO") worries.push(`balanço pede atenção: ${i.health.reason}`);
+  if (h && h.samples >= 3 && !historyAgrees(h)) worries.push(`perto da mínima ela subiu depois só em ${Math.round(h.upShare * 100)}% das ${h.samples} vezes`);
+  if (forecast.upside !== null && forecast.upside < 0) worries.push(`o preço já passou do alvo dos analistas (${pct(forecast.upside)})`);
+  const pessimist: Opinion = grave ? { role: "Pessimista", vote: "CONTRA", text: `Risco grave: ${grave}.` }
+    : worries.length ? { role: "Pessimista", vote: "NEUTRO", text: `Risco moderado: ${worries.join("; ")}.` }
+      : { role: "Pessimista", vote: "A_FAVOR", text: !i.health || i.health.level === "SEM_DADOS" ? "Procurei problemas e não achei, mas o balanço ainda não foi conferido." : "Procurei problemas na empresa e não achei nada sério." };
 
-  const shock = marketShock(i.market);
-  const world: Opinion = i.context && (i.context.action === "EXIT" || i.context.action === "BLOCK_BUY")
-    ? { role: "Riscos do mundo", vote: "CONTRA", text: `${i.context.action === "EXIT" ? "Pede para sair" : "Segura as compras"}: ${i.context.summary}` }
-    : shock ? { role: "Riscos do mundo", vote: "NEUTRO", text: `O mercado inteiro está caindo junto (${i.market!.falling} de ${i.market!.total} ações do time caíram 10% ou mais em 20 pregões). Na eleição de 2022 elas caíram mais 24% antes de voltar: comprar aos poucos.` }
-      : i.context?.action === "REDUCE" ? { role: "Riscos do mundo", vote: "NEUTRO", text: `Cautela: ${i.context.summary}` }
-        : !i.context ? { role: "Riscos do mundo", vote: "NEUTRO", text: "Ainda sem leitura das notícias, do dólar e do petróleo." }
-          : { role: "Riscos do mundo", vote: "A_FAVOR", text: "Nenhuma notícia grave, dólar e petróleo sem choque, mercado sem queda geral." };
+  // Riscos do mundo: grave news vetoes; a market-wide fall or a dollar/oil shock counts -1 each.
+  const news = i.context && (i.context.action === "EXIT" || i.context.action === "BLOCK_BUY") ? i.context : null;
+  const outside: string[] = [];
+  if (shock) outside.push(`o mercado inteiro está caindo junto (${i.market!.falling} de ${i.market!.total} ações do time caíram 10% ou mais em 20 pregões; em 2022 caíram mais 24% antes de voltar)`);
+  if (i.context?.action === "REDUCE") outside.push(i.context.summary);
+  const world: Opinion = news ? { role: "Riscos do mundo", vote: "CONTRA", text: `Risco grave: ${news.action === "EXIT" ? "pede para sair" : "segura as compras"}: ${news.summary}` }
+    : outside.length ? { role: "Riscos do mundo", vote: "NEUTRO", text: `Risco moderado: ${outside.join("; ")}.` }
+      : { role: "Riscos do mundo", vote: i.context ? "A_FAVOR" : "NEUTRO", text: i.context ? "Nenhuma notícia grave, dólar e petróleo sem choque, mercado sem queda geral." : "Ainda sem leitura das notícias, do dólar e do petróleo." };
 
   const vetoes = [pessimist, world].filter((o) => o.vote === "CONTRA");
-  const cautions = [pessimist, world].filter((o) => o.vote === "NEUTRO").length;
-  const fraction = vetoes.length ? 0 : cautions === 0 ? 1 : cautions === 2 || optimist.vote !== "A_FAVOR" ? 1 / 3 : 1 / 2;
-  const part = fraction === 1 ? "o valor inteiro" : fraction === 0.5 ? "metade" : "um terço";
+  const down = Math.min(worries.length, 2) + Math.min(outside.length, 2);
+  const score = up - down;
+  const fraction = vetoes.length ? 0 : score >= 0 ? 1 : score === -1 ? 1 / 2 : 1 / 3;
+  const tally = `placar ${up ? `+${up}` : "0"} do Otimista, ${down ? `-${down}` : "0"} dos riscos`;
   const consensus: Consensus = vetoes.length
-    ? { veto: vetoes.map((v) => `${v.role}: ${v.text}`).join(" "), fraction: 0, text: `não comprar (${vetoes.map((v) => v.role).join(" e ")} contra)` }
-    : { veto: null, fraction, text: fraction === 1 ? "comprar o valor inteiro (ninguém vê risco)" : `comprar só ${part} agora e o resto se cair mais (${[pessimist, world].filter((o) => o.vote === "NEUTRO").map((o) => o.role).join(" e ")} pedem cautela${optimist.vote === "A_FAVOR" ? "" : ", o Otimista não vê motivo forte"})` };
+    ? { veto: vetoes.map((v) => `${v.role}: ${v.text}`).join(" "), fraction: 0, text: `não comprar (${vetoes.map((v) => v.role).join(" e ")} ${vetoes.length > 1 ? "veem" : "vê"} risco grave)` }
+    : { veto: null, fraction, text: fraction === 1
+      ? (down ? `comprar o valor inteiro: os motivos para subir pesam mais que os riscos (${tally})` : "comprar o valor inteiro: ninguém vê risco")
+      : `comprar só ${fraction === 0.5 ? "metade" : "um terço"} agora e o resto se cair mais: os riscos pesam mais (${tally})` };
   return { optimist, pessimist, world, consensus };
 }
 
@@ -115,14 +127,15 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
   const holdingEnough = zone && rebuyBelow !== null && price! > rebuyBelow;
   const nearLow = zone && !badHistory && !falling && !holdingEnough;
   const canBuy = i.budgetRoom > 0;
+  const target = i.forecast?.targetMean ?? null;
   const rule = !r || price === null ? "Ainda calculando a mínima e a máxima de 6 meses."
     : sellNow ? `${brl(price)} chegou perto da máxima de 6 meses (${brl(r.high)}) e paga o que custou com as taxas: hora de vender na alta.`
       : badHistory ? `Perto da mínima, mas nas ${i.history!.samples} vezes anteriores subiu só em ${Math.round(i.history!.upShare * 100)}%: não vale a pena.`
       : zone && falling ? `Perto da mínima de 6 meses (${brl(r.low)}): ${entryReason(entry!, price)}.`
       : holdingEnough ? `Já tem ${i.holding}: compra mais só se cair abaixo de ${brl(rebuyBelow!)} e virar de novo.`
-      : nearLow ? (canBuy ? `${brl(price)} está perto da mínima de 6 meses (${brl(r.low)}) e já virou para cima. Consenso: ${consensus.text}.`
+      : nearLow ? (canBuy ? `${brl(price)} está perto da mínima de 6 meses (${brl(r.low)}) e já virou para cima. Alvo de venda: perto da máxima, a partir de ${brl(r.sellAbove)} (${pct(r.sellAbove / price - 1)}${target ? `; analistas: ${brl(target)}` : ""}). Consenso: ${consensus.text}.`
         : `Preço bom (perto da mínima de ${brl(r.low)}), mas o Chefe não tem dinheiro livre para 1 ação.`)
-        : i.holding > 0 ? `Segurando: vende perto da máxima, a partir de ${brl(Math.max(r.sellAbove, floor ?? 0))}.`
+        : i.holding > 0 ? `Segurando até a máxima de 6 meses: vende a partir de ${brl(Math.max(r.sellAbove, floor ?? 0))}${average ? ` (${pct(Math.max(r.sellAbove, floor ?? 0) / average - 1)} sobre o que pagou)` : ""}, quando a alta parar${target ? `; analistas veem ${brl(target)}` : ""}. Os 3% de lucro limpo são só o piso de proteção, não o alvo.`
           : `Caro agora (${brl(price)}). Compra só se cair até ${brl(r.buyBelow)}, perto da mínima de 6 meses (${brl(r.low)}).`;
   const buys = nearLow && canBuy && !consensus.veto;
   const realist: Opinion = { role: "Realista", vote: sellNow ? "NEUTRO" : buys ? "A_FAVOR" : "NEUTRO", text: rule };
