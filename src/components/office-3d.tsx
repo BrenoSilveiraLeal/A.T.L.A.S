@@ -104,6 +104,11 @@ const MARKET_SEATS: [V2, number][] = [[[15.8, 1.4], Math.PI], [[16.8, 1.4], Math
 const MARKET_LANE = 22.4;
 const LOUNGE_LANE = 9;
 const BOSS_X = 6.67;
+// Plants (x, z, size) and floor lamps: drawn by the scene and kept out of everyone's way.
+const PLANTS: [number, number, number][] = [
+  ...COUNCILS.map((r): [number, number, number] => [r.x1 + 0.7, -13.2, 0.7]),
+  [BOSS_X - 3.3, -13.2, 0.8], [11.4, -13.2, 0.8], [23.3, -13.2, 0.8], [-23, 7, 0.9], [-12.8, 12.6, 1], [22.9, -3.9, 1.0]];
+const FLOOR_LAMPS: V2[] = [[-10.6, 12.8], [6.6, 12.8], [-22.6, 11.4]];
 // Team meeting room: six chairs each side for the agents, the boss at the head of the table and the
 // supervisor at the other end (owner, 26/10/2026); the door is where the fifth council room's was.
 const MEETING_TABLE: V2 = [17.3, -10];
@@ -139,6 +144,9 @@ function officeObstacles(): Rect[] {
   box(22.6, 9.5, 0.8, 6.0); box(23.5, 12.9, 0.7, 1.0); box(23.5, 5.9, 0.7, 1.0);
   for (const [x, z] of KITCHEN_TABLES) box(x, z, 1.1, 1.1);
   box(POOL_TABLE[0], POOL_TABLE[1], 3.2, 1.7);
+  // Plants and floor lamps (owner, 27/10/2026: people were standing inside the plants).
+  for (const [x, z, size] of PLANTS) box(x, z, 0.85 * size, 0.85 * size);
+  for (const [x, z] of FLOOR_LAMPS) box(x, z, 0.75, 0.75);
   for (const [x, z] of [[9.4, 13.2], [14.2, 13.3], [19.0, 13.3], [-21.8, 12.2], [-20.6, 12.4], [-17.4, 12.2], [-2.9, 12.8], [0.4, 12.8]] as V2[]) box(x, z, 0.9, 0.9);
   return r;
 }
@@ -813,7 +821,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const tv = new THREE.Mesh(new THREE.PlaneGeometry(3.75, 1.6), new THREE.MeshBasicMaterial({ map: screen.texture, toneMapped: false }));
       tv.position.set(tx, 2.25, -13.8); scene.add(tv);
       backWall.items.push(frame, tv);
-      plant(r.x1 + 0.7, -13.2, 0.7);
       const bubbleEl = document.createElement("div"); bubbleEl.className = "debate-bubble"; bubbleEl.hidden = true;
       const bubble = new CSS2DObject(bubbleEl); bubble.position.set(tx, 2.2, tz + 2.6); scene.add(bubble);
       return { screen, bubbleEl, key: "" };
@@ -827,7 +834,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       else {
         const g = room.screen.g; g.fillStyle = "#06121d"; g.fillRect(0, 0, 900, 380);
         g.fillStyle = "#4e6478"; g.font = "bold 40px sans-serif"; g.textBaseline = "middle"; g.textAlign = "center"; g.fillText(`Conselho ${i + 1}`, 450, 160);
-        g.font = "28px sans-serif"; g.fillText("sala livre · Risco · Balanço · Previsão · Estratégia", 450, 230); g.textAlign = "left";
+        g.font = "28px sans-serif"; g.fillText("sala livre · Otimista · Pessimista · Riscos do mundo · Realista", 450, 230); g.textAlign = "left";
       }
       room.screen.texture.needsUpdate = true;
       room.bubbleEl.replaceChildren();
@@ -869,7 +876,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       bossPc.texture.needsUpdate = true;
     };
     chair(BOSS_X, -11.6, 0, "#2b2e34");
-    sofa(2.0, BOSS_X - 2.3, -7.4, Math.PI, "#8c8274"); plant(BOSS_X - 3.3, -13.2, 0.8);
+    sofa(2.0, BOSS_X - 2.3, -7.4, Math.PI, "#8c8274");
     const bossScreen = canvasTexture(1000, 560);
     const bossFrame = box(4.6, 2.6, 0.08, BOSS_X, 2.2, -13.85, metal);
     const bossTv = new THREE.Mesh(new THREE.PlaneGeometry(4.45, 2.45), new THREE.MeshBasicMaterial({ map: bossScreen.texture, toneMapped: false }));
@@ -935,7 +942,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       for (const dx of [-4.2, 0, 4.2]) box(0.5, 0.9, 0.5, mx + dx, 0.46, mz, metal);
       MEETING_SEATS.forEach(({ pos, face }) => chair(pos[0], pos[1], face, "#3b3f47"));
       chair(BOSS_SEAT[0], BOSS_SEAT[1], Math.PI / 2, "#1f2a44"); chair(SUPERVISOR_SEAT[0], SUPERVISOR_SEAT[1], -Math.PI / 2, "#b8860b");
-      plant(11.4, -13.2, 0.8); plant(23.3, -13.2, 0.8);
     }
     const meetingScreen = canvasTexture(1600, 520);
     const meetingFrame = box(7.2, 2.4, 0.08, MEETING_TABLE[0], 2.0, -13.85, metal);
@@ -1050,7 +1056,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       plate.position.set(-19.5, 1.18, 9.79); plate.rotation.x = -0.25; scene.add(plate);
     }
     pouf(-21.8, 12.2, "#1fa3b8"); pouf(-20.6, 12.4, "#f2b33d"); pouf(-17.4, 12.2, "#d6336c");
-    plant(-23, 7, 0.9);
 
     // TV lounge: the news TV between the work area and the sofas, with a screen on both sides.
     const tvCanvas = document.createElement("canvas"); tvCanvas.width = 1280; tvCanvas.height = 380;
@@ -1064,7 +1069,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     sofa(4.6, -5, 10.6, Math.PI, "#f07b2b"); sofa(4.6, 1.2, 10.6, Math.PI, "#d6336c");
     sofa(2.4, -8.6, 9.4, Math.PI * 0.78, "#1fa3b8"); sofa(2.4, 4.8, 9.4, -Math.PI * 0.78, "#2f6fd6");
     cyl(0.6, 0.6, 0.06, -2, 0.45, 9.0, white); cyl(0.08, 0.14, 0.42, -2, 0.21, 9.0, metal); cyl(0.3, 0.3, 0.03, -2, 0.015, 9.0, metal);
-    pouf(-2.9, 12.8, "#f2b33d"); pouf(0.4, 12.8, "#22a06b"); plant(-12.8, 12.6);
+    pouf(-2.9, 12.8, "#f2b33d"); pouf(0.4, 12.8, "#22a06b");
 
     // Market room and game corner.
     const wallCanvas = canvasTexture(2400, 820);
@@ -1168,7 +1173,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const shade = cyl(0.28, 0.36, 0.4, x, 2.0, z, matte("#fff6e5", 0.6));
       (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
     };
-    floorLamp(-10.6, 12.8); floorLamp(6.6, 12.8); floorLamp(-22.6, 11.4);
+    for (const [x, z] of FLOOR_LAMPS) floorLamp(x, z);
+    for (const [x, z, size] of PLANTS) plant(x, z, size);
     // Market room: side tables with lamps by the sofa, big plants in the corners, a water cooler
     // and a wall clock.
     for (const x of [14.75, 19.85]) {
@@ -1177,7 +1183,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const shade = cyl(0.13, 0.17, 0.2, x, 0.88, 1.5, matte("#fff6e5", 0.6));
       (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.5;
     }
-    plant(22.9, -3.9, 1.0);
     box(0.4, 1.0, 0.4, 23.4, 0.5, -2.6, white); cyl(0.17, 0.17, 0.42, 23.4, 1.22, -2.6, matte("#9fd3f0", 0.1));
     {
       const clock = canvasTexture(256, 256), g = clock.g;
@@ -1233,11 +1238,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       return [[pos[0], -12.6], [end, -12.6], [end, -8.0], [door, -8.0], [door, -7.2], [door, CORRIDOR_Z]];
     };
     const takenSpots = new Set<number>();
-    // From the chair to the back-left corner of the room, behind the other chairs.
-    const toCorner = (room: number, seat: number): V2[] => {
-      const { pos } = councilSeat(room, seat), x = COUNCILS[room].x1 + 0.75;
-      return [[pos[0], -12.6], [x, -12.6], [x, -13.3]];
+    // From the chair to the back-right corner of the room (the plant is in the left one), behind the
+    // other chairs; null when anything stands there.
+    const toCorner = (room: number, seat: number): V2[] | null => {
+      const { pos } = councilSeat(room, seat), x = COUNCILS[room].x2 - 0.75;
+      return nav.blocks(x, -13.3, 0.3) || nav.blocks(x, -12.6, 0.3) ? null : [[pos[0], -12.6], [x, -12.6], [x, -13.3]];
     };
+    // Break spots clear of furniture, plants and lamps.
+    const breakSpots = BREAK_SPOTS.map(([pos], i) => (nav.blocks(pos[0], pos[1], 0.35) ? -1 : i)).filter((i) => i >= 0);
     const SPEAKER: Record<string, number> = { Otimista: 0, Pessimista: 1, "Riscos do mundo": 2, Realista: 3 };
     const roomTalk = COUNCILS.map(() => ({ agentId: "", turn: 0, timer: 0 }));
     let roomAgents: (OfficeAgent | null)[] = COUNCILS.map(() => null);
@@ -1753,12 +1761,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           a.timer -= dt;
           if (a.timer > 0) continue;
           a.timer = 30 + Math.random() * 150;
-          if (Math.random() < 0.3 && !analysts.some((x) => x.room === a.room && x.corner)) {
-            Object.assign(a, { state: "going", corner: true, path: toCorner(a.room, a.seat) });
+          const corner = toCorner(a.room, a.seat);
+          if (corner && Math.random() < 0.3 && !analysts.some((x) => x.room === a.room && x.corner)) {
+            Object.assign(a, { state: "going", corner: true, path: corner });
             a.member.away = true;
             continue;
           }
-          const free = BREAK_SPOTS.map((_, i) => i).filter((i) => !takenSpots.has(i));
+          const free = breakSpots.filter((i) => !takenSpots.has(i));
           if (!free.length) continue;
           const spot = free[Math.floor(Math.random() * free.length)], exit = roomExit(a.room, a.seat);
           const way = nav.path(exit.at(-1)!, BREAK_SPOTS[spot][0]);
@@ -1782,7 +1791,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           if (!a.corner && Math.random() < dt / 40) show(councilBubbles[a.room][a.seat], BREAK_CHAT[Math.floor(Math.random() * BREAK_CHAT.length)], 3);
           if (a.corner && (a.timer <= 0 || analystsOn)) {
             const { pos } = councilSeat(a.room, a.seat);
-            Object.assign(a, { state: "back", path: [...toCorner(a.room, a.seat).reverse().slice(1), pos] });
+            Object.assign(a, { state: "back", path: [...(toCorner(a.room, a.seat) ?? []).reverse().slice(1), pos] });
             continue;
           }
           // Back at the end of the break, or at once at 09:30.
