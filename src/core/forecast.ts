@@ -55,7 +55,17 @@ export function nearLowHistory(closes: readonly number[], window = 126, nearPct 
 }
 
 /** Scout's grade for a stock outside the team: cheap in its 6-month range, analysts positive, profitable. */
-export function scoutGrade(s: { price: number; low: number; high: number; upside: number | null; recommendation: string | null; profitMargin: number | null }) {
+/**
+ * The assistant's grade for a stock outside the team. Owner, 27/10/2026: "não adianta comprar barato
+ * se a empresa não vai se recuperar" — besides being near the 6-month low with analysts in favour,
+ * a stock is not good when the company loses money, when it collapsed (`fromTop`: more than 60%
+ * below its 5-year top, like Magazine Luiza and Casas Bahia) or when past visits to the low were
+ * not followed by rises (`history`, the same filter the team's agents use).
+ */
+export function scoutGrade(s: {
+  price: number; low: number; high: number; upside: number | null; recommendation: string | null; profitMargin: number | null;
+  fromTop?: number | null; history?: { samples: number; upShare: number; average: number } | null;
+}) {
   const position = s.high > s.low ? (s.price - s.low) / (s.high - s.low) : 1;
   const reasons: string[] = [];
   if (position <= 0.25) reasons.push(`perto da mínima de 6 meses (${(position * 100).toFixed(0)}% da faixa)`);
@@ -65,6 +75,9 @@ export function scoutGrade(s: { price: number; low: number; high: number; upside
   const warnings: string[] = [];
   if (s.profitMargin !== null && s.profitMargin <= 0) warnings.push("empresa com prejuízo");
   if (["sell", "strong_sell", "underperform"].includes(s.recommendation ?? "")) warnings.push("analistas recomendam vender");
+  if (s.fromTop != null && s.fromTop <= -0.6) warnings.push(`desabou ${Math.round(-s.fromTop * 100)}% desde o topo de 5 anos e não se recuperou`);
+  if (s.history && s.history.samples >= 3 && (s.history.upShare < 0.6 || s.history.average <= 0))
+    warnings.push(`depois da mínima subiu só ${Math.round(s.history.upShare * 100)}% das vezes`);
   const score = (1 - Math.min(1, position)) * 2 + Math.max(-0.5, Math.min(0.6, s.upside ?? 0)) * 3
     + (["buy", "strong_buy"].includes(s.recommendation ?? "") ? 0.5 : 0) - warnings.length * 2;
   return { score, position, reasons, warnings, good: position <= 0.35 && (s.upside ?? 0) >= 0.1 && !warnings.length };

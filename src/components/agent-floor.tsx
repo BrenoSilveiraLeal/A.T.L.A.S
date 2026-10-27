@@ -52,7 +52,7 @@ function useFloor(connected: boolean, revision: number): Floor {
 }
 
 type Range = { low: number; high: number; buyBelow: number; sellAbove: number; months: number; lowDate: string | null; highDate: string | null };
-type Forecast = { consensus: ConsensusView | null; history: { samples: number; average: number; upShare: number } | null; bars6m: Bar6m[]; turnCloses: number[] };
+type Forecast = { consensus: ConsensusView | null; history: { samples: number; average: number; upShare: number } | null; bars6m: Bar6m[]; turnCloses: number[]; collapse: number | null };
 type Bar6m = { date: string; open: number; high: number; low: number; close: number };
 
 /**
@@ -126,8 +126,8 @@ function useRanges(tickers: string[]) {
     const controller = new AbortController();
     Promise.all(key.split(",").map((ticker) => fetch(`/api/atlas/levels?ticker=${encodeURIComponent(ticker)}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((b: ({ range?: Range | null } & Partial<Forecast>) | null) => [ticker, { range: b?.range ?? null, consensus: b?.consensus ?? null, history: b?.history ?? null, bars6m: b?.bars6m ?? [], turnCloses: b?.turnCloses ?? [] }] as const)
-      .catch(() => [ticker, { range: null, consensus: null, history: null, bars6m: [], turnCloses: [] }] as const)))
+      .then((b: ({ range?: Range | null } & Partial<Forecast>) | null) => [ticker, { range: b?.range ?? null, consensus: b?.consensus ?? null, history: b?.history ?? null, bars6m: b?.bars6m ?? [], turnCloses: b?.turnCloses ?? [], collapse: b?.collapse ?? null }] as const)
+      .catch(() => [ticker, { range: null, consensus: null, history: null, bars6m: [], turnCloses: [], collapse: null }] as const)))
       .then((rows) => { if (!controller.signal.aborted) setRanges(Object.fromEntries(rows)); });
     return () => controller.abort();
   }, [key, tick]);
@@ -196,7 +196,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   };
   const potShares = allocatePot(floor.live?.genial.free ?? 0, alive.flatMap((agent) => {
     const ticker = text(assets.find((a) => a.id === agent.asset_id)?.ticker);
-    const r = ranges[ticker]?.range, price = priceNow(agent), level = floor.health?.[ticker]?.level;
+    const r = ranges[ticker]?.range, price = priceNow(agent), level = ranges[ticker]?.collapse != null ? "PERIGO" : floor.health?.[ticker]?.level;
     const fo = forecastOpinion(price, ranges[ticker]?.consensus ?? null);
     return r && price !== null && price <= r.buyBelow && entryCheck(ranges[ticker]?.turnCloses ?? [], price, r.low).ok && level !== "PERIGO" && fo.vote !== "CONTRA" && historyAgrees(ranges[ticker]?.history)
       ? [{ agentId: text(agent.id), price, fee: 0.99, score: opportunityScore(price, r.low, r.high, level === "ATENCAO", fo.upside) }] : [];
@@ -229,7 +229,10 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const range = ranges[ticker]?.range ?? null;
     const forecast = ranges[ticker]?.consensus ?? null, history = ranges[ticker]?.history ?? null;
     const h = floor.health?.[ticker];
-    const health = h ? { level: h.level, reason: h.reasons[0] ?? "" } : null;
+    // A collapse counts as danger for the council's balance-sheet specialist (no purchase).
+    const fallen = ranges[ticker]?.collapse ?? null;
+    const health = fallen !== null ? { level: "PERIGO" as const, reason: `a ação desabou ${Math.round(fallen * 100)}% do topo e não se recuperou` }
+      : h ? { level: h.level, reason: h.reasons[0] ?? "" } : null;
     const decision = floor.decisions.find((d) => d.agent_id === agent.id);
     const ctx = (decision?.inputs as { context?: { action: ContextAction; reasons?: { text: string }[] } } | undefined)?.context;
     const debate = committee({

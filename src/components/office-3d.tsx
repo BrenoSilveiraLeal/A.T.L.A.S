@@ -958,15 +958,20 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     box(0.36, 0.24, 0.015, 17.15, 0.61, -1.22, metal);
     const laptop = new THREE.Mesh(new THREE.PlaneGeometry(0.33, 0.21), new THREE.MeshBasicMaterial({ color: 0x0d2a3f })); laptop.position.set(17.15, 0.61, -1.21); scene.add(laptop);
     box(0.22, 0.012, 0.3, 17.55, 0.488, -1.25, matte("#d6336c", 0.9)); box(0.22, 0.012, 0.3, 17.6, 0.5, -1.2, matte("#f2b33d", 0.9));
-    let wallKey = "";
+    // Eight charts at a time, the pages alternating every 10 s (owner, 27/10/2026: sixteen at once did not fit).
+    const WALL_PAGE = 8;
+    let wallKey = "", wallList: OfficeAgent[] = [], wallPage = 0, wallTimer = 10;
     const drawWall = (list: OfficeAgent[]) => {
-      const key = list.map((a) => `${a.ticker}:${a.chart?.last}:${a.chart?.bars.length}`).join("|");
+      wallList = list;
+      const pages = Math.max(1, Math.ceil(list.length / WALL_PAGE)), page = wallPage % pages;
+      const key = `${page}:${list.map((a) => `${a.ticker}:${a.chart?.last}:${a.chart?.bars.length}`).join("|")}`;
       if (key === wallKey) return;
       wallKey = key;
       wallCanvas.g.fillStyle = "#010810"; wallCanvas.g.fillRect(0, 0, 2400, 820);
       wallCanvas.g.fillStyle = "#ffc65c"; wallCanvas.g.font = "bold 40px sans-serif"; wallCanvas.g.textBaseline = "middle"; wallCanvas.g.textAlign = "left";
-      wallCanvas.g.fillText("SALA DO MERCADO · ações da equipe", 16, 34);
-      list.slice(0, 16).forEach((a, i) => drawChart(wallCanvas.g, 6 + (i % 8) * 299, 68 + Math.floor(i / 8) * 376, 293, 368, `${a.ticker} · ${a.name}`, a.chart, 0.5));
+      wallCanvas.g.fillText(`SALA DO MERCADO · ações da equipe${pages > 1 ? ` (${page + 1}/${pages})` : ""}`, 16, 34);
+      list.slice(page * WALL_PAGE, (page + 1) * WALL_PAGE).forEach((a, i) =>
+        drawChart(wallCanvas.g, 8 + (i % 4) * 598, 68 + Math.floor(i / 4) * 376, 590, 368, `${a.ticker} · ${a.name}`, a.chart, 0.75));
       wallCanvas.texture.needsUpdate = true;
     };
 
@@ -1523,6 +1528,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         }
         for (const b of balls) b.mesh.position.set(POOL_TABLE[0] + b.x, 0.95 + BALL_R, POOL_TABLE[1] + b.z);
       }
+      wallTimer -= dt;
+      if (wallTimer <= 0) { wallTimer = 10; wallPage++; drawWall(wallList); }
       // End-of-day meeting: each agent says its part of the minutes, in turn.
       if (meetingNow && meetingData?.lines.length) {
         meetingTimer -= dt;

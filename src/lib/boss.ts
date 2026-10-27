@@ -34,7 +34,7 @@ async function watchList(db: SupabaseClient, owner: string): Promise<Watch[]> {
     if (!ticker || !levels?.available || !levels.range) continue;
     const level = health?.[ticker]?.level;
     // A company in danger, or a stock whose past visits to the low were not followed by rises.
-    if (level === "PERIGO" || !historyAgrees(levels.history)) continue;
+    if (level === "PERIGO" || !historyAgrees(levels.history) || levels.collapse !== null) continue;
     const mark = vitals.data.find((v) => v.agent_id === agent.id)?.mark_price;
     rows.push({ agentId: agent.id, ticker, price: Number(mark ?? levels.lastClose), low: levels.range.low, high: levels.range.high,
       buyBelow: levels.range.buyBelow, turnCloses: levels.turnCloses, attention: level === "ATENCAO", consensus: await consensusFor(ticker).catch(() => null) });

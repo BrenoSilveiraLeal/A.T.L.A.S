@@ -23,5 +23,9 @@ describe("forecasts", () => {
     expect(scoutGrade({ price: 21, low: 20, high: 30, upside: 0.3, recommendation: "buy", profitMargin: 0.1 }).good).toBe(true);
     expect(scoutGrade({ price: 29, low: 20, high: 30, upside: 0.3, recommendation: "buy", profitMargin: 0.1 }).good).toBe(false);
     expect(scoutGrade({ price: 21, low: 20, high: 30, upside: 0.3, recommendation: "buy", profitMargin: -0.1 }).warnings).toContain("empresa com prejuízo");
+    // Magazine Luiza, 27/10/2026: near the low with analysts in favour, but 98% below its 5-year top.
+    const magalu = scoutGrade({ price: 5.3, low: 5.3, high: 14, upside: 0.97, recommendation: "hold", profitMargin: 0.001, fromTop: -0.98 });
+    expect([magalu.good, magalu.warnings[0]]).toEqual([false, "desabou 98% desde o topo de 5 anos e não se recuperou"]);
+    expect(scoutGrade({ price: 21, low: 20, high: 30, upside: 0.3, recommendation: "buy", profitMargin: 0.1, history: { samples: 8, upShare: 0.38, average: -0.07 } }).good).toBe(false);
   });
 });

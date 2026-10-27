@@ -1,12 +1,14 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rangeLevels, RANGE_DEFAULTS } from "@/core/range";
-import { scoutGrade, upsideOf } from "@/core/forecast";
+import { nearLowHistory, scoutGrade, upsideOf } from "@/core/forecast";
 import { companyProfile } from "@/core/context";
 import { fetchConsensus, fetchDailyCloses, type Consensus } from "@/providers/yahoo";
 import { softCached } from "./context";
 
 const DAY = 86400000;
+// V2 (27/10/2026): the grade also checks collapses and the history near the low.
+const SCOUT_KEY = "SCOUT:V2";
 
 /** Analysts' consensus for one stock, refreshed once a day. */
 export function consensusFor(ticker: string): Promise<Consensus | null> {
@@ -30,13 +32,15 @@ export interface ScoutRow {
 async function scan(exclude: readonly string[]): Promise<{ at: string; rows: ScoutRow[] }> {
   const rows: ScoutRow[] = [];
   for (const ticker of UNIVERSE.filter((t) => !exclude.includes(t))) {
-    const closes = await fetchDailyCloses(ticker, "6mo");
+    // Five years: the 6-month levels, the top of the period and what followed past visits to the low.
+    const closes = await fetchDailyCloses(ticker, "5y");
     const levels = closes ? rangeLevels(closes, RANGE_DEFAULTS) : null;
     if (!closes?.length || !levels) continue;
     const price = closes[closes.length - 1];
     const c = await fetchConsensus(ticker);
     const upside = upsideOf(price, c);
-    const grade = scoutGrade({ price, low: levels.low, high: levels.high, upside, recommendation: c?.recommendation ?? null, profitMargin: c?.profitMargin ?? null });
+    const grade = scoutGrade({ price, low: levels.low, high: levels.high, upside, recommendation: c?.recommendation ?? null, profitMargin: c?.profitMargin ?? null,
+      fromTop: price / Math.max(...closes) - 1, history: nearLowHistory(closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) });
     rows.push({ ticker, company: companyProfile(ticker).name, price, low: levels.low, high: levels.high, position: grade.position, upside,
       recommendation: c?.recommendation ?? null, analysts: c?.analysts ?? null, score: grade.score, good: grade.good, reasons: grade.reasons, warnings: grade.warnings });
   }
@@ -48,13 +52,13 @@ async function scan(exclude: readonly string[]): Promise<{ at: string; rows: Sco
 export async function scoutList(db: SupabaseClient, owner: string) {
   const assets = await db.from("assets").select("ticker").eq("owner_id", owner);
   const team = (assets.data ?? []).map((a) => String(a.ticker));
-  return softCached("yahoo-scout", "SCOUT:V1", DAY, 7 * DAY, 4, "https://finance.yahoo.com/", () => scan(team), undefined, 3 * 3600);
+  return softCached("yahoo-scout", SCOUT_KEY, DAY, 7 * DAY, 4, "https://finance.yahoo.com/", () => scan(team), undefined, 3 * 3600);
 }
 
 /** Latest saved list (no new scan): what the office shows. */
 export async function readScout(db: SupabaseClient, owner: string) {
   const found = await db.from("market_data_cache").select("payload,retrieved_at").eq("owner_id", owner).eq("provider", "yahoo-scout")
-    .eq("ticker", "SCOUT:V1").eq("data_kind", "READ_CACHE_V1").order("retrieved_at", { ascending: false }).limit(1).maybeSingle();
+    .eq("ticker", SCOUT_KEY).eq("data_kind", "READ_CACHE_V1").order("retrieved_at", { ascending: false }).limit(1).maybeSingle();
   if (found.error) throw found.error;
   return (found.data?.payload as { at: string; rows: ScoutRow[] } | undefined) ?? null;
 }

@@ -101,3 +101,12 @@ describe("only really cheap, and only at the top", () => {
     expect(rangeDecision({ closes: [...closes, 59.8], price: 59, quantity: 1, cost: 41.5, cash: 0, minOrder: 40 }).action).toBe("SELL");
   });
 });
+
+describe("no money for a stock that collapsed (owner, 27/10/2026)", () => {
+  it("flags a fall of 60% or more from the top of the stored history", async () => {
+    const { collapse } = await import("@/core/range");
+    expect(collapse([30, 32, 28, 20, 14], 12)).toBeCloseTo(0.625);
+    expect(collapse([30, 32, 28, 20, 14], 15)).toBeNull(); // −53%: a big fall, not a collapse
+    expect(collapse([], 10)).toBeNull();
+  });
+});

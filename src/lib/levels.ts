@@ -4,7 +4,7 @@ import { adjustStoredBars, levelPlan } from "@/core/strategies";
 import { isinPrefix, type CorporateEvent } from "@/core/corporate-actions";
 import { fetchB3Events, b3EventsUrl } from "@/providers/b3-events";
 import { loadBars } from "./market-bars";
-import { RANGE_DEFAULTS, rangeLevels } from "@/core/range";
+import { collapse, RANGE_DEFAULTS, rangeLevels } from "@/core/range";
 import { nearLowHistory } from "@/core/forecast";
 import { consensusFor } from "./forecast";
 import { softCached } from "./context";
@@ -28,6 +28,8 @@ export async function agentLevels(db: SupabaseClient, ticker: string) {
     lowDate: dateOf(levels.low), highDate: dateOf(levels.high) } : null;
   return { ticker, available: true as const, bars: bars.length, from: bars[0].trade_date, to: bars[bars.length - 1].trade_date,
     lastClose: Number(adjusted[adjusted.length - 1].close).toFixed(2), eventsVerified: events !== null, plan, range,
+    // Fall from the top of the stored history when it is a collapse (no purchases), otherwise null.
+    collapse: collapse(closes, Number(adjusted[adjusted.length - 1].close)),
     // Forecasts: analysts' consensus (daily) and what followed past visits to the 6-month low.
     // Closes before today (oldest first), to tell whether the fall has turned into a rise.
     turnCloses: adjusted.filter((_, i) => bars[i].trade_date < saoPauloClock(new Date()).date).slice(-Math.max(RANGE_DEFAULTS.turnLookback ?? 10, RANGE_DEFAULTS.dropLookback ?? 20)).map((b) => Number(b.close)),

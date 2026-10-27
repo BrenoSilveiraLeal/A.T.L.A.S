@@ -124,6 +124,18 @@ export function rangeDecision(i: RangeInput, o: RangeOptions = RANGE_DEFAULTS): 
     : `esperando o preço cair até perto da mínima de ${months} meses: compra a partir de ${brl(buyBelow)} (agora ${brl(i.price)})` };
 }
 
+/**
+ * A collapse (owner, 27/10/2026: "não adianta comprar barato se a empresa vai falir"): the price is
+ * `COLLAPSE_PCT`% or more below the highest close of the stored history (about 4 years) and has not
+ * come back. Returns the fall (e.g. 0.74) when it is a collapse, otherwise null. No new purchases then.
+ */
+export const COLLAPSE_PCT = 60;
+export function collapse(closes: readonly number[], price: number): number | null {
+  if (!closes.length || !(price > 0)) return null;
+  const fall = 1 - price / Math.max(price, ...closes);
+  return fall * 100 >= COLLAPSE_PCT ? fall : null;
+}
+
 /** Plain-language reason for waiting, from entryCheck. */
 export function entryReason(e: ReturnType<typeof entryCheck>, price: number, months = 6) {
   const fell = `${(e.drop * 100).toFixed(0)}%`;
