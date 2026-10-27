@@ -267,9 +267,9 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
             tvLines={[["Resultado real", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
               ["CDI no período", cdiPct === null || !account ? "—" : `+${formatBrl(((Number(account.initial_cash) * cdiPct) / 100).toFixed(2))}`, "#ffc65c"],
               ["Bolsa", session.status === "OPEN" ? "Aberta" : "Fechada", session.status === "OPEN" ? "#3dffa8" : "#a9c0d6"]]} />
+          <OfficeLegend />
           {view !== "tv" && <AgentCard agent={chosen} now={now} onSelect={setSelected} />}
         </div>
-        <OfficeLegend />
         {band.length > 0 && <div className="news-band office-band" aria-label="Últimas manchetes"><div className="news-band-track">
           {[...band, ...band].map((item, index) => <span key={`${item.url}-${index}`} aria-hidden={index >= band.length}>
             <strong>{item.source}</strong> {item.title}</span>)}

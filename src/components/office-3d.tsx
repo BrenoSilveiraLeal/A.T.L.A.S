@@ -10,6 +10,7 @@ import { lookFor, type PersonLook } from "@/core/people";
 import { companyProfile } from "@/core/context";
 import { meetingDue } from "@/core/meeting";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
+import { LocateFixed, Volume2, VolumeX } from "lucide-react";
 
 /**
  * 3D office in the style of a modern tech office. Every agent is a person (look from
@@ -199,9 +200,10 @@ function makePerson(look: PersonLook): Person {
     add(new THREE.CapsuleGeometry(0.078, 0.3, 6, 12), pants, 0, -0.2, 0, hip);
     const knee = new THREE.Group(); knee.position.y = -0.42; hip.add(knee); knees.push(knee);
     add(new THREE.CapsuleGeometry(0.064, 0.3, 6, 12), look.skirt ? skin : pants, 0, -0.2, 0, knee);
-    // Shoe: sole and a rounded toe.
-    add(new THREE.BoxGeometry(0.11, 0.035, 0.27), dark, 0, -0.47, 0.05, knee);
-    add(new THREE.CapsuleGeometry(0.05, 0.14, 4, 10), shoe, 0, -0.43, 0.06, knee).rotation.x = Math.PI / 2;
+    // Shoe: a rounded upper with the toe forward, a thin sole that follows it, and the ankle.
+    add(new THREE.SphereGeometry(0.06, 20, 14), shoe, 0, -0.44, 0.05, knee).scale.set(0.95, 0.7, 2.1);
+    add(new THREE.SphereGeometry(0.062, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), dark, 0, -0.455, 0.05, knee).scale.set(0.98, 0.35, 2.15);
+    add(new THREE.CylinderGeometry(0.045, 0.05, 0.06, 14), look.skirt ? skin : pants, 0, -0.4, 0, knee);
   }
   add(new THREE.CapsuleGeometry(0.16, 0.12, 6, 14), pants, 0, 0.95, 0).scale.set(1.15, 1, 0.8);
   if (look.skirt) add(new THREE.CylinderGeometry(0.19, 0.27, 0.36, 20), shirt, 0, 0.8, 0);
@@ -217,15 +219,15 @@ function makePerson(look: PersonLook): Person {
   // Head on its own pivot (the neck) so it can turn to whoever is talking.
   const head = new THREE.Group(); head.position.y = 1.52; rig.add(head);
   add(new THREE.SphereGeometry(0.13, 32, 24), skin, 0, 0.14, 0, head).scale.set(0.93, 1.1, 1);
-  add(new THREE.SphereGeometry(0.085, 20, 14), skin, 0, 0.065, 0.035, head).scale.set(1, 0.8, 1.05);
   for (const side of [-1, 1]) {
     add(new THREE.SphereGeometry(0.03, 10, 8), skinShade, side * 0.123, 0.14, -0.005, head).scale.set(0.5, 1, 0.8);
-    add(new THREE.SphereGeometry(0.02, 10, 8), whites, side * 0.044, 0.16, 0.112, head).scale.set(1.2, 0.8, 0.6);
-    add(new THREE.SphereGeometry(0.011, 8, 6), dark, side * 0.044, 0.16, 0.124, head);
-    add(new THREE.BoxGeometry(0.05, 0.011, 0.012), hair, side * 0.045, 0.197, 0.118, head).rotation.z = side * -0.12;
+    // Eyes and eyebrows sit on the face surface (no bulging), a small rounded nose.
+    add(new THREE.SphereGeometry(0.019, 12, 10), whites, side * 0.044, 0.16, 0.115, head).scale.set(1.2, 0.85, 0.45);
+    add(new THREE.SphereGeometry(0.0105, 10, 8), dark, side * 0.044, 0.159, 0.121, head);
+    add(new THREE.BoxGeometry(0.046, 0.01, 0.01), hair, side * 0.045, 0.192, 0.112, head).rotation.z = side * -0.12;
   }
-  add(new THREE.ConeGeometry(0.018, 0.05, 8), skinShade, 0, 0.125, 0.135, head).rotation.x = Math.PI / 2;
-  add(new THREE.BoxGeometry(0.05, 0.012, 0.01), lips, 0, 0.083, 0.124, head);
+  add(new THREE.SphereGeometry(0.016, 12, 10), skinShade, 0, 0.128, 0.126, head).scale.set(0.85, 1.1, 0.9);
+  add(new THREE.BoxGeometry(0.044, 0.011, 0.01), lips, 0, 0.085, 0.118, head);
   const cap = (r: number) => add(new THREE.SphereGeometry(r, 28, 14, 0, Math.PI * 2, 0, Math.PI / 1.9), hair, 0, 0.16, -0.012, head);
   if (look.hairStyle === "curly") {
     cap(0.158).scale.set(1, 0.88, 1);
@@ -243,6 +245,7 @@ function makePerson(look: PersonLook): Person {
   }
   for (const side of [-1, 1]) {
     const shoulder = new THREE.Group(); shoulder.position.set(side * (feminine ? 0.22 : 0.25), 1.4, 0); rig.add(shoulder); shoulders.push(shoulder);
+    add(new THREE.SphereGeometry(0.068, 16, 12), jacket, 0, -0.01, 0, shoulder);
     add(new THREE.CapsuleGeometry(0.056, 0.2, 6, 12), jacket, 0, -0.14, 0, shoulder);
     const elbow = new THREE.Group(); elbow.position.y = -0.29; shoulder.add(elbow); elbows.push(elbow);
     add(new THREE.CapsuleGeometry(0.047, 0.16, 6, 12), look.jacket ? jacket : skin, 0, -0.1, 0, elbow);
@@ -252,7 +255,7 @@ function makePerson(look: PersonLook): Person {
     add(new THREE.CapsuleGeometry(0.013, 0.03, 4, 6), skin, side * -0.03, -0.24, 0.03, elbow).rotation.z = side * 0.6;
   }
   // Coffee mug in the right hand (snack bar and sofas).
-  const mug = new THREE.Group(); mug.position.set(0, -0.3, 0.04); elbows[1].add(mug);
+  const mug = new THREE.Group(); mug.position.set(0, -0.27, 0.07); elbows[1].add(mug);
   add(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 16), matte("#f4f1ec", 0.4), 0, 0, 0, mug);
   add(new THREE.TorusGeometry(0.025, 0.007, 6, 12), matte("#f4f1ec", 0.4), 0.05, 0, 0, mug).rotation.y = Math.PI / 2;
   add(new THREE.CircleGeometry(0.04, 14), matte("#4a2c1a", 0.3), 0, 0.051, 0, mug).rotation.x = -Math.PI / 2;
@@ -312,6 +315,25 @@ function drawChart(g: CanvasRenderingContext2D, x0: number, y0: number, w: numbe
 }
 
 /** A colourful modern wall mural: overlapping circles, arcs, stripes and dots (deterministic). */
+/** A framed poster with a short phrase about investing (wall decoration). */
+function posterTexture(title: string, subtitle: string, background: string, accent: string) {
+  const t = canvasTexture(512, 640), g = t.g;
+  g.fillStyle = background; g.fillRect(0, 0, 512, 640);
+  g.fillStyle = accent; g.globalAlpha = 0.85;
+  g.beginPath(); g.arc(400, 120, 150, 0, Math.PI * 2); g.fill();
+  g.globalAlpha = 0.35; g.beginPath(); g.arc(90, 560, 120, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
+  g.strokeStyle = "#ffffff"; g.lineWidth = 6; g.beginPath(); g.moveTo(40, 470); g.lineTo(150, 400); g.lineTo(240, 440); g.lineTo(330, 330); g.lineTo(470, 300); g.stroke();
+  g.fillStyle = "#ffffff"; g.font = "bold 58px sans-serif"; g.textBaseline = "top";
+  let y = 210, line = "";
+  for (const word of title.split(" ")) {
+    if (g.measureText(`${line} ${word}`).width > 430 && line) { g.fillText(line, 40, y); y += 64; line = word; } else line = line ? `${line} ${word}` : word;
+  }
+  g.fillText(line, 40, y);
+  g.font = "28px sans-serif"; g.fillStyle = "rgba(255,255,255,0.85)"; g.fillText(subtitle, 40, 560);
+  t.texture.needsUpdate = true;
+  return t.texture;
+}
+
 function muralTexture(seed: number, palette: string[]) {
   const t = canvasTexture(1024, 384), g = t.g;
   let s = seed;
@@ -470,7 +492,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     tv: (h: typeof tvHeadline, l: typeof tvLines) => void; reset: () => void; sound: (on: boolean) => void; tip: (text: string) => void } | null>(null);
   const select = useRef(onSelect);
   const [failed, setFailed] = useState(false);
-  const [help, setHelp] = useState(false);
   const [sound, setSound] = useState(() => { try { return localStorage.getItem("atlas-office-sound") !== "off"; } catch { return true; } });
   useEffect(() => { select.current = onSelect; }, [onSelect]);
 
@@ -573,14 +594,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const leftWall = wall(-24, -14, -24, 14, H, paint, true, [-1, 0]);
     const rightWall = wall(24, -14, 24, 14, H, paint, true, [1, 0]);
     wall(-24, 14, -21.5, 14, H, paint, true, [0, 1]);
-    wall(-17, 14, 24, 14, H, paint, true, [0, 1]);
+    const frontWall = wall(-17, 14, 24, 14, H, paint, true, [0, 1]);
     const accents = ["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"];
     [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
     for (const r of COUNCILS) { glassWall(r.x1 + 0.1, -6, r.door - 0.8, -6); glassWall(r.door + 0.8, -6, r.x2 - 0.1, -6); }
     glassWall(2.77, -6, BOSS_X - 0.8, -6); glassWall(BOSS_X + 0.8, -6, 10.57, -6);
-    // Meeting room front: glass by the door, then a solid wall that carries the market screen.
-    glassWall(10.77, -6, MEETING_DOOR - 0.8, -6);
-    box(24 - (MEETING_DOOR + 0.8), Hi, 0.2, (24 + MEETING_DOOR + 0.8) / 2, Hi / 2, -6, paint);
+    // Meeting room front: glass with the door (the market screen stands on its own in front of it).
+    glassWall(10.77, -6, MEETING_DOOR - 0.8, -6); glassWall(MEETING_DOOR + 0.8, -6, 23.9, -6);
 
     // Room names are painted on each room's own screen or board (no floating signs that turn with the camera).
 
@@ -784,34 +804,57 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     meetingTv.position.set(MEETING_TABLE[0], 2.0, -13.8); scene.add(meetingTv);
     backWall.items.push(meetingFrame, meetingTv);
     let meetingKey = "";
-    const drawMeeting = (m: Meeting | null, live: boolean) => {
-      const key = JSON.stringify([m?.day, live]);
+    // Wraps text into lines of at most `width` pixels; stops at `bottom`. Returns the next y.
+    const wrap = (g: CanvasRenderingContext2D, text: string, x: number, y: number, width: number, step: number, bottom: number) => {
+      let line = "";
+      for (const word of text.split(" ")) {
+        if (g.measureText(`${line} ${word}`).width > width && line) { if (y > bottom) return y; g.fillText(line, x, y); y += step; line = word; }
+        else line = line ? `${line} ${word}` : word;
+      }
+      if (line && y <= bottom) { g.fillText(line, x, y); y += step; }
+      return y;
+    };
+    // Summary view: the money at Genial now, then the last minutes (owner: the screen said R$ 100
+    // after the deposit, because the minutes are from the day before).
+    const drawMeeting = (m: Meeting | null, live: boolean, cash: Money) => {
+      const key = JSON.stringify([m?.day, live, cash]);
       if (key === meetingKey) return;
       meetingKey = key;
       const g = meetingScreen.g;
       g.fillStyle = "#06121d"; g.fillRect(0, 0, 1600, 520); g.textBaseline = "top"; g.textAlign = "left";
       g.fillStyle = "#ffc65c"; g.font = "bold 44px sans-serif";
       g.fillText(live ? "SALA DE REUNIÕES · reunião de fim de dia agora" : "SALA DE REUNIÕES · reunião diária às 17h10", 30, 22);
-      if (!m) { g.fillStyle = "#8ea4ba"; g.font = "32px sans-serif"; g.fillText("A primeira reunião acontece no fim do próximo pregão.", 30, 110); }
+      g.fillStyle = "#3dffa8"; g.font = "bold 30px sans-serif";
+      g.fillText(cash ? `Caixa agora na Genial: R$ ${cash.free.toFixed(2).replace(".", ",")} livres de R$ ${cash.deposited.toFixed(2).replace(".", ",")} depositados` : "Caixa agora na Genial: —", 30, 82);
+      if (!m) { g.fillStyle = "#8ea4ba"; g.font = "30px sans-serif"; g.fillText("A primeira reunião acontece no fim do próximo pregão.", 30, 140); }
       else {
-        g.fillStyle = "#a9c0d6"; g.font = "28px sans-serif"; g.fillText(`Última reunião: ${m.day.split("-").reverse().join("/")}`, 30, 84);
-        const rows = [...m.summary, ...m.lessons, ...m.suggestions.slice(0, 2)];
-        g.font = "26px sans-serif";
-        let y = 130;
-        for (const row of rows) {
-          let line = "";
-          for (const word of `• ${row}`.split(" ")) {
-            if (g.measureText(`${line} ${word}`).width > 1520 && line) { g.fillStyle = "#e8f6ff"; g.fillText(line, 30, y); y += 34; line = `  ${word}`; }
-            else line = line ? `${line} ${word}` : word;
-            if (y > 470) break;
-          }
-          if (y > 470) break;
-          g.fillStyle = "#e8f6ff"; g.fillText(line, 30, y); y += 40;
-        }
+        g.fillStyle = "#a9c0d6"; g.font = "26px sans-serif"; g.fillText(`Ata da reunião de ${m.day.split("-").reverse().join("/")}:`, 30, 130);
+        g.fillStyle = "#e8f6ff"; g.font = "25px sans-serif";
+        let y = 170;
+        for (const row of [...m.summary.slice(1), ...m.lessons, ...m.suggestions.slice(0, 2)]) y = wrap(g, `• ${row}`, 30, y, 1530, 32, 480) + 6;
       }
       meetingScreen.texture.needsUpdate = true;
     };
-    drawMeeting(null, false);
+    // While an agent speaks in the meeting: its chart on the left, its numbers and what it said on the right.
+    const drawMeetingAgent = (agent: OfficeAgent, said: string) => {
+      meetingKey = "";
+      const g = meetingScreen.g;
+      drawChart(g, 0, 0, 980, 520, `${agent.name} · ${agent.ticker}`, agent.chart, 1.1);
+      g.fillStyle = "#0b1a28"; g.fillRect(980, 0, 620, 520);
+      g.textBaseline = "top"; g.textAlign = "left";
+      g.fillStyle = "#ffc65c"; g.font = "bold 34px sans-serif"; g.fillText(companyProfile(agent.ticker).name, 1005, 20);
+      const r = agent.range, rows: [string, string][] = [];
+      if (r) rows.push(["Mínima 6 meses", brl(r.low)], ["Máxima 6 meses", brl(r.high)], ["Compra até", brl(r.buyBelow)], ["Vende a partir de", brl(r.sellAbove)]);
+      rows.push(["Na Genial", agent.holding > 0 ? `${agent.holding} ações · ${signed(agent.pnl)}` : "sem ações"]);
+      rows.forEach(([label, value], i) => {
+        g.fillStyle = "#8ea4ba"; g.font = "24px sans-serif"; g.fillText(label, 1005, 72 + i * 40);
+        g.fillStyle = "#e8f6ff"; g.font = "bold 24px sans-serif"; g.textAlign = "right"; g.fillText(value, 1580, 72 + i * 40); g.textAlign = "left";
+      });
+      g.fillStyle = "#ffffff"; g.font = "22px sans-serif";
+      wrap(g, `“${said}”`, 1005, 72 + rows.length * 40 + 16, 575, 28, 490);
+      meetingScreen.texture.needsUpdate = true;
+    };
+    drawMeeting(null, false, null);
 
     // Reception: logo wall, desk with the receptionist, waiting poufs.
     box(7.4, 3, 0.25, -19.5, 1.5, 6.2, matte("#f07b2b", 0.75));
@@ -847,13 +890,20 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 
     // Market room and game corner.
     const wallCanvas = canvasTexture(2400, 820);
-    box(7.8, 2.75, 0.08, 17.3, 1.65, -5.86, metal);
-    const wallScreen = new THREE.Mesh(new THREE.PlaneGeometry(7.6, 2.6), new THREE.MeshBasicMaterial({ map: wallCanvas.texture, toneMapped: false }));
-    wallScreen.position.set(17.3, 1.65, -5.81); scene.add(wallScreen);
+    // Freestanding chart screen on two legs (owner, 26/10/2026: "a tela separada da parede").
+    box(7.4, 2.5, 0.12, 17.3, 1.85, -4.3, metal);
+    for (const x of [14.4, 20.2]) { box(0.14, 0.62, 0.14, x, 0.31, -4.3, metal); box(0.5, 0.05, 0.9, x, 0.025, -4.3, metal); }
+    const wallScreen = new THREE.Mesh(new THREE.PlaneGeometry(7.25, 2.37), new THREE.MeshBasicMaterial({ map: wallCanvas.texture, toneMapped: false }));
+    wallScreen.position.set(17.3, 1.85, -4.23); scene.add(wallScreen);
     // Sofas around the chart wall, where resting agents sit, chat and look at the charts.
     sofa(4.4, 17.3, 1.4, Math.PI, "#2f6fd6");
     sofa(2.6, 13.6, -1.6, Math.PI / 2, "#1fa3b8"); sofa(2.6, 21.0, -1.6, -Math.PI / 2, "#1fa3b8");
     cyl(0.42, 0.42, 0.06, 17.3, 0.45, -1.2, white); cyl(0.06, 0.1, 0.42, 17.3, 0.21, -1.2, metal);
+    // Coffee table: an open laptop with the market and two magazines.
+    box(0.36, 0.015, 0.25, 17.15, 0.49, -1.1, metal);
+    box(0.36, 0.24, 0.015, 17.15, 0.61, -1.22, metal);
+    const laptop = new THREE.Mesh(new THREE.PlaneGeometry(0.33, 0.21), new THREE.MeshBasicMaterial({ color: 0x0d2a3f })); laptop.position.set(17.15, 0.61, -1.21); scene.add(laptop);
+    box(0.22, 0.012, 0.3, 17.55, 0.488, -1.25, matte("#d6336c", 0.9)); box(0.22, 0.012, 0.3, 17.6, 0.5, -1.2, matte("#f2b33d", 0.9));
     let wallKey = "";
     const drawWall = (list: OfficeAgent[]) => {
       const key = list.map((a) => `${a.ticker}:${a.chart?.last}:${a.chart?.bars.length}`).join("|");
@@ -874,13 +924,56 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     };
     mural(9, 2.6, -23.88, 1.7, -0.5, Math.PI / 2, 7, leftWall);
     mural(4.6, 0.8, BOSS_X, 3.1, -13.88, 0, 47, backWall);
+    // Wall decoration (owner, 26/10/2026: "as paredes muito vazias"): posters, frames, a neon sign and
+    // the meeting room's whiteboard. Items on a wall hide with it in the cutaway.
+    const hang = (texture: THREE.Texture, w: number, h: number, x: number, y: number, z: number, turn: number, onWall: { items: THREE.Object3D[] }) => {
+      const g = new THREE.Group();
+      const border = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, h + 0.12, 0.04), matte("#1b1e24", 0.5));
+      const art = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.85 }));
+      art.position.z = 0.025; g.add(border, art);
+      g.position.set(x, y, z); g.rotation.y = turn; scene.add(g); onWall.items.push(g);
+    };
+    // Front wall, seen from inside (facing the room).
+    hang(posterTexture("Compre na baixa, venda na alta", "regra nº 1 do ATLAS", "#1f3b5c", "#f07b2b"), 1.4, 1.75, -10.2, 1.85, 13.86, Math.PI, frontWall);
+    hang(muralTexture(55, PALETTE), 5.6, 1.1, -2, 2.6, 13.86, Math.PI, frontWall);
+    hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d"), 1.4, 1.75, 6.0, 1.85, 13.86, Math.PI, frontWall);
+    hang(posterTexture("Nunca vender com prejuízo", "só com lucro", "#5a2340", "#1fa3b8"), 1.4, 1.75, 19.5, 1.85, 13.86, Math.PI, frontWall);
+    hang(muralTexture(61, PALETTE), 2.4, 1.4, 15.6, 1.9, 13.86, Math.PI, frontWall);
+    {
+      const neon = canvasTexture(1024, 256), g = neon.g;
+      g.fillStyle = "#14161b"; g.fillRect(0, 0, 1024, 256);
+      g.shadowColor = "#ff9a3c"; g.shadowBlur = 40; g.fillStyle = "#ffcf8a"; g.font = "bold 150px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("LANCHONETE", 512, 136); neon.texture.needsUpdate = true;
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.9), new THREE.MeshBasicMaterial({ map: neon.texture, toneMapped: false }));
+      sign.position.set(11.6, 2.75, 13.88); sign.rotation.y = Math.PI; scene.add(sign); frontWall.items.push(sign);
+    }
+    // Reception and the left wall by the entrance.
+    hang(muralTexture(71, PALETTE), 2.2, 1.3, -23.86, 1.9, 9.8, Math.PI / 2, leftWall);
+    // Meeting room: posters beside the screen and the whiteboard with the team's goals.
+    hang(posterTexture("Risco controlado", "conselho antes de comprar", "#2e4057", "#22a06b"), 1.3, 1.6, 12.4, 1.9, -13.86, 0, backWall);
+    hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), 1.3, 1.6, 22.2, 1.9, -13.86, 0, backWall);
+    {
+      const board = canvasTexture(1024, 560), g = board.g;
+      g.fillStyle = "#fbfbf8"; g.fillRect(0, 0, 1024, 560); g.textBaseline = "top";
+      g.fillStyle = "#2f6fd6"; g.font = "bold 56px sans-serif"; g.fillText("Metas do ATLAS", 40, 30);
+      g.fillStyle = "#1b1e24"; g.font = "40px sans-serif";
+      ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
+      g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
+      board.texture.needsUpdate = true;
+      hang(board.texture, 2.6, 1.42, 23.86, 1.75, -10, -Math.PI / 2, rightWall);
+    }
     const bookshelf = (x: number, z: number, turn: number) => {
       const g = new THREE.Group();
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.2, 0.45), darkWood); frame.position.y = 1.1; g.add(frame);
+      const part = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), darkWood); m.position.set(x, y, z); g.add(m);
+      };
+      part(2.4, 2.2, 0.04, 0, 1.1, -0.2);
+      for (const x of [-1.18, 1.18]) part(0.05, 2.2, 0.45, x, 1.1, 0);
+      for (let row = 0; row <= 4; row++) part(2.4, 0.04, 0.45, 0, 0.1 + row * 0.5, 0);
       for (let row = 0; row < 4; row++) for (let b = 0; b < 9; b++) {
         if ((row * 7 + b * 3) % 5 === 0) continue;
         const book = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36 + ((b * 13) % 5) * 0.03, 0.3), matte(PALETTE[(row + b) % PALETTE.length], 0.8));
-        book.position.set(-1.0 + b * 0.24, 0.32 + row * 0.5, 0.06); g.add(book);
+        book.position.set(-1.0 + b * 0.24, 0.32 + row * 0.5, 0.0); g.add(book);
       }
       g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
       g.position.set(x, 0, z); g.rotation.y = turn; scene.add(g);
@@ -893,6 +986,27 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
     };
     floorLamp(-10.6, 12.8); floorLamp(6.6, 12.8); floorLamp(11, 4.6); floorLamp(-22.6, 11.4);
+    // Market room: side tables with lamps by the sofa, big plants in the corners, a water cooler
+    // and a wall clock.
+    for (const x of [14.75, 19.85]) {
+      cyl(0.28, 0.28, 0.04, x, 0.55, 1.5, darkWood); cyl(0.04, 0.04, 0.53, x, 0.27, 1.5, metal);
+      cyl(0.06, 0.08, 0.22, x, 0.68, 1.5, matte("#2b2e34", 0.4));
+      const shade = cyl(0.13, 0.17, 0.2, x, 0.88, 1.5, matte("#fff6e5", 0.6));
+      (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.5;
+    }
+    plant(11.6, 3.4, 1.15); plant(22.9, 3.6, 1.2); plant(22.9, -3.9, 1.0); plant(11.4, -3.9, 0.9);
+    box(0.4, 1.0, 0.4, 23.4, 0.5, -2.6, white); cyl(0.17, 0.17, 0.42, 23.4, 1.22, -2.6, matte("#9fd3f0", 0.1));
+    {
+      const clock = canvasTexture(256, 256), g = clock.g;
+      g.fillStyle = "#f6f1ea"; g.beginPath(); g.arc(128, 128, 120, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "#1b1e24"; g.lineWidth = 10; g.stroke();
+      for (let h = 0; h < 12; h++) { const a = (h / 12) * Math.PI * 2; g.fillStyle = "#1b1e24"; g.fillRect(128 + Math.sin(a) * 96 - 4, 128 - Math.cos(a) * 96 - 4, 8, 8); }
+      g.lineWidth = 8; g.beginPath(); g.moveTo(128, 128); g.lineTo(128, 60); g.stroke();
+      g.lineWidth = 6; g.beginPath(); g.moveTo(128, 128); g.lineTo(180, 128); g.stroke();
+      clock.texture.needsUpdate = true;
+      const face = new THREE.Mesh(new THREE.CircleGeometry(0.45, 32), new THREE.MeshBasicMaterial({ map: clock.texture }));
+      face.position.set(23.87, 2.45, -2.6); face.rotation.y = -Math.PI / 2; scene.add(face); rightWall.items.push(face);
+    }
     // Coffee bar extras: menu board and a fruit bowl.
     const menu = canvasTexture(512, 256);
     menu.g.fillStyle = "#1b1e24"; menu.g.fillRect(0, 0, 512, 256); menu.g.fillStyle = "#ffc65c"; menu.g.font = "bold 44px sans-serif";
@@ -1017,10 +1131,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const releaseSpot = (activity: RestActivity, spot: number) => occupied[activity].delete(spot);
     const latest = new Map<string, OfficeAgent>();
     let chatTimer = 6;
-    let meetingNow = false, meetingData: Meeting | null = null, meetingTurn = 0, meetingTimer = 3;
+    let meetingNow = false, meetingData: Meeting | null = null, meetingTurn = 0, meetingTimer = 3, cashNow: Money = null, meetingFocus = false;
     const sync = (list: OfficeAgent[], sel: string | null, cash: Money, meeting: Meeting | null) => {
       meetingData = meeting; meetingNow = meetingDue(new Date()).live;
-      drawMeeting(meeting, meetingNow);
+      cashNow = cash;
+      if (!meetingNow || !meetingFocus) drawMeeting(meeting, meetingNow, cash);
       for (const a of list) latest.set(a.id, a);
       const counters: Partial<Record<OfficeZone, number>> = {};
       const inRoom: (OfficeAgent | null)[] = COUNCILS.map(() => null);
@@ -1209,6 +1324,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
     };
 
+    // The mug stays upright in the hand whatever the arm does (owner, 26/10/2026: it was lying sideways).
+    const keepUpright = (p: Person) => { p.mug.rotation.x = -(p.shoulders[1].rotation.x + p.elbows[1].rotation.x); };
+
     // The Sims cutaway: drop walls between the camera and the rooms, smoothly.
     const view = new THREE.Vector3(), toCam = new THREE.Vector3();
     const cutaway = (dt: number) => {
@@ -1247,6 +1365,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           if (r.slot.pose === "cue") { pose(r, shooter === r && performance.now() < shotAt ? "cue" : "stand", t, r.phase); r.cue.visible = true; }
           else pose(r, r.slot.pose, t, r.phase);
         }
+        keepUpright(r);
       }
       // Pool game: when the balls stop, the next player shoots the cue ball at a coloured ball.
       {
@@ -1301,6 +1420,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           meetingTimer = 5;
           const line = meetingData.lines[meetingTurn++ % meetingData.lines.length];
           const text = line.text.length > 110 ? `${line.text.slice(0, 108)}…` : line.text;
+          const agent = latest.get(line.agentId);
+          // The screen follows the speaker: the agent's chart and numbers, or the summary for the boss and supervisor.
+          if (agent) { meetingFocus = true; drawMeetingAgent(agent, line.text); }
+          else { meetingFocus = false; drawMeeting(meetingData, true, cashNow); }
           if (line.agentId === "BOSS") { if (bossState === "meeting") show(bossBubble, text, 4.8); }
           else if (line.agentId === "SUPERVISOR") { if (supState === "meeting") { supBubbleEl.textContent = text; supBubbleEl.hidden = false; supTalkUntil = performance.now() + 4800; } }
           else { const speaker = people.get(line.agentId); if (speaker && !speaker.path.length) show(speaker.bubbleEl, text, 4.8); }
@@ -1439,23 +1562,20 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     <div className="office3d">
       <div ref={host} className="office3d-canvas" role="img"
         aria-label={`Escritório 3D com ${agents.length} IAs. ${agents.map((a) => `${a.name}: ${a.activity}`).join(" ")}`} />
-      {/* Owner, 26/10/2026: the legend and the controls tucked into a small corner button. */}
-      <div className={`office3d-hint ${help ? "open" : ""}`}>
-        {help && <div className="office3d-help" id="office3d-help">
-          <p>Arraste para mover · botão do meio para girar · rodinha para aproximar · passe o mouse numa pessoa para ver os detalhes</p>
-          <span className="office3d-legend" aria-label="Legenda das bolinhas">
-            <span><i className="status-dot own" /> tem ações</span><span><i className="status-dot buy" /> vai comprar</span>
-            <span><i className="status-dot council" /> no conselho ou reunião</span><span><i className="status-dot wait" /> esperando</span>
-            <span><i className="status-dot closed" /> bolsa fechada</span>
-          </span>
-          <span className="office3d-buttons">
-            <button type="button" className="secondary" onClick={() => setSound((on) => !on)} aria-pressed={sound}>{sound ? "Som do escritório: ligado" : "Som do escritório: desligado"}</button>
-            <button type="button" className="secondary" onClick={() => api.current?.reset()}>Centralizar</button>
-          </span>
-        </div>}
-        <button type="button" className="secondary office3d-help-toggle" aria-expanded={help} aria-controls="office3d-help" onClick={() => setHelp((v) => !v)}>
-          {help ? "Fechar" : "Legenda e controles"}
+      {/* Owner, 26/10/2026: the status dots always in the bottom corner; sound and centre top right. */}
+      <div className="office3d-top">
+        <button type="button" className="icon-button secondary" onClick={() => api.current?.reset()} aria-label="Centralizar o escritório" title="Centralizar">
+          <LocateFixed size={18} />
         </button>
+        <button type="button" className="icon-button secondary" onClick={() => setSound((on) => !on)} aria-pressed={sound}
+          aria-label={sound ? "Desligar o som do escritório" : "Ligar o som do escritório"} title={sound ? "Som ligado" : "Som desligado"}>
+          {sound ? <Volume2 size={18} /> : <VolumeX size={18} />}
+        </button>
+      </div>
+      <div className="office3d-legend" aria-label="Legenda das bolinhas" title="Arraste para mover · botão do meio para girar · rodinha para aproximar · passe o mouse numa pessoa para ver os detalhes">
+        <span><i className="status-dot own" /> tem ações</span><span><i className="status-dot buy" /> vai comprar</span>
+        <span><i className="status-dot council" /> no conselho ou reunião</span><span><i className="status-dot wait" /> esperando</span>
+        <span><i className="status-dot closed" /> bolsa fechada</span>
       </div>
     </div>
   );
