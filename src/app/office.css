@@ -590,3 +590,8 @@ p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
 .office3d-fp-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 3; padding: 6px 14px; border-radius: 999px;
   background: rgba(7, 9, 12, 0.85); border: 1px solid rgba(255, 178, 74, 0.45); color: #e8f4ff; font-size: 12px; white-space: nowrap; pointer-events: none; }
 @media (max-width: 900px) { .office3d-fp-hint { white-space: normal; width: calc(100% - 140px); left: 12px; transform: none; } }
+
+/* Council bubbles: name and the votes; the decision on hover (rooms are narrow, bubbles overlapped). */
+.debate-bubble { padding: 3px 8px; gap: 4px; font-size: 11px; }
+.debate-bubble em { display: none; }
+.debate-bubble:hover em { display: inline; }

@@ -67,7 +67,8 @@ const REST_ZONES: OfficeZone[] = ["COFFEE", "POOL", "OUT"];
  * facing north; −1 north, facing south); `lane` is the aisle used to reach the chair.
  */
 interface DeskSpot { x: number; z: number; dir: 1 | -1; lane: number }
-const ISLANDS: V2[] = [[-17.5, 0.4], [-8.5, 0.4], [0.5, 0.4]];
+// Four islands: sixteen desks (owner, 27/10/2026: the team grew to sixteen agents).
+const ISLANDS: V2[] = [[-19, 0.4], [-11.5, 0.4], [-4, 0.4], [3.5, 0.4]];
 const DESKS: DeskSpot[] = ISLANDS.flatMap(([cx, cz]) => ([[-1, -1], [1, -1], [-1, 1], [1, 1]] as const)
   .map(([side, dir]): DeskSpot => ({ x: cx + side * 1.25, z: cz + dir * 0.55, dir, lane: cx + side * 3.2 })));
 const seatOf = (d: DeskSpot): V2 => [d.x, d.z + d.dir * 1.05];
@@ -91,11 +92,11 @@ const BOSS_X = 6.67;
 // supervisor at the other end (owner, 26/10/2026); the door is where the fifth council room's was.
 const MEETING_TABLE: V2 = [17.3, -10];
 const MEETING_DOOR = 12.07;
-const SIDE_X = [13.05, 14.75, 16.45, 18.15, 19.85, 21.55];
+const SIDE_X = [12.75, 14.1, 15.45, 16.8, 18.15, 19.5, 20.85, 22.2];
 const MEETING_SEATS: { pos: V2; face: number }[] = [
   ...SIDE_X.map((x) => ({ pos: [x, -8.55] as V2, face: Math.PI })),
   ...SIDE_X.map((x) => ({ pos: [x, -11.45] as V2, face: 0 }))];
-const BOSS_SEAT: V2 = [11.6, -10], SUPERVISOR_SEAT: V2 = [23.0, -10];
+const BOSS_SEAT: V2 = [11.4, -10], SUPERVISOR_SEAT: V2 = [23.25, -10];
 /**
  * Furniture and walls on the floor plan (x1, z1, x2, z2), for walking paths and first-person
  * collision. Chairs and small items stay out: people sit on them or walk past them.
@@ -108,7 +109,7 @@ function officeObstacles(): Rect[] {
   const fronts: [number, number, number][] = [...COUNCILS.map((c): [number, number, number] => [c.x1, c.x2, c.door]), [2.67, 10.67, BOSS_X], [10.67, 24, MEETING_DOOR]];
   for (const [x1, x2, door] of fronts) { r.push([x1, -6.1, door - 0.8, -5.9]); r.push([door + 0.8, -6.1, x2, -5.9]); }
   for (const c of COUNCILS) box(c.table[0], c.table[1], 4.1, 1.95);
-  box(MEETING_TABLE[0], MEETING_TABLE[1], 9.4, 2.2);
+  box(MEETING_TABLE[0], MEETING_TABLE[1], 10.6, 2.2);
   box(BOSS_X, -10.6, 2.6, 1.2); box(BOSS_X - 2.3, -7.4, 2.0, 0.9); box(BOSS_X + 2.8, -8.4, 1.3, 0.7);
   // Desk islands (desks and divider) and the market room.
   for (const [cx, cz] of ISLANDS) box(cx, cz, 5.0, 2.2);
@@ -166,7 +167,7 @@ function slotFor(zone: OfficeZone, index: number, desk: number): Slot {
   if (zone === "POOL") {
     // TV lounge: sofas facing the news TV.
     const [[x, z], face] = TV_SEATS[index % TV_SEATS.length];
-    return { pos: [x, z], face, pose: "watch", route: [[-12.75, CORRIDOR_Z], [-12.75, 8.6], [x, 8.6]] };
+    return { pos: [x, z], face, pose: "watch", route: [[-15.25, CORRIDOR_Z], [-15.25, 8.6], [x, 8.6]] };
   }
   // Snack bar: around the high tables, then at the counter, with a coffee, chatting.
   const spot = index % (KITCHEN_TABLES.length * 4 + BAR_SPOTS.length);
@@ -207,7 +208,7 @@ function restSlot(activity: RestActivity, spot: number): Slot {
   }
   const spots: [V2, number][] = [[[6.4, 5.0], Math.PI / 2], [[7.6, 5.0], -Math.PI / 2], [[-13.4, 4.6], Math.PI / 2], [[-12.2, 4.6], -Math.PI / 2]];
   const [[x, z], face] = spots[spot % spots.length];
-  return { pos: [x, z], face, pose: "chat", route: [[x < 0 ? -12.75 : 7, CORRIDOR_Z], [x, z - 0.8]] };
+  return { pos: [x, z], face, pose: "chat", route: [[x < 0 ? -15.25 : 7, CORRIDOR_Z], [x, z - 0.8]] };
 }
 
 const hex = (c: string | number) => new THREE.Color(c);
@@ -600,7 +601,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(48, 28), matte("#a07f5f", 0.7));
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
     const rug = (w: number, d: number, x: number, z: number, c: string) => box(w, 0.02, d, x, 0.011, z, matte(c, 1), false);
-    rug(27, 8.4, -8.5, 0.4, "#2f3b52");
+    rug(29, 8.4, -7.75, 0.4, "#2f3b52");
     rug(16, 5.8, -2, 10.4, "#6b3a48");
     rug(16.4, 7.6, 15.8, 10.1, "#c98b5e");
     rug(12, 8, 16.5, 0.4, "#24504c");
@@ -800,10 +801,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       g.fillStyle = "#e8f6ff"; g.font = "30px sans-serif";
       g.fillText(cash ? `Na Genial: ${brl(cash.deposited)} depositados · ${brl(cash.free)} livres` : "Dinheiro na Genial: —", 30, 82);
       g.fillStyle = "#a9c0d6"; g.font = "26px sans-serif"; g.fillText("A equipe: ações na Genial ou quanto o Chefe libera agora", 30, 140);
-      list.slice(0, 12).forEach((a, i) => {
-        const x = 30 + (i % 2) * 490, y = 186 + Math.floor(i / 2) * 58;
-        g.fillStyle = "#e8f6ff"; g.font = "bold 26px sans-serif"; g.fillText(`${a.name} · ${a.ticker}`, x, y);
-        g.font = "26px sans-serif"; g.fillStyle = a.holding > 0 ? "#3dffa8" : a.budget > 0 ? "#ffc65c" : "#8ea4ba";
+      list.slice(0, 16).forEach((a, i) => {
+        const x = 30 + (i % 2) * 490, y = 180 + Math.floor(i / 2) * 46;
+        g.fillStyle = "#e8f6ff"; g.font = "bold 24px sans-serif"; g.fillText(`${a.name} · ${a.ticker}`, x, y);
+        g.font = "24px sans-serif"; g.fillStyle = a.holding > 0 ? "#3dffa8" : a.budget > 0 ? "#ffc65c" : "#8ea4ba";
         g.fillText(a.holding > 0 ? `${a.holding} ações · ${signed(a.pnl)}` : a.budget > 0 ? `libera ${brl(a.budget)}` : "aguardando", x + 250, y);
       });
       bossScreen.texture.needsUpdate = true;
@@ -845,8 +846,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Team meeting room: long table, twelve chairs, the minutes on the wall screen.
     {
       const [mx, mz] = MEETING_TABLE;
-      box(9.4, 0.08, 2.2, mx, 0.95, mz, wood);
-      for (const dx of [-3.6, 0, 3.6]) box(0.5, 0.9, 0.5, mx + dx, 0.46, mz, metal);
+      box(10.6, 0.08, 2.2, mx, 0.95, mz, wood);
+      for (const dx of [-4.2, 0, 4.2]) box(0.5, 0.9, 0.5, mx + dx, 0.46, mz, metal);
       MEETING_SEATS.forEach(({ pos, face }) => chair(pos[0], pos[1], face, "#3b3f47"));
       chair(BOSS_SEAT[0], BOSS_SEAT[1], Math.PI / 2, "#1f2a44"); chair(SUPERVISOR_SEAT[0], SUPERVISOR_SEAT[1], -Math.PI / 2, "#b8860b");
       plant(11.4, -13.2, 0.8); plant(23.3, -13.2, 0.8);
@@ -965,7 +966,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       wallCanvas.g.fillStyle = "#010810"; wallCanvas.g.fillRect(0, 0, 2400, 820);
       wallCanvas.g.fillStyle = "#ffc65c"; wallCanvas.g.font = "bold 40px sans-serif"; wallCanvas.g.textBaseline = "middle"; wallCanvas.g.textAlign = "left";
       wallCanvas.g.fillText("SALA DO MERCADO · ações da equipe", 16, 34);
-      list.slice(0, 12).forEach((a, i) => drawChart(wallCanvas.g, 8 + (i % 6) * 398, 68 + Math.floor(i / 6) * 376, 390, 368, `${a.ticker} · ${a.name}`, a.chart, 0.6));
+      list.slice(0, 16).forEach((a, i) => drawChart(wallCanvas.g, 6 + (i % 8) * 299, 68 + Math.floor(i / 8) * 376, 293, 368, `${a.ticker} · ${a.name}`, a.chart, 0.5));
       wallCanvas.texture.needsUpdate = true;
     };
 
@@ -1141,12 +1142,12 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const deskStop = (i: number) => { const d = DESKS[i], [x, z] = seatOf(d); return { at: [x, z + d.dir * 0.95] as V2, face: d.dir === 1 ? Math.PI : 0, wait: 3, desk: i }; };
     const byX = (dir: number, sign: number) => DESKS.map((d, i) => ({ d, i })).filter(({ d }) => d.dir === dir).sort((a, b) => sign * (a.d.x - b.d.x)).map(({ i }) => deskStop(i));
     const patrol: { at: V2; face?: number; wait?: number; desk?: number }[] = [
-      { at: [-21.5, -4.2] }, { at: [-21.5, -2.1] }, ...byX(-1, 1), { at: [5.6, -2.1] }, { at: [5.6, 2.9] }, ...byX(1, -1),
-      { at: [-21.5, 2.9] }, { at: [-21.5, -4.6] }, { at: [8.6, -4.6] }, { at: [8.6, -4.2], wait: 2 },
+      { at: [-22.4, -4.2] }, { at: [-22.4, -2.1] }, ...byX(-1, 1), { at: [7.6, -2.1] }, { at: [7.6, 2.9] }, ...byX(1, -1),
+      { at: [-22.4, 2.9] }, { at: [-22.4, -4.6] }, { at: [8.6, -4.6] }, { at: [8.6, -4.2], wait: 2 },
     ];
     let patrolIndex = 0, patrolWait = 0, supTalkUntil = 0;
     const supPath: V2[] = [];
-    supervisor.group.position.set(-21.5, 0, -4.2);
+    supervisor.group.position.set(-22.4, 0, -4.2);
     const say = (text: string, seconds = 4) => { supBubbleEl.textContent = text; supBubbleEl.hidden = false; supTalkUntil = performance.now() + seconds * 1000; };
 
     // Agents.

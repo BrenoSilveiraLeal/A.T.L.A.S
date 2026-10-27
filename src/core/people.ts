@@ -26,6 +26,11 @@ export const PEOPLE: Record<string, PersonLook> = {
   Gabriel: { presentation: "masculine", skin: "#c48a62", hair: "#2a1d14", hairStyle: "buzz", shirt: "#f08c00", pants: "#363a44", glasses: true },
   Helena: { presentation: "feminine", skin: "#7a4a32", hair: "#0f0a08", hairStyle: "bun", shirt: "#f1ecff", pants: "#2b2f3a", jacket: "#7048e8" },
   Thiago: { presentation: "masculine", skin: "#dba982", hair: "#3b2a1c", hairStyle: "curly", shirt: "#e9f5ec", pants: "#30343c", jacket: "#2b8a3e" },
+  // Hired 27/10/2026 when the team grew to sixteen.
+  Laura: { presentation: "feminine", skin: "#e9bc98", hair: "#4a2a16", hairStyle: "long", shirt: "#f2f2f2", pants: "#2b2f3a", jacket: "#e8590c" },
+  Pedro: { presentation: "masculine", skin: "#b07a55", hair: "#1a120c", hairStyle: "short", shirt: "#1864ab", pants: "#30343c", glasses: true },
+  Fernanda: { presentation: "feminine", skin: "#8a5a3c", hair: "#120c08", hairStyle: "ponytail", shirt: "#0ca678", pants: "#2a2e38", skirt: true },
+  Mateus: { presentation: "masculine", skin: "#f1cdb0", hair: "#7a5230", hairStyle: "curly", shirt: "#f4f4f4", pants: "#2f3440", jacket: "#364fc7" },
 };
 
 const NEUTRAL_SHIRTS = ["#5c6bc0", "#26a69a", "#ef6c00", "#8d6e63", "#546e7a"];

@@ -44,6 +44,8 @@ export const COMPANIES: Record<string, CompanyProfile> = {
   ABEV3: { name: "Ambev", cvmCode: "023264", query: '(ambev OR abev3)', aliases: ["ambev", "abev3"] },
   TIMS3: { name: "TIM Brasil", cvmCode: "024929", query: '("tim brasil" OR tims3)', aliases: ["tim brasil", "tims3"] },
   CPFE3: { name: "CPFL Energia", cvmCode: "018660", query: '("cpfl energia" OR cpfe3)', aliases: ["cpfl energia", "cpfl", "cpfe3"] },
+  ITSA4: { name: "Itaúsa", cvmCode: "007617", query: '(itausa OR itsa4)', aliases: ["itausa", "itsa4"] },
+  PSSA3: { name: "Porto Seguro", cvmCode: "016659", query: '("porto seguro" OR pssa3)', aliases: ["porto seguro", "pssa3"] },
 };
 export const MARKET_QUERY = '(ibovespa OR "bolsa brasileira" OR "mercado brasileiro")';
 
