@@ -23,6 +23,12 @@ export async function holdTeamMeeting(db: SupabaseClient, owner: string, now = n
     loadPrices(db, owner).catch(() => ({ prices: {} as Record<string, { price: number }> })),
   ]);
   if (agents.error || assets.error) return null;
+  // The day's real fills, for the supervisor's report and for each agent to tell what it did.
+  const since = new Date(`${day}T00:00:00-03:00`).toISOString();
+  const [analyses, fills] = await Promise.all([
+    db.from("decisions").select("id", { count: "exact", head: true }).eq("owner_id", owner).gte("created_at", since),
+    db.from("live_fills").select("agent_id,side,quantity,price,fee").eq("owner_id", owner).gte("executed_at", since),
+  ]);
   const team: MeetingAgent[] = [];
   for (const agent of agents.data.filter((a) => !["DEAD", "FIRED"].includes(String(a.status)))) {
     const ticker = String(assets.data.find((a) => a.id === agent.asset_id)?.ticker ?? "");
@@ -34,15 +40,13 @@ export async function holdTeamMeeting(db: SupabaseClient, owner: string, now = n
     if (!(price > 0)) continue;
     team.push({ agentId: String(agent.id), name: String(agent.name), ticker, price,
       closes: ready?.turnCloses ?? [], holding: Number(position?.quantity ?? 0), cost: Number(position?.cost ?? 0),
-      range: ready?.range ?? null, history: ready?.history ?? null, consensus: ready?.consensus ?? null });
+      range: ready?.range ?? null, history: ready?.history ?? null, consensus: ready?.consensus ?? null,
+      trades: (fills.data ?? []).filter((f) => f.agent_id === agent.id).map((f) => {
+        const quantity = Number(f.quantity), price = Number(f.price), fee = Number(f.fee ?? 0);
+        return { side: f.side as "BUY" | "SELL", quantity, price, value: f.side === "BUY" ? quantity * price + fee : quantity * price - fee };
+      }) });
   }
   if (!team.length) return null;
-  // The supervisor's report: the day's analyses and real fills.
-  const since = new Date(`${day}T00:00:00-03:00`).toISOString();
-  const [analyses, fills] = await Promise.all([
-    db.from("decisions").select("id", { count: "exact", head: true }).eq("owner_id", owner).gte("created_at", since),
-    db.from("live_fills").select("side").eq("owner_id", owner).gte("executed_at", since),
-  ]);
   const minutes = meetingMinutes(day, team, { deposited: live.genial.deposited, free: live.genial.free, analyses: analyses.count ?? 0,
     buys: (fills.data ?? []).filter((f) => f.side === "BUY").length, sells: (fills.data ?? []).filter((f) => f.side === "SELL").length });
   const saved = await db.from("team_meetings").insert({ owner_id: owner, day, lines: minutes.lines, summary: minutes.summary,

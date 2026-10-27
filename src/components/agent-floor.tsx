@@ -19,6 +19,7 @@ import { entryCheck, RANGE_DEFAULTS } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
 import { B3_CALENDAR, b3Session, saoPauloClock } from "@/core/b3-calendar";
+import { meetingClock } from "@/core/meeting";
 import type { Meeting } from "./office-3d";
 import type { HistoricalBar } from "@/providers/types";
 
@@ -84,10 +85,14 @@ function usePrices(connected: boolean) {
 }
 
 /** What the boss's assistant reports: the best stock outside the team from today's list. */
-/** Latest end-of-day team meeting (minutes saved by the scheduler after the close). Checks every 5 min. */
+/**
+ * Latest end-of-day team meeting (minutes saved by the scheduler after the close). Checks every 5 min,
+ * every 20 s while the team waits in the room for today's minutes, so the boss opens on time.
+ */
 function useMeeting(connected: boolean, now: number) {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
-  const tick = Math.floor(now / 300000);
+  const waiting = meetingClock(new Date(now), meeting).phase === "GATHERING" && meeting?.day !== saoPauloClock(new Date(now)).date;
+  const tick = Math.floor(now / (waiting ? 20000 : 300000)) * (waiting ? 1 : -1);
   useEffect(() => {
     if (!connected) return;
     const controller = new AbortController();

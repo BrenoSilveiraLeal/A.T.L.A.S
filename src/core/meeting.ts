@@ -20,6 +20,8 @@ export interface MeetingAgent {
   range: { low: number; high: number; buyBelow: number; sellAbove: number } | null;
   history: { samples: number; upShare: number; average: number } | null;
   consensus: ConsensusView | null;
+  /** Its real fills today at Genial (quantity, price per share, value with fees). */
+  trades?: { side: "BUY" | "SELL"; quantity: number; price: number; value: number }[];
 }
 export interface MeetingTeam {
   deposited: number; free: number;
@@ -38,11 +40,42 @@ const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigi
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const pct = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v * 100).toFixed(1).replace(".", ",")}%`;
 
-/** A B3 trading day after the close (from 17:10 São Paulo): the time of the meeting. */
+/** The meeting starts right after the close (owner, 27/10/2026: "depois que fechou a bolsa"). */
+export const MEETING_START = "17:05";
+/** Without minutes by then (runner off), the team stops waiting in the room. */
+const GATHER_UNTIL = "17:40";
+/** Walking to the room and sitting down before the boss opens. */
+const GATHER_SECONDS = 60;
+
+/** A B3 trading day after the close (from MEETING_START São Paulo): the time of the meeting. */
 export function meetingDue(at: Date) {
   const clock = saoPauloClock(at);
   const tradingDay = !["Sat", "Sun"].includes(clock.weekday) && !B3_CALENDAR[clock.year]?.closed[clock.date];
-  return { due: tradingDay && clock.time >= "17:10", day: clock.date, live: tradingDay && clock.time >= "17:10" && clock.time < "17:40" };
+  return { due: tradingDay && clock.time >= MEETING_START, day: clock.date, gathering: tradingDay && clock.time >= MEETING_START && clock.time < GATHER_UNTIL };
+}
+
+/** Time to read a line aloud (a person reads ~14 characters a second), plus a pause between speakers. */
+export const lineSeconds = (text: string) => Math.max(7, 3 + text.length / 14) + 2;
+
+/**
+ * Where the meeting is now. No fixed length (owner, 27/10/2026: "pode demorar muito tempo, pouco
+ * tempo, dependendo do que foi feito no dia"): it lasts as long as its lines take to say. Every
+ * screen derives the same moment from the minutes' creation time, so a late viewer joins mid-meeting.
+ */
+export function meetingClock(now: Date, minutes: { day: string; created_at?: string; lines: readonly { text: string }[] } | null) {
+  const { gathering, day } = meetingDue(now);
+  if (!minutes || minutes.day !== day || !minutes.created_at)
+    return { phase: gathering ? "GATHERING" as const : "NONE" as const, index: -1, remaining: 0 };
+  const created = Date.parse(minutes.created_at), opens = Date.parse(`${day}T${MEETING_START}:00-03:00`);
+  const start = Math.max(created, opens) + GATHER_SECONDS * 1000;
+  let elapsed = (now.getTime() - start) / 1000;
+  if (elapsed < 0) return { phase: "GATHERING" as const, index: -1, remaining: -elapsed };
+  for (let i = 0; i < minutes.lines.length; i++) {
+    const length = lineSeconds(minutes.lines[i].text);
+    if (elapsed < length) return { phase: "TALKING" as const, index: i, remaining: length - elapsed };
+    elapsed -= length;
+  }
+  return { phase: "DONE" as const, index: minutes.lines.length, remaining: 0 };
 }
 
 function opinion(a: MeetingAgent): string {
@@ -66,6 +99,19 @@ function opinion(a: MeetingAgent): string {
       : `${head}${today}. ${capitalize(entryReason(e, a.price))}.${analysts}`;
   }
   return `${head}${today}. Ainda ${pct(a.price / r.buyBelow - 1)} acima da faixa de compra (até ${brl(r.buyBelow)}). Sem pressa.${analysts}`;
+}
+
+function tradeReport(a: MeetingAgent): string {
+  return `Hoje ${(a.trades ?? []).map((t) => `${t.side === "BUY" ? "comprei" : "vendi"} ${t.quantity} ${t.quantity === 1 ? "ação" : "ações"} da ${a.ticker} a ${brl(t.price)} cada (total ${brl(t.value)} com as taxas)`).join(" e ")}.`;
+}
+
+function expectation(a: MeetingAgent): string {
+  if (a.holding <= 0) return "Vendi com lucro; agora espero o preço voltar para perto da mínima para comprar de novo.";
+  const average = a.cost / a.holding;
+  const sellFrom = Math.max(a.range?.sellAbove ?? 0, Number(minimumSellPrice(a.cost, a.holding)));
+  const target = forecastOpinion(a.price, a.consensus).upside;
+  const rebuy = RANGE_DEFAULTS.rebuyBelowAvgPct !== undefined ? average * (1 - RANGE_DEFAULTS.rebuyBelowAvgPct / 100) : null;
+  return `Espero vender perto da máxima de 6 meses, a partir de ${brl(sellFrom)} (${pct(sellFrom / average - 1)} sobre o que paguei)${target !== null ? `; os analistas veem ${pct(target)} de alta` : ""}. Se cair${rebuy ? ` até ${brl(rebuy)}` : ""} e virar para cima, compro mais e baixo meu preço médio.`;
 }
 
 /**
@@ -94,12 +140,32 @@ function bossLines(agents: readonly MeetingAgent[]) {
 
 export function meetingMinutes(day: string, agents: readonly MeetingAgent[], team: MeetingTeam): Minutes {
   const boss = bossLines(agents);
+  const say = (text: string, a?: MeetingAgent) => a ? { agentId: a.agentId, name: a.name, ticker: a.ticker, text }
+    : { agentId: "BOSS", name: "Chefe", ticker: "", text };
+  const traded = agents.filter((a) => a.trades?.length), quiet = agents.filter((a) => !a.trades?.length);
+  const falling = agents.filter((a) => a.closes.length && a.price <= Math.max(...a.closes.slice(-20)) * 0.9).length;
+  // Owner, 27/10/2026: the boss opens, whoever bought or sold tells it first and what it expects,
+  // then everyone has its turn; the supervisor reports, the boss evaluates, says what he expects and
+  // closes. The busier the day, the longer the meeting.
   const lines = [
-    { agentId: "BOSS", name: "Chefe", ticker: "", text: boss.opening },
-    ...agents.map((a) => ({ agentId: a.agentId, name: a.name, ticker: a.ticker, text: opinion(a) })),
+    say(`Boa tarde, pessoal. Vamos à reunião de hoje. ${traded.length ? "Quem comprou ou vendeu na Genial começa: quais são as novidades?" : "Ninguém comprou nem vendeu hoje; cada um conta como está a sua ação."}`),
+    ...traded.flatMap((a) => [
+      say(`${a.name}, você operou hoje. Conta pra gente.`),
+      say(tradeReport(a), a),
+      say("E o que você espera com isso?"),
+      say(expectation(a), a),
+      say(`E o que o dia de hoje na bolsa quer dizer para a ${a.ticker}?`),
+      say(opinion(a), a),
+    ]),
+    ...quiet.flatMap((a) => [say(`${a.name}, e a ${a.ticker}?`), say(opinion(a), a)]),
     ...(team.analyses !== undefined ? [{ agentId: "SUPERVISOR", name: "Supervisora", ticker: "",
-      text: `Hoje: ${team.analyses} análises, ${team.buys ?? 0} compra(s) e ${team.sells ?? 0} venda(s) na Genial. Equipe completa: ${agents.length} IAs.` }] : []),
-    ...boss.evaluations.slice(0, 6).map((text) => ({ agentId: "BOSS", name: "Chefe", ticker: "", text })),
+      text: `Meu relatório: hoje foram ${team.analyses} análises, ${team.buys ?? 0} compra(s) e ${team.sells ?? 0} venda(s) na Genial. Caixa livre: ${brl(team.free)} de ${brl(team.deposited)} depositados.` }] : []),
+    say(boss.opening),
+    ...boss.evaluations.slice(0, 6).map((text) => say(text)),
+    say(agents.length && falling * 2 >= agents.length
+      ? `O que eu espero: o mercado está nervoso (${falling} das nossas ${agents.length} ações caíram 10% ou mais em 20 pregões). Na história, depois de choques assim as ações costumam cair mais um pouco antes de voltar; por isso compramos só na virada e aos poucos, e nunca vendemos com prejuízo.`
+      : "O que eu espero: seguir a regra com calma, comprando perto da mínima depois que virar e vendendo perto da máxima com lucro."),
+    say("Obrigado a todos pelo trabalho de hoje. Reunião encerrada: estão liberados para o café, a sinuca e o descanso. Até amanhã!"),
   ];
   const held = agents.filter((a) => a.holding > 0);
   const invested = held.reduce((s, a) => s + a.cost, 0), value = held.reduce((s, a) => s + a.holding * a.price, 0);

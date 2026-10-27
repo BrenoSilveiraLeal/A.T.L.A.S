@@ -9,7 +9,8 @@ import type { OfficeZone } from "@/core/office";
 import type { Vote } from "@/core/committee";
 import { lookFor, type PersonLook } from "@/core/people";
 import { companyProfile } from "@/core/context";
-import { meetingDue } from "@/core/meeting";
+import { meetingClock } from "@/core/meeting";
+import { B3_CALENDAR, saoPauloClock } from "@/core/b3-calendar";
 import { NavGrid, type Rect } from "@/core/office-nav";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
 import { LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
@@ -31,8 +32,8 @@ import { LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
  *   market room. Labels are compact (name, stock, a status dot, today's move); the details show
  *   on hover or when the person is selected.
  * - Sound on: the beep plus a quiet office ambience (murmur, typing, a phone now and then).
- * - Team meeting (17:10–17:40 on trading days): everyone sits at the long table and each agent
- *   says its part of the real minutes (core/meeting.ts); the room screen shows the last minutes.
+ * - Team meeting (from 17:05 on trading days, as long as the conversation takes): everyone sits at the
+ *   long table, the boss opens, each agent tells its day, the boss closes (core/meeting.ts).
  * - Pool: real balls on the table, players take turns and the balls roll, bounce and drop.
  * - Walking: people follow paths around the furniture on a floor grid (core/office-nav.ts), one
  *   person per seat.
@@ -55,7 +56,7 @@ interface Walker extends Person {
   rest: { activity: RestActivity; spot: number; timer: number } | null;
 }
 type Money = { deposited: number; free: number } | null;
-export type Meeting = { day: string; lines: { agentId: string; name: string; text: string }[]; summary: string[]; lessons: string[]; suggestions: string[] };
+export type Meeting = { day: string; created_at?: string; lines: { agentId: string; name: string; text: string }[]; summary: string[]; lessons: string[]; suggestions: string[] };
 type RestActivity = "KITCHEN" | "TV" | "MARKET" | "POOL" | "STROLL";
 
 const S = 1.25; // people are drawn a little larger than life so they read well from above
@@ -80,6 +81,15 @@ const COUNCILS = [[-24, -17.33], [-17.33, -10.67], [-10.67, -4], [-4, 2.67]]
 const SPECIALIST_SHIRTS = ["#22a06b", "#2f6fd6", "#f28c28", "#9b6bff"]; // Otimista, Pessimista, Riscos do mundo, Realista
 // Snack bar (front right): two high tables and the counter along the right wall.
 const KITCHEN_TABLES: V2[] = [[16.4, 7.6], [16.4, 11.4]];
+// Where the council analysts stand for a coffee and a chat on their breaks (outside working hours).
+const BREAK_SPOTS: [V2, number][] = [[[15, 6.4], Math.PI * 0.75], [[17.8, 6.4], -Math.PI * 0.75], [[15, 12.6], Math.PI * 0.25], [[17.8, 12.6], -Math.PI * 0.25],
+  [[19.6, 9.4], Math.PI / 2], [[13.6, 9.0], -Math.PI / 2], [[-7.6, 7.8], Math.PI], [[3.8, 7.8], Math.PI]];
+const BREAK_CHAT = ["Mais um café?", "Que dia na bolsa!", "Viu o dólar hoje?", "Amanhã tem mais.", "Esse café está ótimo.", "E aí, tudo certo?"];
+/** The working day (09:45–17:00 on B3 trading days): analysts stay at their council tables. */
+function workingHours(at: Date) {
+  const c = saoPauloClock(at);
+  return !["Sat", "Sun"].includes(c.weekday) && !B3_CALENDAR[c.year]?.closed[c.date] && c.time >= "09:45" && c.time < "17:00";
+}
 const BAR_SPOTS: V2[] = [[21.5, 7.4], [21.5, 8.8], [21.5, 10.2], [21.5, 11.6]];
 const POOL_TABLE: V2 = [11.6, 11];
 // Market room: the chart screen hangs on the front wall of the meeting room (owner, 26/10/2026); a
@@ -1184,22 +1194,34 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     });
 
     // Staff: specialists in every council room, the boss, the receptionist, the supervisor.
-    const staff: { person: Person; pose: Pose; phase: number }[] = [];
+    const staff: { person: Person; pose: Pose; phase: number; away?: boolean }[] = [];
     const STAFF_LOOKS: PersonLook[] = [
       { presentation: "feminine", skin: "#e2b08c", hair: "#2a1b12", hairStyle: "long", shirt: "", pants: "#2b2f3a" },
       { presentation: "masculine", skin: "#a8724f", hair: "#151010", hairStyle: "short", shirt: "", pants: "#30343c" },
       { presentation: "feminine", skin: "#f0c9a8", hair: "#6b3a1e", hairStyle: "bun", shirt: "", pants: "#2b2f3a" },
     ];
-    // Specialists per room, in the order Risco, Balanço, Estratégia, Previsão (shirt colours).
+    // Specialists per room, in the order Otimista, Pessimista, Riscos do mundo, Realista (shirt colours).
     const councilBubbles: HTMLDivElement[][] = COUNCILS.map(() => []);
+    // Owner, 27/10/2026: outside working hours the analysts also leave for a coffee or a chat, keeping
+    // two in each room most of the time (rarely three or four out). Only the boss works all the time.
+    type Analyst = { member: (typeof staff)[number]; room: number; seat: number; state: "seat" | "going" | "out" | "back"; path: V2[]; timer: number; spot: number };
+    const analysts: Analyst[] = [];
     COUNCILS.forEach((_, roomIndex) => SPECIALIST_SHIRTS.forEach((shirt, s) => {
       const person = makePerson({ ...STAFF_LOOKS[(s + roomIndex) % 3], shirt });
       const { pos, face } = councilSeat(roomIndex, s);
       person.group.position.set(pos[0], 0, pos[1]); person.group.rotation.y = face; scene.add(person.group);
-      staff.push({ person, pose: "talk", phase: roomIndex * 2 + s });
+      const member = { person, pose: "talk" as Pose, phase: roomIndex * 2 + s };
+      staff.push(member);
+      analysts.push({ member, room: roomIndex, seat: s, state: "seat", path: [], timer: 30 + Math.random() * 200, spot: -1 });
       const el = document.createElement("div"); el.className = "speech-bubble council"; el.hidden = true;
       const o = new CSS2DObject(el); o.position.set(0, 2.3, 0); person.rig.add(o); councilBubbles[roomIndex].push(el);
     }));
+    // Out of the room: behind the chairs, round the right end of the table, through the door.
+    const roomExit = (room: number, seat: number): V2[] => {
+      const [tx] = COUNCILS[room].table, { pos } = councilSeat(room, seat), door = COUNCILS[room].door, end = tx + 2.75;
+      return [[pos[0], -12.6], [end, -12.6], [end, -8.0], [door, -8.0], [door, -7.2], [door, CORRIDOR_Z]];
+    };
+    const takenSpots = new Set<number>();
     const SPEAKER: Record<string, number> = { Otimista: 0, Pessimista: 1, "Riscos do mundo": 2, Realista: 3 };
     const roomTalk = COUNCILS.map(() => ({ agentId: "", turn: 0, timer: 0 }));
     let roomAgents: (OfficeAgent | null)[] = COUNCILS.map(() => null);
@@ -1214,7 +1236,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const bossStaff: { person: Person; pose: Pose; phase: number } = { person: bossPerson, pose: "type", phase: 7 };
     staff.push(bossStaff);
     const BOSS_DESK: V2 = [BOSS_X, -11.6];
-    // Boss and supervisor walk to the meeting room at 17:10 and back afterwards.
+    // Boss and supervisor walk to the meeting room after the close and back when it ends.
     const toMeeting = (from: V2, seat: V2): V2[] => [[from[0], -7.2], [from[0], CORRIDOR_Z], [MEETING_DOOR, CORRIDOR_Z], [MEETING_DOOR, -7.2], [seat[0], -7.2], seat];
     const fromMeeting = (seat: V2, to: V2): V2[] => [[seat[0], -7.2], [MEETING_DOOR, -7.2], [MEETING_DOOR, CORRIDOR_Z], [to[0], CORRIDOR_Z], [to[0], -7.2], to];
     let bossState: "desk" | "going" | "meeting" | "back" | "player" = "desk", supState: "patrol" | "going" | "meeting" = "patrol";
@@ -1323,9 +1345,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const releaseSpot = (activity: RestActivity, spot: number) => occupied[activity].delete(spot);
     const latest = new Map<string, OfficeAgent>();
     let chatTimer = 6;
-    let meetingNow = false, meetingData: Meeting | null = null, meetingTurn = 0, meetingTimer = 3, cashNow: Money = null, meetingFocus = false;
+    let meetingNow = false, meetingData: Meeting | null = null, meetingTurn = -1, meetingCheck = 0, cashNow: Money = null, meetingFocus = false;
+    let lastSync: [OfficeAgent[], string | null, Money, Meeting | null] | null = null;
+    // In the room from the close until the boss closes the meeting (core/meeting meetingClock).
+    const inMeeting = (meeting: Meeting | null) => ["GATHERING", "TALKING"].includes(meetingClock(new Date(), meeting).phase);
     const sync = (list: OfficeAgent[], sel: string | null, cash: Money, meeting: Meeting | null) => {
-      meetingData = meeting; meetingNow = meetingDue(new Date()).live;
+      lastSync = [list, sel, cash, meeting];
+      meetingData = meeting; meetingNow = inMeeting(meeting);
       cashNow = cash;
       if (!meetingNow || !meetingFocus) drawMeeting(meeting, meetingNow, cash);
       for (const a of list) latest.set(a.id, a);
@@ -1651,29 +1677,75 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
       wallTimer -= dt;
       if (wallTimer <= 0) { wallTimer = 10; wallPage++; drawWall(wallList); }
-      // End-of-day meeting: each agent says its part of the minutes, in turn.
-      if (meetingNow && meetingData?.lines.length) {
-        meetingTimer -= dt;
-        if (meetingTimer <= 0) {
-          meetingTimer = 5;
-          const line = meetingData.lines[meetingTurn++ % meetingData.lines.length];
-          const text = line.text.length > 110 ? `${line.text.slice(0, 108)}…` : line.text;
+      // End-of-day meeting: the minutes are a conversation, line by line, each as long as it takes to
+      // say; every screen is at the same line (owner, 27/10/2026).
+      meetingCheck -= dt;
+      if (meetingCheck <= 0) {
+        meetingCheck = 0.5;
+        const clock = meetingClock(new Date(), meetingData);
+        // Into the room at the close, out when the boss ends it: re-seat everyone.
+        if (inMeeting(meetingData) !== meetingNow && lastSync) sync(...lastSync);
+        if (clock.phase === "TALKING" && clock.index !== meetingTurn && meetingData) {
+          meetingTurn = clock.index;
+          const line = meetingData.lines[clock.index], seconds = Math.max(2, clock.remaining - 1);
+          const text = line.text.length > 230 ? `${line.text.slice(0, 228)}…` : line.text;
           const agent = latest.get(line.agentId);
           // The screen follows the speaker: the agent's chart and numbers, or the summary for the boss and supervisor.
           if (agent) { meetingFocus = true; drawMeetingAgent(agent, line.text); }
           else { meetingFocus = false; drawMeeting(meetingData, true, cashNow); }
-          if (line.agentId === "BOSS") { if (bossState === "meeting") show(bossBubble, text, 4.8); }
-          else if (line.agentId === "SUPERVISOR") { if (supState === "meeting") { supBubbleEl.textContent = text; supBubbleEl.hidden = false; supTalkUntil = performance.now() + 4800; } }
-          else { const speaker = people.get(line.agentId); if (speaker && !speaker.path.length) show(speaker.bubbleEl, text, 4.8); }
+          if (line.agentId === "BOSS") { if (bossState === "meeting") show(bossBubble, text, seconds); }
+          else if (line.agentId === "SUPERVISOR") { if (supState === "meeting") { supBubbleEl.textContent = text; supBubbleEl.hidden = false; supTalkUntil = performance.now() + seconds * 1000; } }
+          else { const speaker = people.get(line.agentId); if (speaker) show(speaker.bubbleEl, text, seconds); }
         }
+        if (clock.phase !== "TALKING") meetingTurn = -1;
       }
-      // Boss: to the head of the meeting table at 17:10, back to the desk afterwards.
+      // Boss: to the head of the meeting table after the close, back to the desk when he ends it.
       if (meetingNow && bossState === "desk") { bossState = "going"; bossPath.push(...toMeeting(BOSS_DESK, BOSS_SEAT)); }
       if (!meetingNow && bossState === "meeting") { bossState = "back"; bossPath.push(...fromMeeting(BOSS_SEAT, BOSS_DESK)); }
       if (bossPath.length) { walk(bossPerson, bossPath, reduced ? 40 : 1.6, dt); pose(bossPerson, "walk", t, 7); }
       else if (bossState === "going") { bossState = "meeting"; bossPerson.group.rotation.y = Math.PI / 2; bossStaff.pose = "talk"; }
       else if (bossState === "back") { bossState = "desk"; bossPerson.group.rotation.y = 0; bossStaff.pose = "type"; }
-      for (const s of staff) if (s !== bossStaff || (!bossPath.length && bossState !== "player")) pose(s.person, s.pose, t, s.phase);
+      for (const s of staff) if (!s.away && (s !== bossStaff || (!bossPath.length && bossState !== "player"))) pose(s.person, s.pose, t, s.phase);
+      // Council analysts' breaks outside working hours (at most two out per room, rarely more).
+      const working = workingHours(new Date());
+      for (const a of analysts) {
+        const p = a.member.person;
+        if (a.state === "seat") {
+          if (working) continue;
+          a.timer -= dt;
+          if (a.timer > 0) continue;
+          a.timer = 60 + Math.random() * 240;
+          const out = analysts.filter((x) => x.room === a.room && x.state !== "seat").length;
+          const free = BREAK_SPOTS.map((_, i) => i).filter((i) => !takenSpots.has(i));
+          if (!free.length || !(out < 2 || (out === 2 && Math.random() < 0.08) || (out === 3 && Math.random() < 0.03))) continue;
+          const spot = free[Math.floor(Math.random() * free.length)], exit = roomExit(a.room, a.seat);
+          const way = nav.path(exit.at(-1)!, BREAK_SPOTS[spot][0]);
+          if (!way) continue;
+          takenSpots.add(spot);
+          Object.assign(a, { state: "going", spot, path: [...exit, ...way] });
+          a.member.away = true;
+        } else if (a.state === "going" || a.state === "back") {
+          if (a.path.length) { walk(p, a.path, reduced ? 40 : 1.4, dt); pose(p, "walk", t, a.member.phase); continue; }
+          if (a.state === "going") {
+            Object.assign(a, { state: "out", timer: 90 + Math.random() * 180 });
+            p.group.rotation.y = BREAK_SPOTS[a.spot][1];
+          } else {
+            const { face } = councilSeat(a.room, a.seat);
+            p.group.rotation.y = face; a.state = "seat"; a.member.away = false;
+          }
+        } else {
+          pose(p, "stand", t, a.member.phase);
+          a.timer -= dt;
+          if (Math.random() < dt / 40) show(councilBubbles[a.room][a.seat], BREAK_CHAT[Math.floor(Math.random() * BREAK_CHAT.length)], 3);
+          // Back at the end of the break, or at once when the working day starts.
+          if (a.timer <= 0 || working) {
+            const exit = roomExit(a.room, a.seat), way = nav.path(BREAK_SPOTS[a.spot][0], exit.at(-1)!);
+            const { pos } = councilSeat(a.room, a.seat);
+            takenSpots.delete(a.spot);
+            Object.assign(a, { state: "back", spot: -1, path: [...(way ?? []), ...[...exit].reverse(), pos] });
+          }
+        }
+      }
       // Assistant routine: desk → boss (report) → desk.
       assistTimer -= dt;
       if (assistState === "desk") {
@@ -1734,7 +1806,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         const agent = r && latest.get(r.group.userData.agentId as string);
         if (r && agent) show(r.bubbleEl, chatLine(agent), 4);
       }
-      // Supervisor: to the end of the meeting table at 17:10; otherwise the patrol.
+      // Supervisor: to the end of the meeting table after the close; otherwise the patrol.
       if (meetingNow && supState === "patrol") { supState = "going"; supPath.length = 0; patrolWait = 0; supPath.push(...toMeeting([supervisor.group.position.x, supervisor.group.position.z], SUPERVISOR_SEAT)); }
       if (!meetingNow && supState !== "patrol") { supState = "patrol"; supPath.length = 0; supPath.push([SUPERVISOR_SEAT[0], -7.2], [MEETING_DOOR, -7.2], [MEETING_DOOR, CORRIDOR_Z]); }
       if (supState !== "patrol") {
