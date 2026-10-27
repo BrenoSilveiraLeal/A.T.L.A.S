@@ -65,7 +65,11 @@ export function liveIntent(latest: { id: string; side: "BUY" | "SELL"; placedAt:
 /** Bridge errors raised before anything reaches the broker; everything else may have been sent. */
 const NOT_SENT = new Set(["EXECUTION_DISABLED", "GATEWAY_HALTED", "ORDER_IDENTITY_MISMATCH", "UNSUPPORTED_ORDER_TERMS", "USE_FRACTIONAL_SYMBOL",
   "USE_STANDARD_LOT_SYMBOL", "LIMIT_DAY_NOT_SUPPORTED", "ORDER_CHECK_REJECTED", "ORDER_REJECTED", "DAY_TRADE_ENVIRONMENT_SUBMIT_UNSUPPORTED",
-  "UNAPPROVED_INSTRUMENT", "INSTRUMENT_NOT_VERIFIED_B3_CASH_EQUITY"]);
+  "UNAPPROVED_INSTRUMENT", "INSTRUMENT_NOT_VERIFIED_B3_CASH_EQUITY",
+  // 27/10/2026: MetaTrader's "Algo Trading" switch off; checked before order_send, so nothing left.
+  "TERMINAL_TRADING_DISABLED"]);
+/** The terminal refused because automatic trading is switched off: the owner's switch, not the agent's fault. */
+export const TRADING_SWITCH_OFF = "TERMINAL_TRADING_DISABLED";
 export const sendOutcome = (code: string): "REJECTED" | "UNKNOWN" => (NOT_SENT.has(code) ? "REJECTED" : "UNKNOWN");
 
 /**

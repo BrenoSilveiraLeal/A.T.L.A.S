@@ -176,10 +176,14 @@ export async function runScheduler() {
           paper,
         };
       } catch (error) {
+        // Keep the real reason (27/10/2026: every non-provider failure showed only ANALYSIS_FAILED).
+        const detail = error instanceof Error ? error.message
+          : error && typeof error === "object" && "message" in error ? String((error as { message: unknown }).message) : String(error);
         const code =
           error instanceof ProviderError
             ? `${error.provider}:${error.code}`
-            : "ANALYSIS_FAILED";
+            : `ANALYSIS_FAILED: ${(detail.match(/ATLAS_[A-Z_]+/)?.[0] ?? detail).slice(0, 120)}`;
+        console.error(JSON.stringify({ component: "analysis", agent: label, error: detail.slice(0, 400) }));
         const failed = await db.rpc("complete_agent_job", {
           p_owner_id: owner,
           p_job_id: job.job_id,

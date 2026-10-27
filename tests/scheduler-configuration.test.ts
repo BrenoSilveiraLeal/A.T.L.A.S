@@ -83,12 +83,12 @@ describe("scheduler pinned configuration integration", () => {
   it.each(["partial", "unknown-engine"])("fails a %s configuration before consuming quote/history provider budget", async (condition) => {
     if (condition === "partial") agentConfiguration.strategy_version_id = null;
     else strategyDefinition = { ...OBSERVATION_DEFINITION, engine: "unregistered/2.0.0" };
-    expect((await runScheduler()).jobs[0]).toMatchObject({ status: "FAILED", code: "ANALYSIS_FAILED", statePersisted: true });
+    expect((await runScheduler()).jobs[0]).toMatchObject({ status: "FAILED", code: expect.stringMatching(/^ANALYSIS_FAILED/), statePersisted: true });
     expect(mocks.quote).not.toHaveBeenCalled();
     expect(mocks.history).not.toHaveBeenCalled();
     expect(mocks.rpc.mock.calls.some(([name]) => name === "finish_agent_analysis")).toBe(false);
     expect(mocks.rpc).toHaveBeenCalledWith("complete_agent_job", {
-      p_owner_id: owner, p_job_id: job.job_id, p_lease_token: job.lease_token, p_status: "FAILED", p_error: "ANALYSIS_FAILED",
+      p_owner_id: owner, p_job_id: job.job_id, p_lease_token: job.lease_token, p_status: "FAILED", p_error: expect.stringMatching(/^ANALYSIS_FAILED/),
     });
   });
 });

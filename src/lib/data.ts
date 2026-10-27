@@ -2,6 +2,9 @@ import "server-only";
 import { adminClient } from "./supabase";
 import { required } from "./env";
 import { ApiError } from "./auth";
+import { bridgeQuote } from "./prices";
+import { loadBars } from "./market-bars";
+import type { MarketHistory } from "@/providers/types";
 import {
   fetchCvmFundamentals,
   validateCvmQuery,
@@ -77,7 +80,19 @@ export async function cached<T>(
   if (saved.error) throw saved.error;
   return result;
 }
+/**
+ * Price for an analysis (27/10/2026: with sixteen agents the free feed's 150 requests a day ran out in
+ * the afternoon and analyses failed). The Genial MetaTrader price comes first — live and without a
+ * daily limit — and the free feed only when the bridge is off.
+ */
 export async function readQuote(ticker: string) {
+  const live = await bridgeQuote(ticker);
+  if (live) {
+    const ageSeconds = Math.max(0, (Date.now() - Date.parse(live.at)) / 1000);
+    return { ticker, price: live.price.toFixed(2), currency: "BRL" as const, dataTimestamp: live.at, retrievedAt: new Date().toISOString(),
+      source: "https://www.genialinvestimentos.com.br/metatrader-5", feed: "DELAYED" as const, tradable: false as const,
+      ageSeconds, freshness: ageSeconds > 3600 ? ("STALE" as const) : ("DELAYED" as const) };
+  }
   const quote = await cached(
     "brapi",
     `QUOTE:${ticker}`,
@@ -95,14 +110,19 @@ export async function readQuote(ticker: string) {
     freshness: ageSeconds > 3600 ? ("STALE" as const) : ("DELAYED" as const),
   };
 }
-export const readHistory = (ticker: string) =>
-  cached(
-    "brapi",
-    `HISTORY:${ticker}`,
-    12 * 3600000,
-    "https://brapi.dev/docs/acoes/historico",
-    () => fetchHistory(ticker),
-  );
+/** Daily history from the free feed (cached 12 h); when its daily budget is spent, from the stored B3 history. */
+export async function readHistory(ticker: string): Promise<MarketHistory> {
+  try {
+    return await cached("brapi", `HISTORY:${ticker}`, 12 * 3600000, "https://brapi.dev/docs/acoes/historico", () => fetchHistory(ticker));
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== "DATA_BUDGET_EXHAUSTED") throw error;
+    const bars = await loadBars(adminClient(), ticker, 70);
+    if (bars.length < 20) throw error;
+    return { ticker, interval: "1d", range: "3mo", retrievedAt: new Date().toISOString(), source: "https://www.b3.com.br/pt_br/market-data-e-indices/servicos-de-dados/market-data/historico/",
+      feed: "EOD", tradable: false, bars: bars.map((b) => ({ timestamp: new Date(`${b.trade_date}T13:00:00Z`).toISOString(), open: b.open, high: b.high,
+        low: b.low, close: b.close, adjustedClose: null, volume: b.volume })) };
+  }
+}
 export const readSearch = (query: string) =>
   cached(
     "brapi",

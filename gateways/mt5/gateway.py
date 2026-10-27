@@ -409,7 +409,16 @@ class Gateway:
                         "completeAccountReconciliation": False, "cloudAuthorized": False}
             if method == "health":
                 # Halted stays "healthy" for reads/cancels; the reason blocks new orders upstream.
-                return {"healthy": True, "observedAt": now(), "reason": "GATEWAY_HALTED" if self.halted() else None}
+                # 27/10/2026: also report MetaTrader's "Algo Trading" switch, before an order fails on it.
+                if self.halted():
+                    reason = "GATEWAY_HALTED"
+                else:
+                    try:
+                        self._identity(mutation=True)
+                        reason = None
+                    except GatewayError as error:
+                        reason = error.code if error.code == "TERMINAL_TRADING_DISABLED" else None
+                return {"healthy": True, "observedAt": now(), "reason": reason}
             if method == "account":
                 return {"accountId": self.config.login, "currency": "BRL", "mode": self.config.mode, "cashOnly": False, "observedAt": now()}
             if method == "cash":

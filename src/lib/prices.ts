@@ -25,6 +25,24 @@ export async function bridgeReachable() {
   return up;
 }
 
+/**
+ * One stock's price now from the Genial MetaTrader bridge, or null when the bridge is off (then the
+ * caller falls back to the free feed). Owner's computer only.
+ */
+export async function bridgeQuote(ticker: string): Promise<{ price: number; at: string } | null> {
+  const url = process.env.ATLAS_GATEWAY_URL, token = process.env.ATLAS_GATEWAY_TOKEN;
+  const accountId = process.env.ATLAS_GATEWAY_ACCOUNT_ID, providerId = process.env.ATLAS_GATEWAY_PROVIDER_ID;
+  if (process.env.VERCEL || !url || !token || !accountId || !providerId) return null;
+  try {
+    const gateway = await HttpExecutionGateway.connect({ url, token, expectedAccountId: accountId, expectedProviderId: providerId, timeoutMs: 6000 });
+    const q = await gateway.getQuote(ticker);
+    const price = Number(q.last ?? q.bid ?? q.ask);
+    return price > 0 ? { price, at: q.quotedAt } : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadPrices(db: SupabaseClient, ownerId: string) {
   const assets = await db.from("assets").select("ticker").eq("owner_id", ownerId).eq("active", true);
   if (assets.error) throw new Error("PRICES_DATABASE_UNAVAILABLE");

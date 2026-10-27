@@ -4,7 +4,7 @@ import { GatewayError, HttpExecutionGateway } from "@/providers/execution-gatewa
 import { bossRelease } from "./boss";
 import { b3Session } from "@/core/b3-calendar";
 import { mergeFractionalPositions } from "@/core/lots";
-import { custodyShortfalls, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell } from "@/core/live";
+import { custodyShortfalls, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell, TRADING_SWITCH_OFF } from "@/core/live";
 import { adminClient } from "./supabase";
 import { required } from "./env";
 import { notify } from "./notify";
@@ -46,6 +46,10 @@ export async function runLive(now = new Date()) {
     return { status: "GATEWAY_DOWN" as const };
   }
   const health = await gateway.healthCheck();
+  // MetaTrader's "Algo Trading" switch off: no order can leave; tell the owner before a purchase is lost.
+  if (health.reason === TRADING_SWITCH_OFF)
+    await notify({ level: "error", title: "Ative o Algo Trading no MetaTrader", lines: ["A negociação automática está desligada: o ATLAS não consegue enviar compras nem vendas à Genial.",
+      "No MetaTrader, clique no botão \"Algo Trading\" na barra de cima até ele ficar verde."], dedupeKey: "algo-trading-off", windowSeconds: 3600 });
   const events: string[] = [];
 
   // 1) Follow up orders already created.
@@ -120,7 +124,7 @@ export async function runLive(now = new Date()) {
   const busy = new Set((stillActive.data ?? []).map((o) => o.agent_id));
   const [agents, proposals] = await Promise.all([
     db.from("agents").select("id,name,status,autopilot,real_budget,asset_id").eq("owner_id", owner).gt("real_budget", 0),
-    db.from("paper_proposals").select("id,agent_id,side,reasoning_summary,created_at").eq("owner_id", owner)
+    db.from("paper_proposals").select("id,agent_id,side,quantity,reasoning_summary,created_at").eq("owner_id", owner)
       .like("strategy_version", "paper-autopilot%").gte("created_at", new Date(now.getTime() - 3 * 86400000).toISOString())
       .order("created_at", { ascending: false }).limit(200),
   ]);
@@ -132,8 +136,9 @@ export async function runLive(now = new Date()) {
     .in("paper_order_id", (paperOrders.data ?? []).map((o) => o.id));
   const done = new Set((mirrored.data ?? []).map((m) => m.paper_order_id));
   const today = new Date(now).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+  // A purchase the broker refused pauses that agent for the day; MetaTrader's switch being off does not.
   const refused = await db.from("live_orders").select("agent_id").eq("owner_id", owner).eq("status", "REJECTED").eq("side", "BUY")
-    .gte("created_at", new Date(`${today}T00:00:00-03:00`).toISOString());
+    .neq("error", TRADING_SWITCH_OFF).gte("created_at", new Date(`${today}T00:00:00-03:00`).toISOString());
   const refusedToday = new Set((refused.data ?? []).map((o) => o.agent_id));
 
   for (const agent of agents.data ?? []) {
@@ -160,6 +165,9 @@ export async function runLive(now = new Date()) {
         const room = await bossRelease(db, owner, agent.id, pool, { [ticker]: Number(quote.ask) });
         const size = sizeLiveBuy(room, Number(settings.data!.max_order), quote.ask!);
         if ("skip" in size) { events.push(`${agent.name}: ${size.skip}`); continue; }
+        // Never more than the council decided (it halves a purchase when the context calls for caution).
+        const decided = Number(proposal?.quantity ?? 0);
+        if (decided > 0 && size.quantity > decided) size.quantity = decided;
         await send(agent.id, "BUY", size.quantity, size.limit, `${agent.name}: ${proposal?.reasoning_summary ?? "sinal de compra do piloto"}`, latest.id);
       } else if (intent === "SELL") {
         const problem = quoteProblem(quote, null, now.getTime());
@@ -188,7 +196,13 @@ export async function runLive(now = new Date()) {
       await notify({ level: "info", title: `Ordem enviada à Genial: ${side === "BUY" ? "compra" : "venda"} de ${quantity} ${order.symbol} a até R$ ${limit.replace(".", ",")}`, lines: [reason.slice(0, 300)] });
     } catch (error) {
       const code = error instanceof GatewayError ? error.code : "AMBIGUOUS";
-      if (sendOutcome(code) === "REJECTED") {
+      if (code === TRADING_SWITCH_OFF) {
+        ok(await db.rpc("live_mark_order", { p_owner_id: owner, p_order_id: order.id, p_status: "REJECTED", p_broker_order_id: null, p_broker_filled: null, p_error: code }));
+        await notify({ level: "error", title: "Ative o Algo Trading no MetaTrader: a compra não foi enviada",
+          lines: [`O MetaTrader recusou a ${side === "BUY" ? "compra" : "venda"} de ${quantity} ${order.symbol} porque a negociação automática está desligada. Nada chegou à Genial.`,
+            "No MetaTrader, clique no botão \"Algo Trading\" na barra de cima até ele ficar verde (Ferramentas → Opções → Expert Advisors → Permitir negociação algorítmica).",
+            "A IA tenta de novo na próxima análise."], dedupeKey: "algo-trading-off", windowSeconds: 3600 });
+      } else if (sendOutcome(code) === "REJECTED") {
         ok(await db.rpc("live_mark_order", { p_owner_id: owner, p_order_id: order.id, p_status: "REJECTED", p_broker_order_id: null, p_broker_filled: null, p_error: code }));
         // A refused purchase (often money missing at Genial) pauses only this agent for the day.
         await notify({ level: "warning", title: `A Genial recusou a ${side === "BUY" ? "compra" : "venda"} de ${quantity} ${order.symbol}`,
