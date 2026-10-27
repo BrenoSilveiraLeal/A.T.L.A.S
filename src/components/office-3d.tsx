@@ -9,8 +9,9 @@ import type { Vote } from "@/core/committee";
 import { lookFor, type PersonLook } from "@/core/people";
 import { companyProfile } from "@/core/context";
 import { meetingDue } from "@/core/meeting";
+import { NavGrid, type Rect } from "@/core/office-nav";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
-import { LocateFixed, Volume2, VolumeX } from "lucide-react";
+import { LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
 
 /**
  * 3D office in the style of a modern tech office. Every agent is a person (look from
@@ -32,6 +33,10 @@ import { LocateFixed, Volume2, VolumeX } from "lucide-react";
  * - Team meeting (17:10–17:40 on trading days): everyone sits at the long table and each agent
  *   says its part of the real minutes (core/meeting.ts); the room screen shows the last minutes.
  * - Pool: real balls on the table, players take turns and the balls roll, bounce and drop.
+ * - Walking: people follow paths around the furniture on a floor grid (core/office-nav.ts), one
+ *   person per seat.
+ * - First person (owner, 27/10/2026): the owner takes over the boss and walks with W A S D, looking
+ *   with the mouse, colliding with walls, furniture and people; ceiling and entrance door appear.
  * - When an agent goes back to work its computer beeps and flashes and it walks to the desk.
  * Walls work like The Sims "cutaway". Falls back to the 2D map without WebGL.
  */
@@ -91,6 +96,36 @@ const MEETING_SEATS: { pos: V2; face: number }[] = [
   ...SIDE_X.map((x) => ({ pos: [x, -8.55] as V2, face: Math.PI })),
   ...SIDE_X.map((x) => ({ pos: [x, -11.45] as V2, face: 0 }))];
 const BOSS_SEAT: V2 = [11.6, -10], SUPERVISOR_SEAT: V2 = [23.0, -10];
+/**
+ * Furniture and walls on the floor plan (x1, z1, x2, z2), for walking paths and first-person
+ * collision. Chairs and small items stay out: people sit on them or walk past them.
+ */
+function officeObstacles(): Rect[] {
+  const r: Rect[] = [];
+  const box = (x: number, z: number, w: number, d: number) => r.push([x - w / 2, z - d / 2, x + w / 2, z + d / 2]);
+  // Back rooms: side walls and the glass fronts with their doors.
+  for (const x of [-17.33, -10.67, -4, 2.67, 10.67]) r.push([x - 0.1, -14, x + 0.1, -6]);
+  const fronts: [number, number, number][] = [...COUNCILS.map((c): [number, number, number] => [c.x1, c.x2, c.door]), [2.67, 10.67, BOSS_X], [10.67, 24, MEETING_DOOR]];
+  for (const [x1, x2, door] of fronts) { r.push([x1, -6.1, door - 0.8, -5.9]); r.push([door + 0.8, -6.1, x2, -5.9]); }
+  for (const c of COUNCILS) box(c.table[0], c.table[1], 4.1, 1.95);
+  box(MEETING_TABLE[0], MEETING_TABLE[1], 9.4, 2.2);
+  box(BOSS_X, -10.6, 2.6, 1.2); box(BOSS_X - 2.3, -7.4, 2.0, 0.9); box(BOSS_X + 2.8, -8.4, 1.3, 0.7);
+  // Desk islands (desks and divider) and the market room.
+  for (const [cx, cz] of ISLANDS) box(cx, cz, 5.0, 2.2);
+  box(17.3, -4.3, 7.4, 0.3); box(17.3, 1.4, 4.4, 0.9); box(13.6, -1.6, 0.9, 2.6); box(21.0, -1.6, 0.9, 2.6);
+  box(17.3, -1.2, 0.84, 0.84); box(14.75, 1.5, 0.56, 0.56); box(19.85, 1.5, 0.56, 0.56); box(23.4, -2.6, 0.45, 0.45);
+  // Bookshelves on the side walls.
+  box(-23.4, -4.2, 0.5, 2.4); box(-23.4, 3.4, 0.5, 2.4); box(23.4, -0.5, 0.5, 2.4);
+  // Reception, TV lounge, snack bar and pool.
+  box(-19.5, 6.2, 7.4, 0.3); box(-19.5, 9.4, 3.6, 0.8);
+  box(-2, 7.6, 5.8, 0.6); box(-5, 10.6, 4.6, 0.9); box(1.2, 10.6, 4.6, 0.9); box(-8.6, 9.4, 1.8, 1.8); box(4.8, 9.4, 1.8, 1.8); box(-2, 9.0, 1.2, 1.2);
+  box(22.6, 9.5, 0.8, 6.0); box(23.5, 12.9, 0.7, 1.0); box(23.5, 5.9, 0.7, 1.0);
+  for (const [x, z] of KITCHEN_TABLES) box(x, z, 1.1, 1.1);
+  box(POOL_TABLE[0], POOL_TABLE[1], 3.2, 1.7);
+  for (const [x, z] of [[9.4, 13.2], [14.2, 13.3], [19.0, 13.3], [-21.8, 12.2], [-20.6, 12.4], [-17.4, 12.2], [-2.9, 12.8], [0.4, 12.8]] as V2[]) box(x, z, 0.9, 0.9);
+  return r;
+}
+
 function meetingSlot(i: number): Slot {
   const { pos, face } = MEETING_SEATS[i % MEETING_SEATS.length], [x] = pos;
   const door: V2[] = [[MEETING_DOOR, CORRIDOR_Z], [MEETING_DOOR, -7.2]];
@@ -489,7 +524,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 }) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<{ sync: (agents: OfficeAgent[], selected: string | null, boss: Money, meeting: Meeting | null) => void;
-    tv: (h: typeof tvHeadline, l: typeof tvLines) => void; reset: () => void; sound: (on: boolean) => void; tip: (text: string) => void } | null>(null);
+    tv: (h: typeof tvHeadline, l: typeof tvLines) => void; reset: () => void; sound: (on: boolean) => void; tip: (text: string) => void;
+    firstPerson: (on: boolean) => void } | null>(null);
+  const [firstPerson, setFirstPerson] = useState(false);
   const select = useRef(onSelect);
   const [failed, setFailed] = useState(false);
   const [sound, setSound] = useState(() => { try { return localStorage.getItem("atlas-office-sound") !== "off"; } catch { return true; } });
@@ -589,6 +626,22 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       frame.position.set(pane.position.x, h, pane.position.z); frame.rotation.y = pane.rotation.y; scene.add(frame);
     };
     const H = 3.4, Hi = 3.0;
+    // Only in first person: the ceiling with light panels and the closed entrance door.
+    const inside = new THREE.Group(); inside.visible = false; scene.add(inside);
+    {
+      const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(48, 28), matte("#e9e6e0", 0.9));
+      ceiling.rotation.x = Math.PI / 2; ceiling.position.y = H; inside.add(ceiling);
+      const panel = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4dc, emissiveIntensity: 0.9 });
+      for (let x = -20; x <= 20; x += 6) for (let z = -10; z <= 10; z += 5) {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.03, 0.6), panel); p.position.set(x, H - 0.02, z); inside.add(p);
+      }
+      const door = matte("#3b2a1c", 0.6), handle = new THREE.MeshStandardMaterial({ color: 0xc9a45c, metalness: 0.7, roughness: 0.3 });
+      for (const x of [-20.375, -18.125]) {
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.7, 0.08), door); leaf.position.set(x, 1.35, 14); inside.add(leaf);
+        const knob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), handle); knob.position.set(x + (x < -19 ? 0.9 : -0.9), 1.1, 13.94); inside.add(knob);
+      }
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.5, H - 2.7, 0.18), matte("#2e4057", 0.85)); lintel.position.set(-19.25, 2.7 + (H - 2.7) / 2, 14); inside.add(lintel);
+    }
     const paint = matte("#2e4057", 0.85);
     const backWall = wall(-24, -14, 24, -14, H, paint, true, [0, -1]);
     const leftWall = wall(-24, -14, -24, 14, H, paint, true, [-1, 0]);
@@ -1054,7 +1107,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Boss and supervisor walk to the meeting room at 17:10 and back afterwards.
     const toMeeting = (from: V2, seat: V2): V2[] => [[from[0], -7.2], [from[0], CORRIDOR_Z], [MEETING_DOOR, CORRIDOR_Z], [MEETING_DOOR, -7.2], [seat[0], -7.2], seat];
     const fromMeeting = (seat: V2, to: V2): V2[] => [[seat[0], -7.2], [MEETING_DOOR, -7.2], [MEETING_DOOR, CORRIDOR_Z], [to[0], CORRIDOR_Z], [to[0], -7.2], to];
-    let bossState: "desk" | "going" | "meeting" | "back" = "desk", supState: "patrol" | "going" | "meeting" = "patrol";
+    let bossState: "desk" | "going" | "meeting" | "back" | "player" = "desk", supState: "patrol" | "going" | "meeting" = "patrol";
     const bossPath: V2[] = [];
     // The boss's assistant watches stocks outside the team (the list under the office).
     box(1.3, 0.06, 0.7, BOSS_X + 2.8, 0.95, -8.4, white); box(0.6, 0.4, 0.04, BOSS_X + 2.8, 1.25, -8.7, metal);
@@ -1099,6 +1152,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Agents.
     const people = new Map<string, Walker>();
     const pickables: THREE.Object3D[] = [];
+    const obstacles = officeObstacles();
+    const nav = new NavGrid([-24, -14, 24, 14], obstacles);
     const deskOf = new Map<string, number>();
 
     const setTarget = (r: Walker, slot: Slot, key: string, instant: boolean) => {
@@ -1109,7 +1164,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         r.group.position.set(slot.pos[0], 0, slot.pos[1]); r.group.rotation.y = slot.face;
         return;
       }
-      r.path = [...[...r.slot.route].reverse(), ...slot.route, slot.pos];
+      // Around the furniture to the spot in front of the seat, then the last step to sit down.
+      const approach = slot.route.at(-1) ?? slot.pos;
+      const way = nav.path([r.group.position.x, r.group.position.z], approach);
+      r.path = way ? [...way, slot.pos] : [...[...r.slot.route].reverse(), ...slot.route, slot.pos];
       r.slot = slot;
     };
 
@@ -1124,9 +1182,18 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     };
 
     const occupied: Record<RestActivity, Set<number>> = { KITCHEN: new Set(), TV: new Set(), MARKET: new Set(), POOL: new Set(), STROLL: new Set() };
+    // One person per seat (owner, 27/10/2026: two agents were sitting in the same place on the sofa).
     const freeSpot = (activity: RestActivity) => {
-      let spot = 0; while (occupied[activity].has(spot) && spot < REST_SPOTS[activity]) spot++;
-      occupied[activity].add(spot); return spot;
+      for (let spot = 0; spot < REST_SPOTS[activity]; spot++) if (!occupied[activity].has(spot)) { occupied[activity].add(spot); return spot; }
+      return -1;
+    };
+    /** The preferred rest activity if it has a free seat, otherwise any other with room. */
+    const restPlace = (preferred: RestActivity): { activity: RestActivity; spot: number } => {
+      for (const activity of [preferred, ...(Object.keys(REST_SPOTS) as RestActivity[]).filter((a) => a !== preferred)]) {
+        const spot = freeSpot(activity);
+        if (spot >= 0) return { activity, spot };
+      }
+      return { activity: "STROLL", spot: 0 };
     };
     const releaseSpot = (activity: RestActivity, spot: number) => occupied[activity].delete(spot);
     const latest = new Map<string, OfficeAgent>();
@@ -1177,8 +1244,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         if (meetingNow) { /* seated above */ } else if (REST_ZONES.includes(zone)) {
           // Resting: keep the current activity; a newcomer starts in the kitchen or at the TV.
           if (!r.rest) {
-            const activity: RestActivity = zone === "POOL" ? "TV" : "KITCHEN";
-            const spot = freeSpot(activity);
+            const { activity, spot } = restPlace(zone === "POOL" ? "TV" : "KITCHEN");
             r.rest = { activity, spot, timer: 20 + Math.random() * 20 };
             setTarget(r, restSlot(activity, spot), `REST:${activity}:${spot}`, first);
           }
@@ -1224,14 +1290,57 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
     };
 
+    // First person (owner, 27/10/2026): take over the boss and walk around the office.
+    let fp = false, yaw = 0, pitch = 0;
+    const keys = new Set<string>();
+    const saved = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+    const MOVE_KEYS = ["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"];
+    const onKey = (e: KeyboardEvent) => {
+      if (!fp) return;
+      const k = e.key.toLowerCase();
+      if (!MOVE_KEYS.includes(k) || (e.target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName))) return;
+      e.preventDefault();
+      if (e.type === "keydown") keys.add(k); else keys.delete(k);
+    };
+    const onLook = (e: MouseEvent) => {
+      if (!fp || document.pointerLockElement !== labels.domElement) return;
+      yaw -= e.movementX * 0.0025; pitch = Math.max(-1.1, Math.min(1.1, pitch - e.movementY * 0.0025));
+    };
+    const onBlur = () => keys.clear();
+    window.addEventListener("keydown", onKey); window.addEventListener("keyup", onKey);
+    window.addEventListener("blur", onBlur); document.addEventListener("mousemove", onLook);
+    const firstPerson = (on: boolean) => {
+      if (on === fp) return;
+      fp = on; keys.clear();
+      if (on) {
+        saved.pos.copy(camera.position); saved.target.copy(controls.target);
+        controls.enabled = false; camera.fov = 70; camera.updateProjectionMatrix();
+        // The boss stands up from his chair, in front of his desk, facing the office.
+        bossPath.length = 0; bossState = "player"; bossPerson.group.visible = false;
+        bossPerson.group.position.set(BOSS_X, 0, -9.4); yaw = 0; pitch = -0.05;
+        inside.visible = true;
+      } else {
+        if (document.pointerLockElement === labels.domElement) document.exitPointerLock();
+        inside.visible = false; bossPerson.group.visible = true;
+        bossPerson.group.position.set(BOSS_DESK[0], 0, BOSS_DESK[1]); bossPerson.group.rotation.y = 0;
+        bossState = "desk"; bossStaff.pose = "type";
+        camera.fov = 34; camera.updateProjectionMatrix();
+        camera.position.copy(saved.pos); controls.target.copy(saved.target); controls.enabled = true;
+      }
+    };
+
     const updateTv = (h: typeof tvHeadline, l: typeof tvLines) => { drawTv(tvCanvas, { headline: h, lines: l }); tvTexture.needsUpdate = true; };
 
     // Picking (the first click also unlocks the beep sound).
     const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
     let down: [number, number] | null = null;
-    const onDown = (e: PointerEvent) => { down = [e.clientX, e.clientY]; unlockAudio(); };
+    const onDown = (e: PointerEvent) => {
+      down = [e.clientX, e.clientY]; unlockAudio();
+      // In first person a click captures the mouse to look around (Esc releases it).
+      if (fp && document.pointerLockElement !== labels.domElement) void labels.domElement.requestPointerLock?.();
+    };
     const onUp = (e: PointerEvent) => {
-      if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
+      if (!down || fp || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
       const rect = labels.domElement.getBoundingClientRect();
       pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(pointer, camera);
@@ -1435,7 +1544,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       if (bossPath.length) { walk(bossPerson, bossPath, reduced ? 40 : 1.6, dt); pose(bossPerson, "walk", t, 7); }
       else if (bossState === "going") { bossState = "meeting"; bossPerson.group.rotation.y = Math.PI / 2; bossStaff.pose = "talk"; }
       else if (bossState === "back") { bossState = "desk"; bossPerson.group.rotation.y = 0; bossStaff.pose = "type"; }
-      for (const s of staff) if (s !== bossStaff || !bossPath.length) pose(s.person, s.pose, t, s.phase);
+      for (const s of staff) if (s !== bossStaff || (!bossPath.length && bossState !== "player")) pose(s.person, s.pose, t, s.phase);
       // Assistant routine: desk → boss (report) → desk.
       assistTimer -= dt;
       if (assistState === "desk") {
@@ -1463,6 +1572,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         if (!next) { r.rest.timer = 10; continue; }
         releaseSpot(current, r.rest.spot);
         const spot = freeSpot(next);
+        if (spot < 0) { occupied[current].add(r.rest.spot); r.rest.timer = 10; continue; }
         r.rest = { activity: next, spot, timer: 25 + Math.random() * 20 };
         setTarget(r, restSlot(next, spot), `REST:${next}:${spot}`, false);
         const says = REST_SAYS[next], bubbleEl = r.bubbleEl;
@@ -1515,8 +1625,32 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         supPath.push(patrol[patrolIndex % patrol.length].at); patrolWait = stop.wait ?? 0;
       }
       if (!supBubbleEl.hidden && performance.now() > supTalkUntil) supBubbleEl.hidden = true;
-      controls.update();
-      cutaway(dt);
+      if (fp) {
+        // First person: W A S D (or arrows) move the boss, the mouse turns the head; walls, furniture and people block.
+        const f: V2 = [Math.sin(yaw), Math.cos(yaw)], right: V2 = [-Math.cos(yaw), Math.sin(yaw)];
+        let mx = 0, mz = 0;
+        if (keys.has("w") || keys.has("arrowup")) { mx += f[0]; mz += f[1]; }
+        if (keys.has("s") || keys.has("arrowdown")) { mx -= f[0]; mz -= f[1]; }
+        if (keys.has("d") || keys.has("arrowright")) { mx += right[0]; mz += right[1]; }
+        if (keys.has("a") || keys.has("arrowleft")) { mx -= right[0]; mz -= right[1]; }
+        const len = Math.hypot(mx, mz), pos = bossPerson.group.position;
+        if (len > 0) {
+          const step = (3.2 * dt) / len;
+          const hitsPerson = (x: number, z: number) => [...people.values()].some((r) => Math.hypot(r.group.position.x - x, r.group.position.z - z) < 0.55)
+            || staff.some((s) => s !== bossStaff && Math.hypot(s.person.group.position.x - x, s.person.group.position.z - z) < 0.55)
+            || Math.hypot(supervisor.group.position.x - x, supervisor.group.position.z - z) < 0.55 || Math.hypot(assistant.group.position.x - x, assistant.group.position.z - z) < 0.55;
+          const nx = pos.x + mx * step, nz = pos.z + mz * step;
+          if (!nav.blocks(nx, pos.z, 0.3) && !hitsPerson(nx, pos.z)) pos.x = nx;
+          if (!nav.blocks(pos.x, nz, 0.3) && !hitsPerson(pos.x, nz)) pos.z = nz;
+        }
+        const eye = 2.05, bob = len > 0 && !reduced ? Math.sin(t * 9) * 0.03 : 0;
+        camera.position.set(pos.x, eye + bob, pos.z);
+        camera.lookAt(pos.x + f[0] * Math.cos(pitch), eye + bob + Math.sin(pitch), pos.z + f[1] * Math.cos(pitch));
+        for (const w of walls) { w.mesh.scale.y = 1; for (const item of w.items) item.visible = true; }
+      } else {
+        controls.update();
+        cutaway(dt);
+      }
       renderer.render(scene, camera);
       labels.render(scene, camera);
     };
@@ -1525,7 +1659,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     api.current = {
       sync, tv: updateTv, tip: (text) => { tip = text; },
       sound: (on) => { soundOn = on; if (on) unlockAudio(); else { stopAmbience?.(); stopAmbience = null; } },
-      reset: () => { camera.position.copy(home).multiplyScalar(el.clientWidth / el.clientHeight < 1.2 ? 1.45 : 1); controls.target.set(0, 0, 0.3); },
+      reset: () => { firstPerson(false); camera.position.copy(home).multiplyScalar(el.clientWidth / el.clientHeight < 1.2 ? 1.45 : 1); controls.target.set(0, 0, 0.3); },
+      firstPerson,
     };
     return () => {
       cancelAnimationFrame(frame);
@@ -1534,6 +1669,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       labels.domElement.removeEventListener("pointerup", onUp);
       labels.domElement.removeEventListener("mousedown", noAutoScroll);
       labels.domElement.removeEventListener("auxclick", noAutoScroll);
+      window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKey);
+      window.removeEventListener("blur", onBlur); document.removeEventListener("mousemove", onLook);
+      if (document.pointerLockElement === labels.domElement) document.exitPointerLock();
       controls.dispose(); pmrem.dispose();
       stopAmbience?.();
       void audio?.close();
@@ -1552,6 +1690,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
   useEffect(() => { api.current?.sync(agents, selected, boss, meeting); }, [agents, selected, boss, meeting]);
   useEffect(() => { api.current?.tv(tvHeadline, tvLines); }, [tvHeadline, tvLines]);
   useEffect(() => { if (assistantTip) api.current?.tip(assistantTip); }, [assistantTip]);
+  useEffect(() => { api.current?.firstPerson(firstPerson); }, [firstPerson]);
   useEffect(() => {
     api.current?.sound(sound);
     try { localStorage.setItem("atlas-office-sound", sound ? "on" : "off"); } catch { /* storage blocked */ }
@@ -1564,7 +1703,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         aria-label={`Escritório 3D com ${agents.length} IAs. ${agents.map((a) => `${a.name}: ${a.activity}`).join(" ")}`} />
       {/* Owner, 26/10/2026: the status dots always in the bottom corner; sound and centre top right. */}
       <div className="office3d-top">
-        <button type="button" className="icon-button secondary" onClick={() => api.current?.reset()} aria-label="Centralizar o escritório" title="Centralizar">
+        <button type="button" className={`icon-button secondary ${firstPerson ? "active" : ""}`} onClick={() => setFirstPerson((on) => !on)} aria-pressed={firstPerson}
+          aria-label={firstPerson ? "Sair do modo Chefe" : "Andar pelo escritório como o Chefe"} title={firstPerson ? "Sair do modo Chefe" : "Andar como o Chefe"}>
+          <PersonStanding size={18} />
+        </button>
+        <button type="button" className="icon-button secondary" onClick={() => { setFirstPerson(false); api.current?.reset(); }} aria-label="Centralizar o escritório" title="Centralizar">
           <LocateFixed size={18} />
         </button>
         <button type="button" className="icon-button secondary" onClick={() => setSound((on) => !on)} aria-pressed={sound}
@@ -1572,6 +1715,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           {sound ? <Volume2 size={18} /> : <VolumeX size={18} />}
         </button>
       </div>
+      {firstPerson && <div className="office3d-fp-hint" role="status">
+        Você é o Chefe · <b>W A S D</b> para andar · clique na tela e mexa o mouse para olhar · <b>Esc</b> solta o mouse · clique no bonequinho para sair
+      </div>}
       <div className="office3d-legend" aria-label="Legenda das bolinhas" title="Arraste para mover · botão do meio para girar · rodinha para aproximar · passe o mouse numa pessoa para ver os detalhes">
         <span><i className="status-dot own" /> tem ações</span><span><i className="status-dot buy" /> vai comprar</span>
         <span><i className="status-dot council" /> no conselho ou reunião</span><span><i className="status-dot wait" /> esperando</span>
