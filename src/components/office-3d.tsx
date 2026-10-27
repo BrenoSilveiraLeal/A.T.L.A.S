@@ -398,6 +398,25 @@ function canvasTexture(w: number, h: number) {
   return { canvas, g: canvas.getContext("2d")!, texture };
 }
 
+/** Screen of a desk computer: a header bar and lines of text (boss, assistant and reception). */
+function drawPc(g: CanvasRenderingContext2D, title: string, accent: string, rows: { text: string; color?: string; bold?: boolean }[]) {
+  g.fillStyle = "#0b1622"; g.fillRect(0, 0, 640, 400);
+  g.fillStyle = accent; g.fillRect(0, 0, 640, 56);
+  g.fillStyle = "#0b1622"; g.font = "bold 30px sans-serif"; g.textBaseline = "middle"; g.textAlign = "left"; g.fillText(title, 20, 29);
+  g.textBaseline = "top";
+  let y = 74;
+  for (const row of rows) {
+    if (y > 370) break;
+    g.fillStyle = row.color ?? "#e8f6ff"; g.font = `${row.bold ? "bold " : ""}26px sans-serif`;
+    let line = "";
+    for (const word of row.text.split(" ")) {
+      if (g.measureText(`${line} ${word}`).width > 600 && line) { g.fillText(line, 20, y); y += 32; line = word; if (y > 370) break; }
+      else line = line ? `${line} ${word}` : word;
+    }
+    if (y <= 370) { g.fillText(line, 20, y); y += 38; }
+  }
+}
+
 function drawTv(canvas: HTMLCanvasElement, tv: { headline: { title: string; source: string } | null; lines: [string, string, string][] }) {
   const g = canvas.getContext("2d")!;
   const w = canvas.width, h = canvas.height;
@@ -782,7 +801,27 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // The boss's office: desk facing the room, dashboard of the money on the wall behind.
     box(2.6, 0.06, 1.2, BOSS_X, 0.95, -10.6, darkWood);
     for (const dx of [-1.2, 1.2]) box(0.06, 0.92, 1.1, BOSS_X + dx, 0.46, -10.6, metal);
-    box(0.9, 0.55, 0.04, BOSS_X, 1.35, -10.2, metal);
+    box(0.9, 0.55, 0.04, BOSS_X, 1.35, -10.2, metal); box(0.06, 0.3, 0.06, BOSS_X, 1.12, -10.18, metal);
+    box(0.55, 0.02, 0.18, BOSS_X, 0.99, -10.85, metal); box(0.1, 0.02, 0.14, BOSS_X + 0.42, 0.99, -10.85, metal);
+    // The boss's computer (facing him): free money and who gets it now.
+    const bossPc = canvasTexture(640, 400);
+    const bossPcScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.84, 0.5), new THREE.MeshBasicMaterial({ map: bossPc.texture, toneMapped: false }));
+    bossPcScreen.position.set(BOSS_X, 1.35, -10.225); bossPcScreen.rotation.y = Math.PI; scene.add(bossPcScreen);
+    let bossPcKey = "";
+    const drawBossPc = (list: OfficeAgent[], cash: Money) => {
+      const key = JSON.stringify([cash, list.map((a) => [a.ticker, a.budget, a.holding])]);
+      if (key === bossPcKey) return;
+      bossPcKey = key;
+      const giving = list.filter((a) => a.budget > 0).sort((a, b) => b.budget - a.budget);
+      const holding = list.filter((a) => a.holding > 0);
+      drawPc(bossPc.g, "Caixa do Chefe", "#ffc65c", [
+        { text: cash ? `Livre na Genial: ${brl(cash.free)}` : "Livre na Genial: —", color: "#3dffa8", bold: true },
+        { text: cash ? `Depositado: ${brl(cash.deposited)}` : "" },
+        { text: giving.length ? `Liberando: ${giving.slice(0, 3).map((a) => `${a.ticker} ${brl(a.budget)}`).join(" · ")}` : "Ninguém na hora certa de comprar agora.", color: "#ffc65c" },
+        { text: holding.length ? `Em carteira: ${holding.map((a) => `${a.holding} ${a.ticker}`).join(", ")}` : "Carteira: nenhuma ação ainda." },
+      ]);
+      bossPc.texture.needsUpdate = true;
+    };
     chair(BOSS_X, -11.6, 0, "#2b2e34");
     sofa(2.0, BOSS_X - 2.3, -7.4, Math.PI, "#8c8274"); plant(BOSS_X - 3.3, -13.2, 0.8);
     const bossScreen = canvasTexture(1000, 560);
@@ -925,6 +964,45 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       sign.position.set(-19.5, 1.75, 6.34); scene.add(sign);
     }
     box(3.6, 1.05, 0.8, -19.5, 0.52, 9.4, white); box(3.8, 0.06, 0.95, -19.5, 1.07, 9.4, wood);
+    // Reception computer (the receptionist also takes care of the team's HR) and the counter decoration.
+    box(0.7, 0.44, 0.04, -19.5, 1.42, 9.22, metal); box(0.06, 0.24, 0.06, -19.5, 1.2, 9.24, metal);
+    box(0.5, 0.02, 0.16, -19.5, 1.11, 9.0, metal);
+    const receptionPc = canvasTexture(640, 400);
+    const receptionScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.4), new THREE.MeshBasicMaterial({ map: receptionPc.texture, toneMapped: false }));
+    receptionScreen.position.set(-19.5, 1.42, 9.195); receptionScreen.rotation.y = Math.PI; scene.add(receptionScreen);
+    let receptionKey = "";
+    const drawReception = (list: OfficeAgent[]) => {
+      const count = (zones: OfficeZone[]) => list.filter((a) => zones.includes(a.zone)).length;
+      const rows = [
+        { text: `Equipe: ${list.length} IAs`, bold: true },
+        { text: `No computador: ${count(["DESK"])} · no conselho: ${count(["MEETING"])}`, color: "#5ea8ff" },
+        { text: `Descansando: ${count(["COFFEE", "POOL", "OUT"])}`, color: "#a9c0d6" },
+        { text: "Reunião de fim de dia: 17h10, com o Chefe e a Supervisora", color: "#ffc65c" },
+      ];
+      const key = JSON.stringify(rows);
+      if (key === receptionKey) return;
+      receptionKey = key;
+      drawPc(receptionPc.g, "Recepção · RH", "#f07b2b", rows);
+      receptionPc.texture.needsUpdate = true;
+    };
+    // Counter: flowers, a bell, a pen holder, brochures and a welcome plate.
+    cyl(0.09, 0.07, 0.24, -20.9, 1.22, 9.55, glassMat);
+    for (let k = 0; k < 6; k++) {
+      cyl(0.006, 0.006, 0.3, -20.9 + Math.cos(k) * 0.03, 1.4, 9.55 + Math.sin(k) * 0.03, matte("#3f8f4a", 0.8));
+      const flower = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), matte(["#d6336c", "#f2b33d", "#ffffff"][k % 3], 0.6));
+      flower.position.set(-20.9 + Math.cos(k * 1.1) * 0.07, 1.56 + (k % 2) * 0.04, 9.55 + Math.sin(k * 1.1) * 0.07); scene.add(flower);
+    }
+    cyl(0.07, 0.08, 0.03, -18.4, 1.115, 9.6, steel); const bell = new THREE.Mesh(new THREE.SphereGeometry(0.06, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), steel); bell.position.set(-18.4, 1.13, 9.6); scene.add(bell);
+    cyl(0.04, 0.04, 0.12, -18.9, 1.16, 9.2, metal);
+    for (let k = 0; k < 3; k++) cyl(0.006, 0.006, 0.16, -18.9 + (k - 1) * 0.015, 1.25, 9.2, matte(["#2f6fd6", "#d6336c", "#1b1e24"][k], 0.5));
+    box(0.24, 0.03, 0.32, -18.0, 1.115, 9.55, matte("#f07b2b", 0.8)); box(0.24, 0.03, 0.32, -17.98, 1.145, 9.53, matte("#2f6fd6", 0.8));
+    {
+      const welcome = canvasTexture(512, 160), g = welcome.g;
+      g.fillStyle = "#1b1e24"; g.fillRect(0, 0, 512, 160); g.fillStyle = "#ffcf8a"; g.font = "bold 56px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText("Bem-vindo", 256, 62); g.font = "30px sans-serif"; g.fillStyle = "#e8f6ff"; g.fillText("ATLAS", 256, 118); welcome.texture.needsUpdate = true;
+      const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.16), new THREE.MeshBasicMaterial({ map: welcome.texture }));
+      plate.position.set(-19.5, 1.18, 9.79); plate.rotation.x = -0.25; scene.add(plate);
+    }
     pouf(-21.8, 12.2, "#1fa3b8"); pouf(-20.6, 12.4, "#f2b33d"); pouf(-17.4, 12.2, "#d6336c");
     plant(-23, 7, 0.9);
 
@@ -1117,6 +1195,19 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const bossPath: V2[] = [];
     // The boss's assistant watches stocks outside the team (the list under the office).
     box(1.3, 0.06, 0.7, BOSS_X + 2.8, 0.95, -8.4, white); box(0.6, 0.4, 0.04, BOSS_X + 2.8, 1.25, -8.7, metal);
+    box(0.45, 0.02, 0.15, BOSS_X + 2.8, 0.99, -8.2, metal);
+    // The assistant's computer (facing him): his search for good stocks outside the team.
+    const assistantPc = canvasTexture(640, 400);
+    const assistantScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.36), new THREE.MeshBasicMaterial({ map: assistantPc.texture, toneMapped: false }));
+    assistantScreen.position.set(BOSS_X + 2.8, 1.25, -8.675); scene.add(assistantScreen);
+    const drawAssistantPc = (text: string) => {
+      drawPc(assistantPc.g, "Pesquisa de ações", "#5c6bc0", [
+        { text: "Vigiando ~30 ações de fora do time", color: "#a9c0d6" },
+        { text: "Descarta: prejuízo, ações que desabaram e histórico ruim na mínima", color: "#8ea4ba" },
+        { text: `Hoje: ${text}`, color: "#ffc65c", bold: true },
+      ]);
+      assistantPc.texture.needsUpdate = true;
+    };
     const assistant = makePerson({ presentation: "masculine", skin: "#c68863", hair: "#2b1a12", hairStyle: "curly", shirt: "#5c6bc0", pants: "#2d3142" });
     const ASSIST_DESK: V2 = [BOSS_X + 2.8, -7.6];
     assistant.group.position.set(ASSIST_DESK[0], 0, ASSIST_DESK[1]); assistant.group.rotation.y = Math.PI; scene.add(assistant.group);
@@ -1133,6 +1224,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Every minute or so the assistant walks to the boss, reports, and goes back to his desk.
     let assistState: "desk" | "going" | "talking" | "back" = "desk", assistTimer = 15;
     let tip = "Hoje nenhuma ação de fora do time está boa para comprar.";
+    drawAssistantPc(tip);
     const assistPath: V2[] = [];
     const receptionist = makePerson({ presentation: "feminine", skin: "#c68f6a", hair: "#1a120d", hairStyle: "ponytail", shirt: "#ffffff", pants: "#2b2f3a" });
     receptionist.group.position.set(-19.5, 0, 8.3); scene.add(receptionist.group);
@@ -1288,6 +1380,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       roomAgents = inRoom;
       drawWall(list);
       drawBoss(list, cash);
+      drawBossPc(list, cash);
+      drawReception(list);
       const bossNote = bossTag.element.querySelector("span");
       if (bossNote) bossNote.textContent = cash ? `guarda ${brl(cash.free)} na Genial` : "cuida do dinheiro";
       for (const [id, r] of people) if (!list.some((a) => a.id === id)) {
@@ -1665,7 +1759,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     tick();
 
     api.current = {
-      sync, tv: updateTv, tip: (text) => { tip = text; },
+      sync, tv: updateTv, tip: (text) => { tip = text; drawAssistantPc(text); },
       sound: (on) => { soundOn = on; if (on) unlockAudio(); else { stopAmbience?.(); stopAmbience = null; } },
       reset: () => { firstPerson(false); camera.position.copy(home).multiplyScalar(el.clientWidth / el.clientHeight < 1.2 ? 1.45 : 1); controls.target.set(0, 0, 0.3); },
       firstPerson,
