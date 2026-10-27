@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OfficeZone } from "@/core/office";
 import type { Vote } from "@/core/committee";
 import { lookFor, type PersonLook } from "@/core/people";
@@ -677,12 +678,36 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 
     // Room names are painted on each room's own screen or board (no floating signs that turn with the camera).
 
+    // Office chair on casters (owner, 27/10/2026): five-star base with wheels, gas column, padded seat,
+    // curved backrest on a support bar. The parts are merged into four shared meshes per material, so
+    // sixty chairs stay light to draw.
+    const chairGeometry = (() => {
+      const piece = (geometry: THREE.BufferGeometry, x: number, y: number, z: number, turn = 0) =>
+        geometry.applyMatrix4(new THREE.Matrix4().makeRotationY(turn).setPosition(x, y, z));
+      const legs: THREE.BufferGeometry[] = [], wheels: THREE.BufferGeometry[] = [];
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2;
+        legs.push(piece(new THREE.BoxGeometry(0.05, 0.035, 0.3), Math.sin(a) * 0.15, 0.07, Math.cos(a) * 0.15, a));
+        wheels.push(piece(new THREE.SphereGeometry(0.035, 10, 8), Math.sin(a) * 0.29, 0.035, Math.cos(a) * 0.29));
+      }
+      const back = new THREE.CylinderGeometry(0.42, 0.42, 0.5, 24, 1, true, -0.55, 1.1).applyMatrix4(new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, SEAT_Y + 0.42, 0.13));
+      const seat = piece(new THREE.CylinderGeometry(0.29, 0.29, 0.08, 24), 0, SEAT_Y - 0.04, 0).scale(1, 1, 0.95);
+      const merge = (parts: THREE.BufferGeometry[]) => mergeGeometries(parts.map((p) => p.index ? p.toNonIndexed() : p))!;
+      return {
+        metal: merge([...legs, piece(new THREE.CylinderGeometry(0.06, 0.07, 0.06, 14), 0, 0.08, 0)]),
+        steel: merge([piece(new THREE.CylinderGeometry(0.028, 0.028, SEAT_Y - 0.17, 12), 0, 0.1 + (SEAT_Y - 0.17) / 2, 0)]),
+        black: merge([...wheels, piece(new THREE.CylinderGeometry(0.04, 0.04, 0.14, 12), 0, SEAT_Y - 0.14, 0),
+          piece(new THREE.BoxGeometry(0.05, 0.36, 0.04), 0, SEAT_Y + 0.08, -0.26), piece(new THREE.BoxGeometry(0.5, 0.04, 0.06), 0, SEAT_Y + 0.68, -0.29)]),
+        cloth: merge([seat, back]),
+      };
+    })();
+    const black = matte("#1b1e24", 0.4), clothOf = new Map<string, THREE.Material>();
     const chair = (x: number, z: number, face: number, color = "#2b2e34") => {
       const g = new THREE.Group();
-      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.1, 0.6), fabric(color)); seat.position.y = SEAT_Y - 0.05; g.add(seat);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.08), fabric(color)); back.position.set(0, SEAT_Y + 0.3, -0.29); g.add(back);
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, SEAT_Y - 0.1), metal); pole.position.y = (SEAT_Y - 0.1) / 2; g.add(pole);
-      g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+      if (!clothOf.has(color)) { const m = fabric(color); m.side = THREE.DoubleSide; clothOf.set(color, m); }
+      for (const [geometry, material] of [[chairGeometry.metal, metal], [chairGeometry.steel, steel], [chairGeometry.black, black], [chairGeometry.cloth, clothOf.get(color)!]] as const) {
+        const m = new THREE.Mesh(geometry, material); m.castShadow = true; m.receiveShadow = true; g.add(m);
+      }
       g.position.set(x, 0, z); g.rotation.y = face; scene.add(g);
     };
     const plant = (x: number, z: number, s = 1) => {
@@ -1017,7 +1042,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     }
     sofa(4.6, -5, 10.6, Math.PI, "#f07b2b"); sofa(4.6, 1.2, 10.6, Math.PI, "#d6336c");
     sofa(2.4, -8.6, 9.4, Math.PI * 0.78, "#1fa3b8"); sofa(2.4, 4.8, 9.4, -Math.PI * 0.78, "#2f6fd6");
-    cyl(0.6, 0.6, 0.06, -2, 0.45, 9.0, white);
+    cyl(0.6, 0.6, 0.06, -2, 0.45, 9.0, white); cyl(0.08, 0.14, 0.42, -2, 0.21, 9.0, metal); cyl(0.3, 0.3, 0.03, -2, 0.015, 9.0, metal);
     pouf(-2.9, 12.8, "#f2b33d"); pouf(0.4, 12.8, "#22a06b"); plant(-12.8, 12.6);
 
     // Market room and game corner.
@@ -1195,6 +1220,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const bossPath: V2[] = [];
     // The boss's assistant watches stocks outside the team (the list under the office).
     box(1.3, 0.06, 0.7, BOSS_X + 2.8, 0.95, -8.4, white); box(0.6, 0.4, 0.04, BOSS_X + 2.8, 1.25, -8.7, metal);
+    for (const dx of [-0.6, 0.6]) box(0.06, 0.92, 0.62, BOSS_X + 2.8 + dx, 0.46, -8.4, metal);
     box(0.45, 0.02, 0.15, BOSS_X + 2.8, 0.99, -8.2, metal);
     // The assistant's computer (facing him): his search for good stocks outside the team.
     const assistantPc = canvasTexture(640, 400);
