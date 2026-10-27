@@ -1690,6 +1690,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           const line = meetingData.lines[clock.index], seconds = Math.max(2, clock.remaining - 1);
           const text = line.text.length > 230 ? `${line.text.slice(0, 228)}…` : line.text;
           const agent = latest.get(line.agentId);
+          // One at a time (owner, 27/10/2026): nobody else's bubble while someone speaks.
+          for (const [id, r] of people) if (id !== line.agentId) r.bubbleEl.hidden = true;
+          if (line.agentId !== "BOSS") bossBubble.hidden = true;
+          if (line.agentId !== "SUPERVISOR") supBubbleEl.hidden = true;
           // The screen follows the speaker: the agent's chart and numbers, or the summary for the boss and supervisor.
           if (agent) { meetingFocus = true; drawMeetingAgent(agent, line.text); }
           else { meetingFocus = false; drawMeeting(meetingData, true, cashNow); }
@@ -1750,13 +1754,20 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       assistTimer -= dt;
       if (assistState === "desk") {
         pose(assistant, "type", t, 11);
-        if (assistTimer <= 0) { assistState = "going"; assistPath.push([BOSS_X + 1.6, -7.2], [BOSS_X + 0.9, -9.5]); }
+        // Only when the boss is in his office (owner, 27/10/2026: not while he is at the meeting).
+        if (assistTimer <= 0) {
+          if (bossState === "desk") { assistState = "going"; assistPath.push([BOSS_X + 1.6, -7.2], [BOSS_X + 0.9, -9.5]); }
+          else assistTimer = 20;
+        }
+      } else if (assistState === "going" && bossState !== "desk") {
+        // The boss left on the way: back to the desk.
+        assistState = "back"; assistPath.length = 0; assistPath.push([BOSS_X + 1.6, -7.2], ASSIST_DESK);
       } else if (assistState === "going" || assistState === "back") {
         if (assistPath.length) { walk(assistant, assistPath, reduced ? 40 : 1.5, dt); pose(assistant, "walk", t, 11); }
         else if (assistState === "going") {
           assistant.group.rotation.y = Math.PI; assistState = "talking"; assistTimer = 8;
           show(assistantBubble, `Chefe, ${tip}`, 4.5);
-          window.setTimeout(() => show(bossBubble, "Ótimo, anotado. Vamos acompanhar.", 3), 4600);
+          window.setTimeout(() => { if (bossState === "desk") show(bossBubble, "Ótimo, anotado. Vamos acompanhar.", 3); }, 4600);
         } else { assistant.group.rotation.y = Math.PI; assistState = "desk"; assistTimer = 45 + Math.random() * 30; }
       } else {
         pose(assistant, "stand", t, 11);
@@ -1777,12 +1788,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         r.rest = { activity: next, spot, timer: 25 + Math.random() * 20 };
         setTarget(r, restSlot(next, spot), `REST:${next}:${spot}`, false);
         const says = REST_SAYS[next], bubbleEl = r.bubbleEl;
-        if (says) window.setTimeout(() => { if (bubbleEl.hidden) show(bubbleEl, says[Math.floor(Math.random() * says.length)], 3); }, 7000);
+        if (says) window.setTimeout(() => { if (bubbleEl.hidden && !meetingNow) show(bubbleEl, says[Math.floor(Math.random() * says.length)], 3); }, 7000);
       }
       // Councils: the specialists speak in turn about the stock on the screen, then the agent decides.
       roomAgents.forEach((agent, room) => {
         const talk = roomTalk[room];
-        if (!agent?.debate) { talk.agentId = ""; return; }
+        // During the team meeting nobody is at a council: no debate, no "Decisão:" bubbles.
+        if (!agent?.debate || meetingNow) { talk.agentId = ""; return; }
         if (talk.agentId !== agent.id) { talk.agentId = agent.id; talk.turn = 0; talk.timer = 0; }
         talk.timer -= dt;
         if (talk.timer > 0) return;
@@ -1804,7 +1816,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         const resting = [...people.values()].filter((r) => r.zone && REST_ZONES.includes(r.zone) && !r.path.length && r.bubbleEl.hidden);
         const r = resting[Math.floor(Math.random() * resting.length)];
         const agent = r && latest.get(r.group.userData.agentId as string);
-        if (r && agent) show(r.bubbleEl, chatLine(agent), 4);
+        if (r && agent && !meetingNow) show(r.bubbleEl, chatLine(agent), 4);
       }
       // Supervisor: to the end of the meeting table after the close; otherwise the patrol.
       if (meetingNow && supState === "patrol") { supState = "going"; supPath.length = 0; patrolWait = 0; supPath.push(...toMeeting([supervisor.group.position.x, supervisor.group.position.z], SUPERVISOR_SEAT)); }
