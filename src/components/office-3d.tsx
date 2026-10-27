@@ -1377,7 +1377,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           r = { ...made, label, labelEl, bubble, bubbleEl, path: [], slot: null, key: "", phase: i * 1.7, zone: null, rest: null };
           people.set(agent.id, r);
         }
-        const zone: OfficeZone = agent.zone === "OUT" ? "COFFEE" : agent.zone;
+        // Councils sit only in working hours (owner, 27/10/2026): outside them an agent rests instead.
+        const zone: OfficeZone = agent.zone === "OUT" || (agent.zone === "MEETING" && !workingHours(new Date())) ? "COFFEE" : agent.zone;
         let index = counters[zone] ?? 0; counters[zone] = index + 1;
         if (zone === "MEETING") {
           const own = desk % COUNCILS.length;
@@ -1793,8 +1794,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       // Councils: the specialists speak in turn about the stock on the screen, then the agent decides.
       roomAgents.forEach((agent, room) => {
         const talk = roomTalk[room];
-        // During the team meeting nobody is at a council: no debate, no "Decisão:" bubbles.
-        if (!agent?.debate || meetingNow) { talk.agentId = ""; return; }
+        // The analysts answer only an agent sitting with them in the room, in working hours (owner,
+        // 27/10/2026); never during the team meeting, on their breaks or while the agent is on its way.
+        const visitor = agent && people.get(agent.id);
+        if (!agent?.debate || meetingNow || !working || !visitor || visitor.zone !== "MEETING" || visitor.path.length) { talk.agentId = ""; return; }
         if (talk.agentId !== agent.id) { talk.agentId = agent.id; talk.turn = 0; talk.timer = 0; }
         talk.timer -= dt;
         if (talk.timer > 0) return;
@@ -1802,7 +1805,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         const opinions = agent.debate.opinions;
         if (talk.turn < opinions.length) {
           const o = opinions[talk.turn], el = councilBubbles[room][SPEAKER[o.role]];
-          if (el) show(el, `${o.role}: ${o.text.length > 56 ? `${o.text.slice(0, 54)}…` : o.text}`, 3.4, `speech-bubble council ${o.vote.toLowerCase()}`);
+          const seated = analysts.find((x) => x.room === room && x.seat === SPEAKER[o.role])?.state === "seat";
+          if (el && seated) show(el, `${o.role}: ${o.text.length > 56 ? `${o.text.slice(0, 54)}…` : o.text}`, 3.4, `speech-bubble council ${o.vote.toLowerCase()}`);
         } else {
           const walker = people.get(agent.id);
           if (walker) show(walker.bubbleEl, agent.debate.summary, 3.4);
