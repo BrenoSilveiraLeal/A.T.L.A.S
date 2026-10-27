@@ -83,13 +83,18 @@ const SPECIALIST_SHIRTS = ["#22a06b", "#2f6fd6", "#f28c28", "#9b6bff"]; // Otimi
 const KITCHEN_TABLES: V2[] = [[16.4, 7.6], [16.4, 11.4]];
 // Where the council analysts stand for a coffee and a chat on their breaks (outside working hours).
 const BREAK_SPOTS: [V2, number][] = [[[15, 6.4], Math.PI * 0.75], [[17.8, 6.4], -Math.PI * 0.75], [[15, 12.6], Math.PI * 0.25], [[17.8, 12.6], -Math.PI * 0.25],
-  [[19.6, 9.4], Math.PI / 2], [[13.6, 9.0], -Math.PI / 2], [[-7.6, 7.8], Math.PI], [[3.8, 7.8], Math.PI]];
+  [[19.6, 9.4], Math.PI / 2], [[13.6, 9.0], -Math.PI / 2], [[-7.6, 7.8], Math.PI], [[3.8, 7.8], Math.PI],
+  // Enough for all sixteen at once: around the pool, the TV lounge, the reception sofas and the hall.
+  [[9.4, 11.0], Math.PI / 2], [[13.8, 11.4], -Math.PI / 2], [[-6.0, 6.9], Math.PI], [[2.2, 6.9], Math.PI],
+  [[-14.0, 10.4], -Math.PI / 2], [[-12.6, 8.8], Math.PI / 2], [[7.4, 6.4], Math.PI * 0.75], [[8.8, 7.6], -Math.PI * 0.25]];
 const BREAK_CHAT = ["Mais um café?", "Que dia na bolsa!", "Viu o dólar hoje?", "Amanhã tem mais.", "Esse café está ótimo.", "E aí, tudo certo?"];
-/** The working day (09:45–17:00 on B3 trading days): analysts stay at their council tables. */
-function workingHours(at: Date) {
+/** The working day on B3 trading days, from `from` to the close (17:00). */
+function workingHours(at: Date, from = "09:45") {
   const c = saoPauloClock(at);
-  return !["Sat", "Sun"].includes(c.weekday) && !B3_CALENDAR[c.year]?.closed[c.date] && c.time >= "09:45" && c.time < "17:00";
+  return !["Sat", "Sun"].includes(c.weekday) && !B3_CALENDAR[c.year]?.closed[c.date] && c.time >= from && c.time < "17:00";
 }
+/** The analysts sit down 30 min before the open (10:00) to read the charts and the news first. */
+const ANALYSTS_FROM = "09:30";
 const BAR_SPOTS: V2[] = [[21.5, 7.4], [21.5, 8.8], [21.5, 10.2], [21.5, 11.6]];
 const POOL_TABLE: V2 = [11.6, 11];
 // Market room: the chart screen hangs on the front wall of the meeting room (owner, 26/10/2026); a
@@ -1202,8 +1207,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     ];
     // Specialists per room, in the order Otimista, Pessimista, Riscos do mundo, Realista (shirt colours).
     const councilBubbles: HTMLDivElement[][] = COUNCILS.map(() => []);
-    // Owner, 27/10/2026: outside working hours the analysts also leave for a coffee or a chat, keeping
-    // two in each room most of the time (rarely three or four out). Only the boss works all the time.
+    // Owner, 27/10/2026: outside working hours the analysts are free like everyone else (all of them may
+    // leave at once) and are back at 09:30, before the open. Only the boss works all the time.
     type Analyst = { member: (typeof staff)[number]; room: number; seat: number; state: "seat" | "going" | "out" | "back"; path: V2[]; timer: number; spot: number };
     const analysts: Analyst[] = [];
     COUNCILS.forEach((_, roomIndex) => SPECIALIST_SHIRTS.forEach((shirt, s) => {
@@ -1711,18 +1716,17 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       else if (bossState === "going") { bossState = "meeting"; bossPerson.group.rotation.y = Math.PI / 2; bossStaff.pose = "talk"; }
       else if (bossState === "back") { bossState = "desk"; bossPerson.group.rotation.y = 0; bossStaff.pose = "type"; }
       for (const s of staff) if (!s.away && (s !== bossStaff || (!bossPath.length && bossState !== "player"))) pose(s.person, s.pose, t, s.phase);
-      // Council analysts' breaks outside working hours (at most two out per room, rarely more).
-      const working = workingHours(new Date());
+      // Council analysts: free outside their hours, back at their tables from 09:30.
+      const working = workingHours(new Date()), analystsOn = workingHours(new Date(), ANALYSTS_FROM);
       for (const a of analysts) {
         const p = a.member.person;
         if (a.state === "seat") {
-          if (working) continue;
+          if (analystsOn) continue;
           a.timer -= dt;
           if (a.timer > 0) continue;
-          a.timer = 60 + Math.random() * 240;
-          const out = analysts.filter((x) => x.room === a.room && x.state !== "seat").length;
+          a.timer = 30 + Math.random() * 150;
           const free = BREAK_SPOTS.map((_, i) => i).filter((i) => !takenSpots.has(i));
-          if (!free.length || !(out < 2 || (out === 2 && Math.random() < 0.08) || (out === 3 && Math.random() < 0.03))) continue;
+          if (!free.length) continue;
           const spot = free[Math.floor(Math.random() * free.length)], exit = roomExit(a.room, a.seat);
           const way = nav.path(exit.at(-1)!, BREAK_SPOTS[spot][0]);
           if (!way) continue;
@@ -1742,8 +1746,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           pose(p, "stand", t, a.member.phase);
           a.timer -= dt;
           if (Math.random() < dt / 40) show(councilBubbles[a.room][a.seat], BREAK_CHAT[Math.floor(Math.random() * BREAK_CHAT.length)], 3);
-          // Back at the end of the break, or at once when the working day starts.
-          if (a.timer <= 0 || working) {
+          // Back at the end of the break, or at once at 09:30.
+          if (a.timer <= 0 || analystsOn) {
             const exit = roomExit(a.room, a.seat), way = nav.path(BREAK_SPOTS[a.spot][0], exit.at(-1)!);
             const { pos } = councilSeat(a.room, a.seat);
             takenSpots.delete(a.spot);
