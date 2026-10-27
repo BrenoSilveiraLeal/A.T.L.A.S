@@ -43,7 +43,7 @@ import { LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
  * Walls work like The Sims "cutaway". Falls back to the 2D map without WebGL.
  */
 type V2 = [number, number];
-type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch" | "cue" | "look" | "phone" | "sitPhone";
+type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch" | "cue" | "look" | "phone" | "sitPhone" | "phoneCoffee" | "sitPhoneCoffee";
 interface Slot { pos: V2; face: number; pose: Pose; route: V2[] }
 interface Person {
   group: THREE.Group; rig: THREE.Group; head: THREE.Group; hips: THREE.Group[]; knees: THREE.Group[];
@@ -316,9 +316,14 @@ function makePerson(look: PersonLook): Person {
   const cue = new THREE.Group(); cue.position.set(0, -0.26, 0); elbows[1].add(cue);
   const stick = add(new THREE.CylinderGeometry(0.012, 0.022, 1.3, 8), matte("#c89b62", 0.5), 0, 0, 0.5, cue); stick.rotation.x = Math.PI / 2.2;
   cue.visible = false;
-  // Phone in the left hand: a call to the broker or a look at the app.
-  const phone = new THREE.Group(); phone.position.set(0, -0.29, 0.03); elbows[0].add(phone);
-  add(new THREE.BoxGeometry(0.05, 0.1, 0.01), dark, 0, 0, 0, phone);
+  // Phone in the left hand (owner, 27/10/2026: "um telefone mais bonitinho"): a coloured case, a lit
+  // screen seen from both sides, the camera on the back.
+  const phone = new THREE.Group(); phone.position.set(0, -0.3, 0.035); phone.rotation.x = -0.25; elbows[0].add(phone);
+  const cases = ["#e85d75", "#3d7be0", "#2fae8c", "#f2b134", "#8a5cf6", "#2b2f3a"];
+  const caseColour = cases[[...(look.shirt || look.hair)].reduce((h, c) => h + c.charCodeAt(0), 0) % cases.length];
+  add(new THREE.BoxGeometry(0.056, 0.108, 0.01), matte(caseColour, 0.35), 0, 0, 0, phone);
+  add(new THREE.BoxGeometry(0.046, 0.092, 0.0116), new THREE.MeshStandardMaterial({ color: "#9fd4ff", emissive: "#3a8fd6", emissiveIntensity: 0.9, roughness: 0.2 }), 0, 0.002, 0, phone);
+  add(new THREE.BoxGeometry(0.016, 0.016, 0.004), dark, -0.012, 0.038, -0.007, phone);
   phone.visible = false;
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.32, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.012; group.add(shadow);
@@ -1530,9 +1535,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 
     const pose = (p: Person, kind: Pose | "walk", t: number, phase: number) => {
       const swing = reduced ? 0 : Math.sin(t * 7 + phase);
-      p.mug.visible = kind === "chat"; p.cue.visible = kind === "cue"; p.phone.visible = false;
+      p.mug.visible = kind === "chat" || kind === "phoneCoffee" || kind === "sitPhoneCoffee"; p.cue.visible = kind === "cue"; p.phone.visible = false;
       p.shoulders.forEach((s) => (s.rotation.z = 0));
-      const seated = kind === "sit" || kind === "type" || kind === "talk" || kind === "watch" || kind === "sitPhone";
+      const seated = kind === "sit" || kind === "type" || kind === "talk" || kind === "watch" || kind === "sitPhone" || kind === "sitPhoneCoffee";
       p.rig.position.y = seated ? SEAT_Y / S - 0.92 : kind === "walk" ? Math.abs(swing) * 0.02 : 0;
       p.head.rotation.set(0, 0, 0);
       if (kind === "walk") {
@@ -1584,12 +1589,16 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         p.head.rotation.x = -0.18; p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.3 + phase) * 0.3;
         p.shoulders[0].rotation.x = 0; p.elbows[0].rotation.x = -0.1;
         p.shoulders[1].rotation.x = -0.5 * think; p.elbows[1].rotation.x = -2.2 * think;
-      } else if (kind === "phone" || kind === "sitPhone") {
-        // On a break: phone in front of the face, head down, thumb scrolling (standing or on a sofa).
+      } else if (kind === "phone" || kind === "sitPhone" || kind === "phoneCoffee" || kind === "sitPhoneCoffee") {
+        // On a break: phone in front of the face, head down, thumb scrolling (standing or on a sofa);
+        // with a coffee, the other hand holds the mug and takes a sip now and then.
         p.phone.visible = true;
         const scroll = reduced ? 0 : Math.sin(t * 3 + phase) * 0.04;
         p.shoulders[0].rotation.x = -0.95; p.shoulders[0].rotation.z = 0.25; p.elbows[0].rotation.x = -1.55 + scroll;
-        p.shoulders[1].rotation.x = -0.6; p.elbows[1].rotation.x = -1.3;
+        if (kind === "phoneCoffee" || kind === "sitPhoneCoffee") {
+          const sip = reduced ? 0 : Math.max(0, Math.sin(t * 0.45 + phase) - 0.8) * 4;
+          p.shoulders[1].rotation.x = -0.35 - sip * 0.4; p.elbows[1].rotation.x = -1.35 - sip * 0.5;
+        } else { p.shoulders[1].rotation.x = -0.6; p.elbows[1].rotation.x = -1.3; }
         p.head.rotation.x = 0.4; p.head.rotation.y = reduced ? 0 : Math.sin(t * 0.15 + phase) * 0.1;
       } else if (kind === "watch") {
         p.shoulders.forEach((s) => (s.rotation.x = -0.35)); p.elbows.forEach((e) => (e.rotation.x = -0.9));
@@ -1645,8 +1654,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           // Pool: only the player whose turn it is leans in with the cue; the others wait holding theirs.
           if (r.slot.pose === "cue") { pose(r, shooter === r && performance.now() < shotAt ? "cue" : "stand", t, r.phase); r.cue.visible = true; }
           // Resting agents pick up the phone now and then (owner, 27/10/2026): about a quarter of the time.
-          else if (r.rest && !meetingNow && !reduced && (t / 70 + r.phase * 0.37) % 1 < 0.25 && ["chat", "stand", "watch"].includes(r.slot.pose))
-            pose(r, r.slot.pose === "watch" ? "sitPhone" : "phone", t, r.phase);
+          else if (r.rest && !meetingNow && !reduced && (t / 70 + r.phase * 0.37) % 1 < 0.25 && ["chat", "stand", "watch"].includes(r.slot.pose)) {
+            // The kitchen keeps its coffee; on the sofas, those who had a mug keep it too.
+            const mug = r.slot.pose === "chat" || (r.slot.pose === "watch" && Math.floor(r.phase * 3) % 2 === 0);
+            pose(r, r.slot.pose === "watch" ? (mug ? "sitPhoneCoffee" : "sitPhone") : (mug ? "phoneCoffee" : "phone"), t, r.phase);
+          }
           else pose(r, r.slot.pose, t, r.phase);
         }
         keepUpright(r);
@@ -1765,7 +1777,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
             p.group.rotation.y = face; a.state = "seat"; a.member.away = false; a.corner = false;
           }
         } else {
-          pose(p, a.corner ? "phone" : "stand", t, a.member.phase);
+          pose(p, a.corner ? (a.seat % 2 ? "phoneCoffee" : "phone") : "stand", t, a.member.phase); keepUpright(p);
           a.timer -= dt;
           if (!a.corner && Math.random() < dt / 40) show(councilBubbles[a.room][a.seat], BREAK_CHAT[Math.floor(Math.random() * BREAK_CHAT.length)], 3);
           if (a.corner && (a.timer <= 0 || analystsOn)) {
