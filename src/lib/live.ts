@@ -24,6 +24,10 @@ async function alertOnce(_db: SupabaseClient, kind: string, text: string, window
   await notify({ level: "warning", title: text, dedupeKey: `live:${kind}`, windowSeconds });
 }
 
+/** The bridge must be unreachable this long, across checks, before the owner is told. */
+export const BRIDGE_DOWN_ALERT_MS = 4 * 60_000;
+let bridgeDownSince: number | null = null;
+
 type Row = Record<string, unknown> & { id: string };
 const ok = <T>(r: { data: T | null; error: { message: string } | null }) => { if (r.error) throw new Error(r.error.message.match(/ATLAS_[A-Z_]+/)?.[0] ?? "LIVE_DATABASE_UNAVAILABLE"); return r.data as T; };
 
@@ -42,9 +46,14 @@ export async function runLive(now = new Date()) {
     gateway = await HttpExecutionGateway.connect({ url: required("ATLAS_GATEWAY_URL"), token: required("ATLAS_GATEWAY_TOKEN"),
       expectedAccountId: required("ATLAS_GATEWAY_ACCOUNT_ID"), expectedProviderId: required("ATLAS_GATEWAY_PROVIDER_ID"), timeoutMs: 8000 });
   } catch {
-    await alertOnce(db, "gateway", "Dinheiro real: a ponte com a Genial está fora do ar. Abra o MetaTrader e confira se a ponte está rodando.");
+    // 27/10/2026: one failed check (the bridge restarting itself in 30 s, or busy) e-mailed the owner.
+    // Alert only when it stays unreachable for BRIDGE_DOWN_ALERT_MS.
+    bridgeDownSince ??= now.getTime();
+    if (now.getTime() - bridgeDownSince >= BRIDGE_DOWN_ALERT_MS)
+      await alertOnce(db, "gateway", "Dinheiro real: a ponte com a Genial está fora do ar há alguns minutos. Abra o MetaTrader e confira se a ponte está rodando.");
     return { status: "GATEWAY_DOWN" as const };
   }
+  bridgeDownSince = null;
   const health = await gateway.healthCheck();
   // MetaTrader's "Algo Trading" switch off: no order can leave; tell the owner before a purchase is lost.
   if (health.reason === TRADING_SWITCH_OFF)

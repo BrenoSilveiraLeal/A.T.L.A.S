@@ -28,6 +28,9 @@ async function alertOnce(kind: string, text: string) {
   if (!allowed.error && allowed.data) await sendAlert([text]);
 }
 
+const BRIDGE_DOWN_ALERT_MS = 4 * 60_000; // same as lib/live
+let executorBridgeDownSince: number | null = null;
+
 /** One bounded tick. Reconciliation runs even when new trading is disabled. */
 export async function runExecutor() {
   const deadline = Date.now() + 45_000;
@@ -43,9 +46,13 @@ export async function runExecutor() {
       expectedAccountId: required("ATLAS_GATEWAY_ACCOUNT_ID"), expectedProviderId: required("ATLAS_GATEWAY_PROVIDER_ID"), timeoutMs: 5000,
     });
   } catch (error) {
-    await alertOnce("GATEWAY_UNREACHABLE", "Ponte com a Genial fora do ar: confira se o MetaTrader está aberto e logado e se a ponte está rodando.");
+    // Only when it stays unreachable for minutes (BRIDGE_DOWN_ALERT_MS), not on a restart.
+    executorBridgeDownSince ??= Date.now();
+    if (Date.now() - executorBridgeDownSince >= BRIDGE_DOWN_ALERT_MS)
+      await alertOnce("GATEWAY_UNREACHABLE", "Ponte com a Genial fora do ar: confira se o MetaTrader está aberto e logado e se a ponte está rodando.");
     throw error;
   }
+  executorBridgeDownSince = null;
   const store = new SupabaseExecutorStore(db, owner);
   const account = await gateway.getAccount();
   const registered = await db.from("broker_accounts").select("id").eq("owner_id", owner)
