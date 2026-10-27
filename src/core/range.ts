@@ -27,12 +27,22 @@ export interface RangeOptions {
    * of the 6-month low, "nearTurn" also needs the turn.
    */
   bigDropPct?: number; dropLookback?: number; calmBuy?: "skip" | "near" | "nearTurn";
+  /**
+   * Owner, 27/10/2026: "vender no melhor momento possível". Near the high, with `sellDropPct` the rise
+   * has stopped only when the price is that % below the highest close since buying (instead of below
+   * the previous close). With `trailPct`, once the highest close since buying is `trailArmPct`% above
+   * the average price, a fall of `trailPct`% from it sells anywhere, keeping the profit made. With
+   * `nearHighSell: false` only that trailing exit sells.
+   */
+  sellDropPct?: number; trailPct?: number; trailArmPct?: number; nearHighSell?: boolean;
 }
 // Chosen on B3 history 2023–2026: the history filter helps a little and waiting for the rise to stop
 // sells closer to the top (docs/BACKTEST_ACUMULAR.md); after a big fall (8% in 20 sessions) buying up
 // to 5% above the low once it turned up 1%, and otherwise only within 2% of the low, re-buying only 3%
 // below the average, gave the same result with fewer losing stocks and smaller drawdowns on 50
-// stocks (docs/BACKTEST_VIRADA.md).
+// stocks (docs/BACKTEST_VIRADA.md). Selling on the first down day near the high stayed: no other way
+// to sell (waiting for a fall from the top, a trailing profit lock, letting it run past the high) beat
+// it in both 2023–2024 and 2025–2026 (docs/BACKTEST_VENDA.md, 27/10/2026); those options stay off.
 export const RANGE_DEFAULTS: RangeOptions = { window: 126, nearPct: 2, minGainPct: 3, confirmBuy: true, confirmSell: true, minUpShare: 0.6,
   buyZonePct: 5, turnPct: 1, turnLookback: 10, rebuyBelowAvgPct: 3, bigDropPct: 8, dropLookback: 20, calmBuy: "near" };
 export const RANGE_VERSION = "paper-autopilot-range-6m-bigdrop-turn/4.0.0";
@@ -40,6 +50,8 @@ export const RANGE_VERSION = "paper-autopilot-range-6m-bigdrop-turn/4.0.0";
 export interface RangeInput {
   closes: readonly number[]; price: number; quantity: number; cost: number; cash: number; minOrder: number;
   history?: { samples: number; upShare: number; average: number } | null;
+  /** Highest close since the position was opened (sellDropPct and trailPct). */
+  peakSinceEntry?: number | null;
 }
 export type RangeDecision =
   | { action: "BUY" | "SELL" | "HOLD"; reason: string; low: number; high: number; buyBelow: number; sellAbove: number };
@@ -98,12 +110,17 @@ export function rangeDecision(i: RangeInput, o: RangeOptions = RANGE_DEFAULTS): 
   const previous = i.closes[i.closes.length - 1];
   if (i.quantity > 0) {
     const average = i.cost / i.quantity, floor = average * (1 + o.minGainPct / 100);
-    if (i.price >= sellAbove && i.price >= floor) {
-      if (o.confirmSell && previous && i.price >= previous)
+    const peak = Math.max(i.peakSinceEntry ?? i.price, i.price);
+    if (o.trailPct !== undefined && peak >= average * (1 + (o.trailArmPct ?? 0) / 100) && i.price <= peak * (1 - o.trailPct / 100) && i.price >= floor)
+      return { action: "SELL", ...base, reason: `${brl(i.price)} caiu ${o.trailPct}% do topo desde a compra (${brl(peak)}) e ainda está acima do que pagou (${brl(average)}): vende guardando o lucro` };
+    if (o.nearHighSell !== false && i.price >= sellAbove && i.price >= floor) {
+      if (o.sellDropPct !== undefined && i.price > peak * (1 - o.sellDropPct / 100))
+        return { action: "HOLD", ...base, reason: `perto da máxima de ${months} meses (${brl(i.price)}): segura enquanto não cair ${o.sellDropPct}% do topo (${brl(peak)})` };
+      if (o.sellDropPct === undefined && o.confirmSell && previous && i.price >= previous)
         return { action: "HOLD", ...base, reason: `perto da máxima de ${months} meses e ainda subindo (${brl(i.price)}): segura até a alta parar` };
       return { action: "SELL", ...base, reason: `${brl(i.price)} chegou perto da máxima de ${months} meses (${brl(high)}), a alta parou e está acima do que pagou (${brl(average)}): vende na alta` };
     }
-    if (i.price >= sellAbove)
+    if (o.nearHighSell !== false && i.price >= sellAbove)
       return { action: "HOLD", ...base, reason: `perto da máxima, mas ${brl(i.price)} não paga o que custou (${brl(floor)} com taxas): segura` };
   }
   if (i.price <= buyBelow) {

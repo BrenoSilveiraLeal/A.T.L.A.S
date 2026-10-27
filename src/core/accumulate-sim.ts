@@ -44,7 +44,7 @@ export function simulatePlan(bars: readonly SimBar[], dividends: readonly SimDiv
       const levels = rangeLevels(closes, rule.options);
       const history = levels && bar.close <= levels.buyBelow && rule.options.minUpShare > 0
         ? nearLowHistory(closes, rule.options.window, rule.options.nearPct, 63) : null;
-      const decision = rangeDecision({ closes, price: bar.close, quantity: shares, cost, cash, minOrder, history }, rule.options);
+      const decision = rangeDecision({ closes, price: bar.close, quantity: shares, cost, cash, minOrder, history, peakSinceEntry: peak }, rule.options);
       if (decision.action === "BUY") pending = { side: "BUY", spend: cash };
       if (decision.action === "SELL") pending = { side: "SELL" };
     } else if (rule.kind === "monthly") {
