@@ -315,7 +315,8 @@ function makePerson(look: PersonLook): Person {
 function quoteOf(chart: AgentChart | undefined) {
   const bars = chart?.bars ?? [];
   const price = chart?.last ?? bars.at(-1)?.close ?? null;
-  const prev = chart?.last != null ? bars.at(-1)?.close : bars.at(-2)?.close;
+  // Against the previous session's close (27/10/2026: with today's candle drawn, the last bar is today itself → 0%).
+  const prev = chart?.prev ?? (chart?.last != null ? bars.at(-1)?.close : bars.at(-2)?.close);
   const change = price !== null && prev ? price / prev - 1 : null;
   return { price, change, color: change === null || Math.abs(change) < 0.0005 ? "#5ee7ff" : change > 0 ? "#3dffa8" : "#ff5d7d" };
 }

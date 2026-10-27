@@ -18,7 +18,7 @@ import { historyAgrees } from "@/core/range";
 import { entryCheck, RANGE_DEFAULTS } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
-import { b3Session } from "@/core/b3-calendar";
+import { B3_CALENDAR, b3Session, saoPauloClock } from "@/core/b3-calendar";
 import type { Meeting } from "./office-3d";
 import type { HistoricalBar } from "@/providers/types";
 
@@ -145,7 +145,7 @@ function useCharts(tickers: string[]) {
     Promise.all(key.split(",").map((ticker) => fetch(`/api/atlas/history?ticker=${encodeURIComponent(ticker)}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((b: { bars?: HistoricalBar[] } | null) => [ticker, (b?.bars ?? []).slice(-60).map((x) => ({
-        open: Number(x.open), high: Number(x.high), low: Number(x.low), close: Number(x.close) }))] as const)
+        open: Number(x.open), high: Number(x.high), low: Number(x.low), close: Number(x.close), date: saoPauloClock(new Date(x.timestamp)).date }))] as const)
       .catch(() => [ticker, []] as const)))
       .then((rows) => { if (!controller.signal.aborted) setCharts(Object.fromEntries(rows)); });
     return () => controller.abort();
@@ -187,6 +187,9 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const vitalOf = (id: unknown) => vitals.find((v) => v.agent_id === id);
   const alive = agents.filter((a) => !["DEAD", "FIRED"].includes(text(a.status)));
   const session = b3Session(new Date(now));
+  // Working day: from 09:45 (before the open) until 17:00 on B3 trading days.
+  const clock = saoPauloClock(new Date(now));
+  const workTime = !["Sat", "Sun"].includes(clock.weekday) && !B3_CALENDAR[clock.year]?.closed[clock.date] && clock.time >= "09:45" && clock.time < "17:00";
   const maxLossPct = Number(account?.agent_max_loss_pct ?? 40);
   // The boss compares the six stocks: the ones in their buy zone get the pot, best first.
   const priceNow = (agent: Row) => {
@@ -213,16 +216,19 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const fresh = headline !== null && now - Date.parse(headline.item.published_at) < 3600000;
     const place = placeAgent({ id: text(agent.id), status: text(agent.status), enabled: agent.enabled !== false, autopilot: agent.autopilot !== false,
       holding, openOrder: order ? { side: order.side === "SELL" ? "SELL" : "BUY" } : null,
-      lastAnalysisAt: agent.last_analysis_at ? String(agent.last_analysis_at) : null, freshNews: fresh, marketOpen: session.status === "OPEN", now });
+      lastAnalysisAt: agent.last_analysis_at ? String(agent.last_analysis_at) : null, freshNews: fresh, marketOpen: session.status === "OPEN", workTime, now });
     const vital = vitalOf(agent.id);
     const daily = charts[ticker] ?? [];
     const quote = live.prices[ticker];
     const last = quote ? quote.price : vital?.mark_price != null ? Number(vital.mark_price) : null;
     // Today's candle, moving with the price: from the last close to the price now.
     const seen = live.session[ticker];
-    const prevClose = daily.at(-1)?.close;
+    // Only finished sessions: the free feed may already carry today's unfinished bar.
+    const today = saoPauloClock(new Date(now)).date;
+    const done = daily.filter((b) => !b.date || b.date < today);
+    const prevClose = done.at(-1)?.close;
     const bars = quote && prevClose && session.status === "OPEN"
-      ? [...daily.slice(1), { open: prevClose, high: Math.max(prevClose, seen?.high ?? quote.price), low: Math.min(prevClose, seen?.low ?? quote.price), close: quote.price }]
+      ? [...done.slice(-59), { open: prevClose, high: Math.max(prevClose, seen?.high ?? quote.price), low: Math.min(prevClose, seen?.low ?? quote.price), close: quote.price }]
       : daily;
     // What the boss would release to this agent now (0 when its stock is not in its buy zone).
     const budget = potShares[text(agent.id)] ?? 0;
@@ -246,7 +252,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       events: agentEvents(text(agent.id), floor.live, paper.paper_proposals ?? [], String(paper.paper_book_restarts?.[0]?.started_at ?? "")),
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
       headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null,
-      chart: { bars, last }, health, debate, range, priceSource: live.source, forecast, history, bars6m: ranges[ticker]?.bars6m ?? [],
+      chart: { bars, last, prev: prevClose ?? null }, health, debate, range, priceSource: live.source, forecast, history, bars6m: ranges[ticker]?.bars6m ?? [],
       marketOpen: session.status === "OPEN" };
   });
   const items = news.items ?? [];

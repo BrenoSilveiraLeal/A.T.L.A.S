@@ -18,6 +18,17 @@ describe("office placement", () => {
     expect(placeAgent({ ...base, holding: 43 }).activity).toContain("43 ações");
   });
 
+  it("keeps everyone at the computer during the working day, with a short walk now and then", () => {
+    const work = { ...base, workTime: true, now: Date.parse("2026-10-27T15:00:00Z") };
+    const atDesk = ["a", "b", "c", "d", "e", "f", "g", "h"].map((id) => placeAgent({ ...work, id }));
+    expect(atDesk.filter((p) => p.zone === "DESK").length).toBeGreaterThanOrEqual(6);
+    expect(atDesk.find((p) => p.zone === "DESK")?.activity).toContain("No computador");
+    // Over a working hour each agent spends a few minutes away from the desk, never most of the time.
+    const minutes = Array.from({ length: 60 }, (_, m) => placeAgent({ ...work, now: work.now + m * 60000 }).zone !== "DESK").filter(Boolean).length;
+    expect(minutes).toBeGreaterThan(0); expect(minutes).toBeLessThanOrEqual(6);
+    expect(placeAgent({ ...work, marketOpen: false }).activity).toMatch(/abertura|volta/);
+  });
+
   it("lets agents rest when there is nothing to do, always in the same spot", () => {
     const closed = placeAgent({ ...base, marketOpen: false, holding: 10 });
     expect(["COFFEE", "POOL"]).toContain(closed.zone);

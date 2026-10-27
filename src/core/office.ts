@@ -1,8 +1,9 @@
 /**
  * Where each agent stands in the office, from real recorded signals only:
  * - MEETING: analysing right now, just analysed, or discussing a fresh headline about its stock;
- * - DESK: an open order, or the market is open and it holds shares to watch;
- * - COFFEE / POOL: resting (market closed, nothing to do, or switched off);
+ * - DESK: the whole working day (owner, 27/10/2026: from 09:45, before the open, until the close
+ *   every agent sits at its computer), now and then a short walk around the office;
+ * - COFFEE / POOL: resting (after the close, or switched off);
  * - OUT: eliminated by the loss limit.
  * The sentence is written for someone who has never traded.
  */
@@ -17,10 +18,17 @@ export interface OfficeInput {
   lastAnalysisAt: string | null;
   freshNews: boolean;
   marketOpen: boolean;
+  /** Trading day between 09:45 and the close (defaults to marketOpen). */
+  workTime?: boolean;
   now: number;
 }
 
-const rest = (id: string): OfficeZone => ([...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 2 ? "POOL" : "COFFEE");
+/** During the working day each agent takes a 3-minute walk every 40 minutes, at its own time. */
+export const BREAK = { every: 40, minutes: 3 } as const;
+const hash = (id: string) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+export const onBreak = (id: string, now: number) => (Math.floor(now / 60000) + hash(id)) % BREAK.every < BREAK.minutes;
+
+const rest = (id: string): OfficeZone => (hash(id) % 2 ? "POOL" : "COFFEE");
 
 export function placeAgent(a: OfficeInput): { zone: OfficeZone; activity: string } {
   if (a.status === "DEAD" || a.status === "FIRED") return { zone: "OUT", activity: "Foi eliminada: perdeu o limite de dinheiro que podia perder." };
@@ -30,8 +38,11 @@ export function placeAgent(a: OfficeInput): { zone: OfficeZone; activity: string
     ? "No computador: fez um pedido de compra e espera o preço chegar." : "No computador: fez um pedido de venda e espera o preço chegar." };
   if (!a.enabled || !a.autopilot || a.status === "PAUSED") return { zone: rest(a.id), activity: "De folga: o piloto automático dela está desligado." };
   if (a.freshNews) return { zone: "MEETING", activity: "Na reunião: discutindo uma notícia sobre a ação dela." };
-  if (a.marketOpen && a.holding > 0) return { zone: "DESK", activity: `No computador: vigiando as ${a.holding} ações que comprou.` };
-  if (a.marketOpen) return { zone: rest(a.id), activity: "Descansando: esperando um bom sinal para comprar." };
+  if (a.workTime ?? a.marketOpen) {
+    if (onBreak(a.id, a.now)) return { zone: rest(a.id), activity: "Pausa rápida: dando uma volta pelo escritório e já volta ao computador." };
+    return { zone: "DESK", activity: a.holding > 0 ? `No computador: vigiando as ${a.holding} ações que comprou.`
+      : a.marketOpen ? "No computador: acompanhando o gráfico e esperando o momento certo de comprar." : "No computador: preparando-se para a abertura da bolsa." };
+  }
   return { zone: rest(a.id), activity: a.holding > 0
     ? `Bolsa fechada: descansando e guardando ${a.holding} ações até o próximo pregão.` : "Bolsa fechada: descansando até o próximo pregão." };
 }

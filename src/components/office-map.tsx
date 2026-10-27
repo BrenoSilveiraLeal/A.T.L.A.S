@@ -35,7 +35,11 @@ export interface OfficeAgent {
   /** Real history (trades at Genial, orders, decisions), newest first. */
   events?: { at: string; text: string; tone: "up" | "down" | "info" }[];
 }
-export interface AgentChart { bars: { open: number; high: number; low: number; close: number }[]; last: number | null }
+export interface AgentChart {
+  bars: { open: number; high: number; low: number; close: number; date?: string }[]; last: number | null;
+  /** Close of the previous session: today's change is measured against it. */
+  prev?: number | null;
+}
 
 const W = 1600, H = 850;
 const at = (x: number, y: number) => ({ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` });
