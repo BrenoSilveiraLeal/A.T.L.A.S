@@ -1244,8 +1244,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const { pos } = councilSeat(room, seat), x = COUNCILS[room].x2 - 0.75;
       return nav.blocks(x, -13.3, 0.3) || nav.blocks(x, -12.6, 0.3) ? null : [[pos[0], -12.6], [x, -12.6], [x, -13.3]];
     };
-    // Break spots clear of furniture, plants and lamps.
-    const breakSpots = BREAK_SPOTS.map(([pos], i) => (nav.blocks(pos[0], pos[1], 0.35) ? -1 : i)).filter((i) => i >= 0);
     const SPEAKER: Record<string, number> = { Otimista: 0, Pessimista: 1, "Riscos do mundo": 2, Realista: 3 };
     const roomTalk = COUNCILS.map(() => ({ agentId: "", turn: 0, timer: 0 }));
     let roomAgents: (OfficeAgent | null)[] = COUNCILS.map(() => null);
@@ -1325,6 +1323,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const pickables: THREE.Object3D[] = [];
     const obstacles = officeObstacles();
     const nav = new NavGrid([-24, -14, 24, 14], obstacles);
+    // Break spots clear of furniture, plants and lamps (after the grid exists: 28/10/2026 the office
+    // crashed on load when this ran before it).
+    const breakSpots = BREAK_SPOTS.map(([pos], i) => (nav.blocks(pos[0], pos[1], 0.35) ? -1 : i)).filter((i) => i >= 0);
     const deskOf = new Map<string, number>();
 
     const setTarget = (r: Walker, slot: Slot, key: string, instant: boolean) => {
