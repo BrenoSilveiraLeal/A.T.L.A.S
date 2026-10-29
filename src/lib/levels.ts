@@ -4,7 +4,7 @@ import { adjustStoredBars, levelPlan } from "@/core/strategies";
 import { isinPrefix, type CorporateEvent } from "@/core/corporate-actions";
 import { fetchB3Events, b3EventsUrl } from "@/providers/b3-events";
 import { loadBars } from "./market-bars";
-import { collapse, RANGE_DEFAULTS, rangeLevels } from "@/core/range";
+import { collapse, inDistortion, RANGE_DEFAULTS, rangeLevels } from "@/core/range";
 import { nearLowHistory } from "@/core/forecast";
 import { consensusFor } from "./forecast";
 import { focusOutlook, valuationFor } from "./market-data";
@@ -22,9 +22,11 @@ export async function agentLevels(db: SupabaseClient, ticker: string) {
   const plan = levelPlan(adjusted);
   // The owner's rule: lowest and highest close of the last 6 months and the buy/sell triggers.
   const closes = adjusted.map((b) => Number(b.close));
-  const levels = rangeLevels(closes, RANGE_DEFAULTS);
+  // The 6-month low and high leave out distorted sessions (core/range DISTORTED_PERIODS), as the autopilot does.
+  const kept = adjusted.map((b, i) => ({ close: Number(b.close), date: bars[i].trade_date })).filter((b) => !inDistortion(b.date));
+  const levels = rangeLevels(kept.map((b) => b.close), RANGE_DEFAULTS);
   const recent = bars.slice(-RANGE_DEFAULTS.window);
-  const dateOf = (value: number) => recent[adjusted.slice(-RANGE_DEFAULTS.window).findIndex((b) => Number(b.close) === value)]?.trade_date ?? null;
+  const dateOf = (value: number) => kept.slice(-RANGE_DEFAULTS.window).find((b) => b.close === value)?.date ?? null;
   const range = levels ? { ...levels, window: RANGE_DEFAULTS.window, nearPct: RANGE_DEFAULTS.nearPct, months: Math.round(RANGE_DEFAULTS.window / 21),
     lowDate: dateOf(levels.low), highDate: dateOf(levels.high) } : null;
   return { ticker, available: true as const, bars: bars.length, from: bars[0].trade_date, to: bars[bars.length - 1].trade_date,

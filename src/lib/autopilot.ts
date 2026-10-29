@@ -19,7 +19,7 @@ import { consensusFor } from "./forecast";
 import { nearLowHistory } from "@/core/forecast";
 import { analysts } from "@/core/committee";
 import { focusOutlook, valuationFor } from "./market-data";
-import { collapse, RANGE_DEFAULTS } from "@/core/range";
+import { collapse, inDistortion, RANGE_DEFAULTS } from "@/core/range";
 import { cachedCompanyHealth } from "./company-health";
 import type { CorporateEvent } from "@/core/corporate-actions";
 import type { ContextAction } from "@/core/context";
@@ -134,7 +134,8 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     minSellPrice: held.quantity > 0 ? minimumSellPrice(basis.toNumber(), held.quantity) : undefined,
     context, council: { fraction: council.consensus.fraction, text: council.consensus.text },
     // Owner's rule: buy near the 6-month low, sell near the 6-month high (never at a loss).
-    range: trailing ? { closes: trailing.closes, history: nearLowHistory(trailing.closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) } : undefined,
+    range: trailing ? { closes: trailing.closes, levelCloses: trailing.levelCloses, history: nearLowHistory(trailing.closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) } : undefined,
+    boughtToday: trailing?.boughtToday ?? false,
     steady: trailing ? undefined : steady,
   });
   // Money missing for a purchase the rule wants: tell the owner (once a day per agent).
@@ -198,6 +199,8 @@ async function trailingInputs(db: SupabaseClient, owner: string, agentId: string
     everHeld: (fills ?? []).length > 0,
     trailPct: 15,
     closes: adjusted.map((b) => b.close),
+    levelCloses: adjusted.filter((b) => !inDistortion(b.date)).map((b) => b.close),
+    boughtToday: (fills ?? []).some((f) => f.side === "BUY" && saoPauloClock(new Date(f.filled_at)).date === today),
   };
 }
 

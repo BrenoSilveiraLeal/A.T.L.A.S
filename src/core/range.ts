@@ -49,8 +49,21 @@ export const RANGE_DEFAULTS: RangeOptions = { window: 126, nearPct: 2, minGainPc
   buyZonePct: 5, turnPct: 1, turnLookback: 10, rebuyBelowAvgPct: 3, bigDropPct: 8, dropLookback: 20, calmBuy: "near" };
 export const RANGE_VERSION = "paper-autopilot-range-6m-bigdrop-turn/4.0.0";
 
+/**
+ * Owner, 29/10/2026: "o maior preço de várias ações não é o maior preço real... só foi atingido por
+ * conta do Flávio". Sessions when prices did not reflect the companies are left out of the 6-month
+ * low and high (the falls after them still count for the turn and the big-fall checks). The team's
+ * average rose ~13% from 1 to 23 October 2026 on election polls and fell back after the result.
+ */
+export const DISTORTED_PERIODS: readonly { from: string; to: string; reason: string }[] = [
+  { from: "2026-10-01", to: "2026-10-23", reason: "rali eleitoral (pesquisas de 2026)" },
+];
+export const inDistortion = (date: string) => DISTORTED_PERIODS.some((p) => date >= p.from && date <= p.to);
+
 export interface RangeInput {
   closes: readonly number[]; price: number; quantity: number; cost: number; cash: number; minOrder: number;
+  /** Closes for the 6-month low and high when some sessions are left out (DISTORTED_PERIODS); defaults to closes. */
+  levelCloses?: readonly number[];
   history?: { samples: number; upShare: number; average: number } | null;
   /** Highest close since the position was opened (sellDropPct and trailPct). */
   peakSinceEntry?: number | null;
@@ -106,7 +119,7 @@ export function historyAgrees(h: { samples: number; upShare: number; average: nu
 }
 
 export function rangeDecision(i: RangeInput, o: RangeOptions = RANGE_DEFAULTS): RangeDecision {
-  const levels = rangeLevels(i.closes, o);
+  const levels = rangeLevels(i.levelCloses ?? i.closes, o);
   const months = Math.round(o.window / 21);
   if (!levels || !(i.price > 0)) return { action: "HOLD", reason: "histórico curto demais para saber o que é preço baixo", low: 0, high: 0, buyBelow: 0, sellAbove: 0 };
   const { low, high, buyBelow, sellAbove } = levels;

@@ -70,8 +70,13 @@ export interface AutopilotInput {
   /** Owner's monthly rule: highest close since the position was opened and the sell trigger. */
   steady?: { peak: string | null; targetPct: number; turnPct: number };
   /** Owner's rule since 25/10/2026: buy near the 6-month low, sell near the 6-month high. */
-  range?: { closes: readonly number[]; options?: RangeOptions; history?: { samples: number; upShare: number; average: number } | null };
+  range?: { closes: readonly number[]; levelCloses?: readonly number[]; options?: RangeOptions; history?: { samples: number; upShare: number; average: number } | null };
+  /** The agent already bought today (one purchase a day: the next part waits for another session). */
+  boughtToday?: boolean;
 }
+
+/** Share of what the boss releases that one purchase may use (buying in parts). */
+export const BUY_PART = 0.5;
 
 export function ruleVersion(input: Pick<AutopilotInput, "steady" | "trailing" | "range">) {
   return input.range ? RANGE_VERSION : input.steady ? STEADY_VERSION : input.trailing ? TRAILING_VERSION : AUTOPILOT_VERSION;
@@ -126,7 +131,11 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
       return hold(`sinal de compra bloqueado pelo contexto: ${input.context.summary}`);
     const limit = toTick(price.times(1 + (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "up");
     const fullRoom = D.min(new D(input.budgetRoom), new D(input.maxOrderValue), new D(input.availableCash)).minus(input.fixedFee ?? 0);
-    const room = input.council ? fullRoom.times(input.council.fraction) : input.context?.action === "REDUCE" ? fullRoom.div(2) : fullRoom;
+    // Owner, 29/10/2026: "não gastar todo o dinheiro de uma vez só" — at most half of what the boss
+    // releases per purchase (less when the council asks), one purchase a day.
+    if (input.boughtToday) return hold("já comprou hoje: a próxima parte só em outro pregão, se cair mais e virar para cima de novo.");
+    const share = Math.min(BUY_PART, input.council ? input.council.fraction : input.context?.action === "REDUCE" ? 0.5 : 1);
+    const room = fullRoom.times(share);
     const perShare = limit.times(1 + input.feeBps / 10000);
     const lots = room.lte(0) ? 0 : room.div(perShare.times(input.lotSize)).floor().toNumber();
     // Order value is checked against the limit price, which is what the risk review uses.
@@ -136,10 +145,10 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     if (input.minOrderValue && limit.times(quantity).lt(input.minOrderValue))
       return hold(`sinal de compra, mas a ordem (R$ ${limit.times(quantity).toFixed(2)}) é pequena demais: a corretagem pesaria mais de 1%. Espera juntar pelo menos R$ ${input.minOrderValue.toFixed(2)}.`);
     return { action: "BUY", quantity, limitPrice: limit.toFixed(2), referencePrice: price.toDecimalPlaces(2).toFixed(2), indicators,
-      reason: `${input.ticker}: compra automática (${why}${input.council ? (input.council.fraction < 1 ? `; conselho: ${input.council.text}` : "") : input.context?.action === "REDUCE" ? `, tamanho reduzido à metade: ${input.context.summary}` : ""}). Regra ${ruleVersion(input)}.` };
+      reason: `${input.ticker}: compra automática (${why}; ${share >= BUY_PART ? "primeira metade, o resto só se cair mais" : `conselho: ${input.council?.text ?? input.context?.summary ?? ""}`}). Regra ${ruleVersion(input)}.` };
   };
   if (input.range) {
-    const decision = rangeDecision({ closes: input.range.closes, price: price.toNumber(), quantity: input.position.quantity,
+    const decision = rangeDecision({ closes: input.range.closes, levelCloses: input.range.levelCloses, price: price.toNumber(), quantity: input.position.quantity,
       cost: new D(input.position.averageCost).times(input.position.quantity).toNumber(), cash: Number(input.budgetRoom),
       minOrder: input.minOrderValue ?? 0, history: input.range.history ?? null }, input.range.options ?? RANGE_DEFAULTS);
     if (decision.action === "SELL" && input.position.quantity > 0) return sellAll(decision.reason);

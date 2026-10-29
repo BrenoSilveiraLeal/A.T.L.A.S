@@ -31,21 +31,21 @@ function input(overrides: Partial<AutopilotInput> = {}, closes = rising, price =
 }
 
 describe("paper autopilot rule", () => {
-  it("buys in an uptrend, sized by the tightest of budget, order limit and cash", () => {
+  it("buys in an uptrend, half of the tightest of budget, order limit and cash (buying in parts)", () => {
     const decision = autopilotDecision(input());
     expect(decision.action).toBe("BUY");
     if (decision.action !== "BUY") return;
     // Limit = 16 × (1 + 25 bps) rounded up to the tick; leaves room for the paper slippage.
     expect(decision.limitPrice).toBe("16.04");
     expect(Number(decision.limitPrice) * decision.quantity).toBeLessThanOrEqual(500);
-    expect(decision.quantity).toBe(31);
+    expect(decision.quantity).toBe(15); // half of the R$ 500 order limit (owner, 29/10/2026)
     expect(decision.reason).toContain(AUTOPILOT_VERSION);
     expect(decision.reason).not.toContain("simulação");
   });
 
   it("respects lot size and holds when one lot does not fit", () => {
     const lots = autopilotDecision(input({ lotSize: 10 }));
-    expect(lots.action === "BUY" && lots.quantity).toBe(30);
+    expect(lots.action === "BUY" && lots.quantity).toBe(10);
     expect(autopilotDecision(input({ budgetRoom: "10.00" })).action).toBe("HOLD");
     expect(autopilotDecision(input({ availableCash: "0" })).action).toBe("HOLD");
   });
@@ -121,7 +121,7 @@ describe("paper autopilot rule", () => {
   });
   it("owner's monthly rule: buys whenever its share reaches R$ 100, holds through falls, sells only high and never at a loss", () => {
     const steady = (peak: string | null) => ({ steady: { peak, targetPct: 60, turnPct: 8 }, minOrderValue: 100 });
-    const first = autopilotDecision(input({ ...steady(null), budgetRoom: "133.00" }, falling, "10.10"));
+    const first = autopilotDecision(input({ ...steady(null), budgetRoom: "266.00" }, falling, "10.10"));
     expect(first.action).toBe("BUY");
     expect(first.reason).toContain(STEADY_VERSION);
     expect(autopilotDecision(input({ ...steady(null), budgetRoom: "66.00" }, falling, "10.10")).reason).toContain("juntando");
@@ -130,7 +130,27 @@ describe("paper autopilot rule", () => {
     expect(autopilotDecision(input({ ...steady("17.00"), ...held }, rising, "16.50")).reason).toContain("segura"); // +65% but only 3% off the top
     expect(autopilotDecision(input({ ...steady("18.00"), ...held }, rising, "16.50"))).toMatchObject({ action: "SELL", quantity: 10 });
     expect(autopilotDecision(input({ ...steady("18.00"), ...held, minSellPrice: "20.00" }, rising, "16.50")).action).toBe("HOLD");
-    expect(autopilotDecision(input({ ...steady("16.00"), position: held.position, budgetRoom: "150.00" }, falling, "10.10")).action).toBe("BUY");
+    expect(autopilotDecision(input({ ...steady("16.00"), position: held.position, budgetRoom: "300.00" }, falling, "10.10")).action).toBe("BUY");
+  });
+  it("one purchase a day: the next part waits for another session (owner, 29/10/2026)", () => {
+    const again = autopilotDecision(input({ boughtToday: true }));
+    expect(again.action).toBe("HOLD");
+    expect(again.reason).toContain("já comprou hoje");
   });
 });
 
+describe("range levels without distorted sessions (owner, 29/10/2026: the election run-up)", () => {
+  it("uses the level closes for the 6-month low and high, the full closes for the turn", async () => {
+    const { rangeDecision, inDistortion } = await import("@/core/range");
+    expect([inDistortion("2026-10-09"), inDistortion("2026-09-30"), inDistortion("2026-10-26")]).toEqual([false, false, false].map((_, i) => i === 0));
+    // A run-up to 60 inside the window would make the high 60; without it the high is 46.
+    const base = Array.from({ length: 60 }, (_, i) => 40 + (i % 7));
+    const withRally = [...base, 55, 60, 58, 42];
+    const opts = { window: 126, nearPct: 2, minGainPct: 3, confirmBuy: false, confirmSell: false, minUpShare: 0 };
+    const common = { closes: withRally, price: 46, quantity: 10, cost: 400, cash: 0, minOrder: 0 };
+    expect(rangeDecision(common, opts).high).toBe(60);
+    const kept = rangeDecision({ ...common, levelCloses: [...base, 42] }, opts);
+    expect(kept.high).toBe(46);
+    expect(kept.action).toBe("SELL");
+  });
+});
