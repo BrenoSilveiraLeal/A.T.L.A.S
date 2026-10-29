@@ -23,12 +23,14 @@ describe("council: buy near the 6-month low, sell near the 6-month high", () => 
     const falling = committee({ ...base, price: 40.2, recent: [45, 43, 41, 40.5] });
     expect([falling.verdict, falling.summary]).toEqual(["ESPERAR", "Decisão: esperar a queda virar para cima."]);
     expect(committee({ ...base, price: 40.5, recent: [45, 43, 41, 40] }).verdict).toBe("COMPRAR");
-    expect(committee({ ...base, price: 40.5, recent: [45, 43, 41, 40], holding: 1, averageCost: 41 }).verdict).toBe("SEGURAR");
+    // Dividends (29/10/2026): holding already, it keeps buying while the price stays in the zone.
+    expect(committee({ ...base, price: 40.5, recent: [45, 43, 41, 40], holding: 1, averageCost: 41 }).verdict).toBe("COMPRAR");
   });
 
-  it("sells near the high only above what it paid", () => {
-    expect(committee({ ...base, holding: 1, averageCost: 41, price: 59 }).verdict).toBe("VENDER_NA_ALTA");
-    expect(committee({ ...base, holding: 1, averageCost: 58.5, price: 59 }).verdict).toBe("SEGURAR");
+  it("holds for the dividends: never sells near the high (owner, 29/10/2026)", () => {
+    const c = committee({ ...base, holding: 1, averageCost: 41, price: 59 });
+    expect(c.verdict).toBe("SEGURAR");
+    expect(c.opinions[3].text).toContain("dividendos");
   });
 });
 
@@ -72,9 +74,9 @@ describe("council: four analysts, four sides (owner, 27/10/2026)", () => {
     expect([c.pessimist.vote, c.consensus.fraction]).toEqual(["NEUTRO", 1]);
   });
 
-  it("shows how far it expects to sell, not just the 3% floor", () => {
-    expect(committee({ ...base, price: 40.5, forecast }).opinions[3].text).toContain("a partir de R$ 58,80");
-    expect(committee({ ...base, holding: 1, averageCost: 41, price: 45 }).opinions[3].text).toContain("piso de proteção");
+  it("says it buys to hold for the dividends", () => {
+    expect(committee({ ...base, price: 40.5, forecast }).opinions[3].text).toContain("receber dividendos");
+    expect(committee({ ...base, holding: 1, averageCost: 41, price: 45 }).opinions[3].text).toContain("estilo Barsi");
   });
 
   it("a collapse or bad news vetoes, whatever the optimist says", () => {

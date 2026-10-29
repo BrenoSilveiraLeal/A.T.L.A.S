@@ -1,7 +1,7 @@
 import type { ContextAction } from "./context";
 import type { HealthLevel } from "./company-health";
 import { forecastOpinion, type ConsensusView } from "./forecast";
-import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS } from "./range";
+import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS, SELLS_NEAR_HIGH } from "./range";
 import { minimumSellPrice } from "./live";
 import { focusView, valuationView, type FocusTrend, type Valuation } from "./valuation";
 
@@ -129,7 +129,7 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
   // The real order's floor too: both fees paid and 3% net left (core/live minimumSellPrice).
   const floor = i.holding > 0 && i.averageCost
     ? Math.max(i.averageCost * (1 + i.minGainPct / 100), Number(minimumSellPrice(i.averageCost * i.holding, i.holding))) : null;
-  const sellNow = r !== null && price !== null && i.holding > 0 && price >= r.sellAbove && floor !== null && price >= floor;
+  const sellNow = SELLS_NEAR_HIGH && r !== null && price !== null && i.holding > 0 && price >= r.sellAbove && floor !== null && price >= floor;
   const zone = r !== null && price !== null && price <= r.buyBelow;
   const badHistory = zone && !historyAgrees(i.history);
   const entry = zone && i.recent?.length ? entryCheck(i.recent, price!, r.low) : null;
@@ -145,8 +145,9 @@ export function committee(i: CommitteeInput): { opinions: Opinion[]; verdict: Ve
       : badHistory ? `Perto da mínima, mas nas ${i.history!.samples} vezes anteriores subiu só em ${Math.round(i.history!.upShare * 100)}%: não vale a pena.`
       : zone && falling ? `Perto da mínima de 6 meses (${brl(r.low)}): ${entryReason(entry!, price)}.`
       : holdingEnough ? `Já tem ${i.holding}: compra mais só se cair abaixo de ${brl(rebuyBelow!)} e virar de novo.`
-      : nearLow ? (canBuy ? `${brl(price)} está perto da mínima de 6 meses (${brl(r.low)}) e já virou para cima. Alvo de venda: perto da máxima, a partir de ${brl(r.sellAbove)} (${pct(r.sellAbove / price - 1)}${target ? `; analistas: ${brl(target)}` : ""}). Consenso: ${consensus.text}.`
+      : nearLow ? (canBuy ? SELLS_NEAR_HIGH ? `${brl(price)} está perto da mínima de 6 meses (${brl(r.low)}) e já virou para cima. Alvo de venda: perto da máxima, a partir de ${brl(r.sellAbove)} (${pct(r.sellAbove / price - 1)}${target ? `; analistas: ${brl(target)}` : ""}). Consenso: ${consensus.text}.` : `${brl(price)} está na faixa de compra (até ${brl(r.buyBelow)}) e já virou para cima: compra para segurar e receber dividendos. Consenso: ${consensus.text}.`
         : `Preço bom (perto da mínima de ${brl(r.low)}), mas o Chefe não tem dinheiro livre para 1 ação.`)
+        : i.holding > 0 && !SELLS_NEAR_HIGH ? `Segurando ${i.holding} para receber dividendos (estilo Barsi): só vende em risco grave e nunca com prejuízo. Compra mais enquanto estiver até ${brl(r.buyBelow)}.`
         : i.holding > 0 ? `Segurando até a máxima de 6 meses: vende a partir de ${brl(Math.max(r.sellAbove, floor ?? 0))}${average ? ` (${pct(Math.max(r.sellAbove, floor ?? 0) / average - 1)} sobre o que pagou)` : ""}, quando a alta parar${target ? `; analistas veem ${brl(target)}` : ""}. Os 3% de lucro limpo são só o piso de proteção, não o alvo.`
           : `Caro agora (${brl(price)}). Compra só se cair até ${brl(r.buyBelow)}, perto da mínima de 6 meses (${brl(r.low)}).`;
   const buys = nearLow && canBuy && !consensus.veto;

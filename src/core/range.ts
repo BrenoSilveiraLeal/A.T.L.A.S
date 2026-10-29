@@ -45,9 +45,18 @@ export interface RangeOptions {
 // stocks (docs/BACKTEST_VIRADA.md). Selling on the first down day near the high stayed: no other way
 // to sell (waiting for a fall from the top, a trailing profit lock, letting it run past the high) beat
 // it in both 2023–2024 and 2025–2026 (docs/BACKTEST_VENDA.md, 27/10/2026); those options stay off.
-export const RANGE_DEFAULTS: RangeOptions = { window: 126, nearPct: 2, minGainPct: 3, confirmBuy: true, confirmSell: true, minUpShare: 0.6,
+export const RANGE_SWING: RangeOptions = { window: 126, nearPct: 2, minGainPct: 3, confirmBuy: true, confirmSell: true, minUpShare: 0.6,
   buyZonePct: 5, turnPct: 1, turnLookback: 10, rebuyBelowAvgPct: 3, bigDropPct: 8, dropLookback: 20, calmBuy: "near" };
-export const RANGE_VERSION = "paper-autopilot-range-6m-bigdrop-turn/4.0.0";
+// Owner, 29/10/2026: "seguir a ideia do Barsi... viver de dividendos". Holding for the dividends and
+// never selling beat selling near the high on 58 B3 stocks 2023–2026 (+26.7% against +20.7%,
+// docs/BACKTEST_DIVIDENDOS.md): buy up to 15% above the 6-month low once the fall turned, buy more
+// while it stays there (waiting for a further 3% dip left the money idle: +11.4%), keep the
+// dividends for the next purchases, sell only on a grave risk and never at a loss. The agent buys
+// half a part a day at most (core/autopilot BUY_PART).
+export const RANGE_DEFAULTS: RangeOptions = { ...RANGE_SWING, nearPct: 15, buyZonePct: 15, rebuyBelowAvgPct: undefined, nearHighSell: false };
+export const RANGE_VERSION = "paper-autopilot-dividends-15/5.0.0";
+/** Whether the rule in use sells near the 6-month high (false: holds for the dividends). */
+export const SELLS_NEAR_HIGH = RANGE_DEFAULTS.nearHighSell !== false;
 
 /**
  * Owner, 29/10/2026: "o maior preço de várias ações não é o maior preço real... só foi atingido por

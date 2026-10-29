@@ -55,7 +55,7 @@ describe("end-of-day team meeting", () => {
     expect(texts[1]).toBe("Chefe: Beatriz, você operou hoje. Conta pra gente.");
     expect(texts[2]).toContain("Hoje comprei 6 ações da EQTL3 a R$ 35,70 cada (total R$ 215,26 com as taxas)");
     expect(texts[3]).toBe("Chefe: E o que você espera com isso?");
-    expect(texts[4]).toContain("a partir de R$ 49,74");
+    expect(texts[4]).toContain("receber dividendos");
     expect(texts.join(" ")).toContain("Supervisora: Meu relatório: hoje foram 40 análises, 1 compra(s)");
   });
 

@@ -15,7 +15,7 @@ import { committee } from "@/core/committee";
 import { allocatePot, opportunityScore } from "@/core/boss";
 import { forecastOpinion, type ConsensusView } from "@/core/forecast";
 import { historyAgrees } from "@/core/range";
-import { entryCheck, RANGE_DEFAULTS } from "@/core/range";
+import { entryCheck, RANGE_DEFAULTS, SELLS_NEAR_HIGH } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
 import { B3_CALENDAR, b3Session, saoPauloClock } from "@/core/b3-calendar";
@@ -325,7 +325,7 @@ function TeamStatus({ agents, onSelect }: { agents: OfficeAgent[]; onSelect: (id
                 <span>Últimos 6 meses:</span>
                 <span>mínima <b className="up">{formatBrl(a.range.low.toFixed(2))}</b>{a.range.lowDate ? <small> ({dayMonth(a.range.lowDate)})</small> : null}</span>
                 <span>máxima <b className="down">{formatBrl(a.range.high.toFixed(2))}</b>{a.range.highDate ? <small> ({dayMonth(a.range.highDate)})</small> : null}</span>
-                <span>compra até <b>{formatBrl(a.range.buyBelow.toFixed(2))}</b> · vende a partir de <b>{formatBrl(a.range.sellAbove.toFixed(2))}</b></span>
+                <span>compra até <b>{formatBrl(a.range.buyBelow.toFixed(2))}</b> · {SELLS_NEAR_HIGH ? <>vende a partir de <b>{formatBrl(a.range.sellAbove.toFixed(2))}</b></> : "segura para os dividendos"}</span>
                 {price !== null && <span className="range-bar" title="posição do preço de agora entre a mínima e a máxima"><span style={{ left: `${Math.min(100, Math.max(0, ((price - a.range.low) / (a.range.high - a.range.low || 1)) * 100))}%` }} /></span>}
               </span>}
             </button>

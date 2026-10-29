@@ -9,6 +9,7 @@ import type { Opinion, Verdict } from "@/core/committee";
 import { HEALTH_LABELS, type HealthLevel } from "@/core/company-health";
 import { RECOMMENDATION_PT, upsideOf, type ConsensusView } from "@/core/forecast";
 import { PriceHistory, type Bar } from "./price-history";
+import { SELLS_NEAR_HIGH } from "@/core/range";
 
 export interface OfficeAgent {
   id: string; name: string; ticker: string; company: string; zone: OfficeZone; activity: string;
@@ -302,7 +303,7 @@ function AgentRange({ agent, range }: { agent: OfficeAgent; range: NonNullable<O
         <div><dt>Agora</dt><dd>{price === null ? "—" : formatBrl(price.toFixed(2))}<small>{agent.priceSource === "MT5" ? "ao vivo" : "atualiza a cada 30 min"}</small></dd></div>
         <div><dt>Maior preço</dt><dd className="down">{formatBrl(range.high.toFixed(2))}<small>{day(range.highDate)}</small></dd></div>
       </dl>
-      <p>Compra até <b>{formatBrl(range.buyBelow.toFixed(2))}</b> · vende a partir de <b>{formatBrl(range.sellAbove.toFixed(2))}</b>, nunca abaixo do que pagou. {where}</p>
+      <p>Compra até <b>{formatBrl(range.buyBelow.toFixed(2))}</b> · {SELLS_NEAR_HIGH ? <>vende a partir de <b>{formatBrl(range.sellAbove.toFixed(2))}</b>, nunca abaixo do que pagou.</> : "segura para receber os dividendos (estilo Barsi), só vende em risco grave."} {where}</p>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS } from "./range";
+import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS, SELLS_NEAR_HIGH } from "./range";
 import { minimumSellPrice } from "./live";
 import { forecastOpinion, type ConsensusView } from "./forecast";
 import { opportunityScore } from "./boss";
@@ -88,6 +88,7 @@ function opinion(a: MeetingAgent): string {
   if (a.holding > 0) {
     const average = a.cost / a.holding, result = a.price / average - 1;
     const sellFrom = Math.max(r.sellAbove, average * (1 + RANGE_DEFAULTS.minGainPct / 100), Number(minimumSellPrice(a.cost, a.holding)));
+    if (!SELLS_NEAR_HIGH) return `${head}${today}. Tenho ${a.holding} na Genial, preço médio ${brl(average)} (${pct(result)}). Seguro para receber os dividendos; compro mais enquanto estiver até ${brl(r.buyBelow)}.${analysts}`;
     return `${head}${today}. Tenho ${a.holding} na Genial, preço médio ${brl(average)} (${pct(result)}). Vendo a partir de ${brl(sellFrom)}, perto da máxima de 6 meses (${brl(r.high)}).${analysts}`;
   }
   if (a.history && !historyAgrees(a.history))
@@ -107,6 +108,7 @@ function tradeReport(a: MeetingAgent): string {
 
 function expectation(a: MeetingAgent): string {
   if (a.holding <= 0) return "Vendi com lucro; agora espero o preço voltar para perto da mínima para comprar de novo.";
+  if (!SELLS_NEAR_HIGH) return `Espero receber dividendos todo ano e ver a ação se recuperar com o tempo. Não vendo: compro mais enquanto o preço estiver até ${brl(a.range?.buyBelow ?? a.price)}, aos poucos, uma parte por dia.`;
   const average = a.cost / a.holding;
   const sellFrom = Math.max(a.range?.sellAbove ?? 0, Number(minimumSellPrice(a.cost, a.holding)));
   const target = forecastOpinion(a.price, a.consensus).upside;

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { formatBrl } from "@/core/format";
 import { swings } from "@/core/swings";
+import { SELLS_NEAR_HIGH } from "@/core/range";
 
 /**
  * Six months of daily candles for an agent's stock: the 6-month low and high, the buy and sell
@@ -50,8 +51,8 @@ export function PriceHistory({ ticker, bars, levels }: {
             {monthStarts.map((i) => <text key={i} x={x(i)} y={H - 14} className="ph-axis" textAnchor="middle">{MONTHS[Number(bars[i].date.slice(5, 7)) - 1]}</text>)}
             <line x1={left} x2={W - right} y1={y(levels.buyBelow)} y2={y(levels.buyBelow)} className="ph-buy" />
             <text x={W - right} y={y(levels.buyBelow) - 4} className="ph-label buy" textAnchor="end">compra até {brl(levels.buyBelow)}</text>
-            <line x1={left} x2={W - right} y1={y(levels.sellAbove)} y2={y(levels.sellAbove)} className="ph-sell" />
-            <text x={W - right} y={y(levels.sellAbove) + 12} className="ph-label sell" textAnchor="end">vende a partir de {brl(levels.sellAbove)}</text>
+            {SELLS_NEAR_HIGH && <line x1={left} x2={W - right} y1={y(levels.sellAbove)} y2={y(levels.sellAbove)} className="ph-sell" />}
+            {SELLS_NEAR_HIGH && <text x={W - right} y={y(levels.sellAbove) + 12} className="ph-label sell" textAnchor="end">vende a partir de {brl(levels.sellAbove)}</text>}
             {bars.map((b, i) => {
               const up = b.close >= b.open;
               return <g key={b.date} className={up ? "ph-up" : "ph-down"}>

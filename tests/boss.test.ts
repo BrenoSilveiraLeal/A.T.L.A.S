@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { allocatePot, bossGrant, opportunityScore } from "@/core/boss";
-import { rangeDecision } from "@/core/range";
+import { rangeDecision as decide, RANGE_DEFAULTS, RANGE_SWING, type RangeInput } from "@/core/range";
+// These describe the swing rule (sell near the high), kept for research; the rule in use holds for dividends.
+const rangeDecision = (i: RangeInput) => decide(i, RANGE_SWING);
 
 const flat = (n: number, v: number) => Array.from({ length: n }, () => v);
 
@@ -108,5 +110,18 @@ describe("no money for a stock that collapsed (owner, 27/10/2026)", () => {
     expect(collapse([30, 32, 28, 20, 14], 12)).toBeCloseTo(0.625);
     expect(collapse([30, 32, 28, 20, 14], 15)).toBeNull(); // −53%: a big fall, not a collapse
     expect(collapse([], 10)).toBeNull();
+  });
+});
+
+describe("dividends (owner, 29/10/2026: viver de dividendos, como o Barsi)", () => {
+  const closes = Array.from({ length: 130 }, (_, i) => 50 + 10 * Math.sin(i / 9)); // low 40, high 60
+  const turned = [...closes.slice(0, -3), 41, 40.2, 40.4];
+  it("never sells near the high, even with a big profit", () => {
+    expect(decide({ closes, price: 59, quantity: 10, cost: 410, cash: 0, minOrder: 40 }, RANGE_DEFAULTS).action).toBe("HOLD");
+  });
+  it("buys up to 15% above the low once it turned, and buys more while it stays there", () => {
+    expect(decide({ closes: turned, price: 45.5, quantity: 0, cost: 0, cash: 100, minOrder: 40 }, RANGE_DEFAULTS).action).toBe("BUY");
+    expect(decide({ closes: turned, price: 45.5, quantity: 2, cost: 88, cash: 100, minOrder: 40 }, RANGE_DEFAULTS).action).toBe("BUY");
+    expect(decide({ closes: turned, price: 47, quantity: 0, cost: 0, cash: 100, minOrder: 40 }, RANGE_DEFAULTS).action).toBe("HOLD");
   });
 });

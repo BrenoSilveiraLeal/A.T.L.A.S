@@ -14,6 +14,7 @@ import { B3_CALENDAR, saoPauloClock } from "@/core/b3-calendar";
 import { NavGrid, type Rect } from "@/core/office-nav";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
 import { LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
+import { SELLS_NEAR_HIGH } from "@/core/range";
 
 /**
  * 3D office in the style of a modern tech office. Every agent is a person (look from
@@ -486,7 +487,7 @@ function chatLine(agent: OfficeAgent) {
   const lines: string[] = ["Bora mais um café?", "Viu a notícia na TV?"];
   if (change !== null) lines.push(`${agent.ticker} ${change >= 0 ? "subiu" : "caiu"} ${(Math.abs(change) * 100).toFixed(1).replace(".", ",")}% hoje.`);
   if (agent.range && agent.holding === 0) lines.push(`Esperando ${agent.ticker} cair até ${brl(agent.range.buyBelow)}.`);
-  if (agent.range && agent.holding > 0) lines.push(`Segurando ${agent.ticker}: vendo perto de ${brl(agent.range.sellAbove)}.`);
+  if (agent.range && agent.holding > 0) lines.push(SELLS_NEAR_HIGH ? `Segurando ${agent.ticker}: vendo perto de ${brl(agent.range.sellAbove)}.` : `Segurando ${agent.ticker} pelos dividendos.`);
   if (agent.debate) lines.push(agent.debate.summary.replace(/^Decisão: /, "Minha decisão: "));
   return lines[Math.floor(Math.random() * lines.length)];
 }
@@ -989,7 +990,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       g.textBaseline = "top"; g.textAlign = "left";
       g.fillStyle = "#ffc65c"; g.font = "bold 34px sans-serif"; g.fillText(companyProfile(agent.ticker).name, 1005, 20);
       const r = agent.range, rows: [string, string][] = [];
-      if (r) rows.push(["Mínima 6 meses", brl(r.low)], ["Máxima 6 meses", brl(r.high)], ["Compra até", brl(r.buyBelow)], ["Vende a partir de", brl(r.sellAbove)]);
+      if (r) rows.push(["Mínima 6 meses", brl(r.low)], ["Máxima 6 meses", brl(r.high)], ["Compra até", brl(r.buyBelow)], SELLS_NEAR_HIGH ? ["Vende a partir de", brl(r.sellAbove)] : ["Venda", "não vende: dividendos"]);
       rows.push(["Na Genial", agent.holding > 0 ? `${agent.holding} ações · ${signed(agent.pnl)}` : "sem ações"]);
       rows.forEach(([label, value], i) => {
         g.fillStyle = "#8ea4ba"; g.font = "24px sans-serif"; g.fillText(label, 1005, 72 + i * 40);
