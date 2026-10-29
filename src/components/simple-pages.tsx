@@ -38,7 +38,7 @@ function usePaper(connected: boolean, revision = 0) {
   return state;
 }
 
-type Genial = { deposited: number; spent: number; received: number; fees: number; free: number };
+type Genial = { deposited: number; spent: number; received: number; fees: number; free: number; dividends?: number; upcomingDividends?: number };
 type Bridge = { available: boolean; reason?: string; balance?: { balance: string; equity: string; observedAt: string } | null };
 
 /**
@@ -95,6 +95,8 @@ export function GenialBalance({ connected, compact = false }: { connected: boole
             <div><span>Gasto em compras</span><strong>{brl(genial.spent)}</strong></div>
             <div><span>Recebido de vendas</span><strong>{brl(genial.received)}</strong></div>
             <div><span>Taxas pagas</span><strong className="down">{brl(genial.fees)}</strong></div>
+            <div><span>Dividendos e JCP recebidos</span><strong className={genial.dividends ? "up" : ""}>{brl(genial.dividends ?? 0)}</strong></div>
+            {genial.upcomingDividends ? <div><span>Dividendos a receber</span><strong>{brl(genial.upcomingDividends)}</strong></div> : null}
           </>}
         </div>
         {reported !== null && <p className="muted">Saldo informado pelo MetaTrader agora: <b>{brl(reported)}</b>.</p>}

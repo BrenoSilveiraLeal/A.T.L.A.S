@@ -14,6 +14,7 @@ import { scoutList } from "./forecast";
 import { contextFor, contextSummary, loadContextSources, type ContextSources } from "./context";
 import { storeBars } from "./market-bars";
 import { holdTeamMeeting } from "./meeting";
+import { creditDividends } from "./dividends";
 import { notifyBigMoves } from "./movers";
 
 const jobSchema = z.object({
@@ -46,6 +47,7 @@ export async function runScheduler() {
     // The assistant's daily scan (~60 light requests): only on the owner's computer, never inside Vercel's 60 s.
     if (!process.env.VERCEL) await scoutList(db, owner).catch(() => undefined);
     await holdTeamMeeting(db, owner).catch(() => undefined);
+    await creditDividends(db, owner).catch(() => undefined);
     if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
     return { skipped: "RECENT_TICK", jobs: [] };
   }
@@ -79,6 +81,7 @@ export async function runScheduler() {
         : "Scheduler acessível; nenhum agente aguardando análise.",
     );
     await holdTeamMeeting(db, owner).catch(() => undefined);
+    await creditDividends(db, owner).catch(() => undefined);
     if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
     return { jobs: [] };
   }
@@ -237,6 +240,7 @@ export async function runScheduler() {
   await refreshCompanyHealth(db, owner).catch(() => undefined);
   // End-of-day team meeting (once per trading day after the close).
   await holdTeamMeeting(db, owner).catch(() => undefined);
+  await creditDividends(db, owner).catch(() => undefined);
   if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
   return { jobs: results };
 
