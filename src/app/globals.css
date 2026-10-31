@@ -1000,6 +1000,39 @@ code {
 .login-panel button {
   width: 100%;
 }
+.password-entry {
+  position: relative;
+  display: flex;
+}
+.login-panel .password-entry input {
+  padding-right: 48px;
+}
+.login-panel .password-visibility {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  width: 38px;
+  min-height: 38px;
+  padding: 8px;
+  background: transparent;
+  color: var(--text);
+}
+.login-panel .password-visibility:hover {
+  background: #26302b;
+}
+.totp-inputs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 9px;
+}
+.login-panel .totp-inputs input {
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 2px;
+  text-align: center;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
 .login-panel .remember-me {
   flex-direction: row;
   align-items: center;

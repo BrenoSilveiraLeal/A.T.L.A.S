@@ -253,6 +253,9 @@
   .agent3d-label { font-size: 10px; padding: 2px 6px; } .agent3d-label b { font-size: 10px; }
   .office3d-hint { font-size: 10px; }
 }
+@media (pointer: coarse) {
+  .office3d-top .icon-button { width: 44px; height: 44px; min-height: 44px; }
+}
 
 .office-stage.three { grid-template-columns: minmax(0, 1fr); }
 .office-stage.three .agent-card { grid-template-columns: minmax(0, 1fr); }

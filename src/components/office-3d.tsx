@@ -587,14 +587,15 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const el = host.current;
     if (!el) return;
     let renderer: THREE.WebGLRenderer;
-    try { renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" }); }
+    const mobile = window.matchMedia("(max-width: 768px), (pointer: coarse)").matches;
+    try { renderer = new THREE.WebGLRenderer({ antialias: !mobile, powerPreference: mobile ? "low-power" : "high-performance" }); }
     catch { queueMicrotask(() => setFailed(true)); return; }
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, mobile ? 1 : 1.25));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = !mobile;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     el.appendChild(renderer.domElement);
     const labels = new CSS2DRenderer();
@@ -619,7 +620,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     controls.screenSpacePanning = false;
     // Left drag moves the camera over the floor, middle drag turns it, the wheel zooms (owner's request).
     controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
-    controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+    controls.touches = { ONE: mobile ? THREE.TOUCH.ROTATE : THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+    if (mobile) labels.domElement.style.touchAction = "pan-y";
     controls.zoomToCursor = true;
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x9c9384, 1.15));
@@ -1542,6 +1544,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       camera.updateProjectionMatrix();
     };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
+    let inView = false;
+    let pageVisible = !document.hidden;
+    let running = false;
+    let lastFrameAt = 0;
+    const frameInterval = mobile ? 1000 / 30 : 1000 / 45;
 
     const pose = (p: Person, kind: Pose | "walk", t: number, phase: number) => {
       const swing = reduced ? 0 : Math.sin(t * 7 + phase);
@@ -1652,8 +1659,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     let shooter: Walker | null = null, shotAt = 0, shotDone = true, poolTurn = 0, poolWait = 1;
     const clock = new THREE.Clock();
     let frame = 0;
-    const tick = () => {
-      frame = requestAnimationFrame(tick);
+    const tick = (now: number) => {
+      if (!running) return;
+      frame = 0;
+      if (now - lastFrameAt < frameInterval) {
+        frame = requestAnimationFrame(tick);
+        return;
+      }
+      lastFrameAt = now;
       const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
       for (const r of people.values()) {
         if (r.path.length) {
@@ -1924,8 +1937,30 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
       renderer.render(scene, camera);
       labels.render(scene, camera);
+      frame = requestAnimationFrame(tick);
     };
-    tick();
+    const startLoop = () => {
+      if (!running && inView && pageVisible) {
+        running = true;
+        lastFrameAt = 0;
+        frame = requestAnimationFrame(tick);
+      }
+    };
+    const stopLoop = () => {
+      running = false;
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+    };
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      if (inView) startLoop(); else stopLoop();
+    });
+    const onVisibilityChange = () => {
+      pageVisible = !document.hidden;
+      if (pageVisible) startLoop(); else stopLoop();
+    };
+    visibilityObserver.observe(el);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     api.current = {
       sync, tv: updateTv, tip: (text) => { tip = text; drawAssistantPc(text); },
@@ -1935,6 +1970,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     };
     return () => {
       cancelAnimationFrame(frame);
+      visibilityObserver.disconnect();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       observer.disconnect();
       labels.domElement.removeEventListener("pointerdown", onDown);
       labels.domElement.removeEventListener("pointerup", onUp);

@@ -85,7 +85,7 @@ export async function POST(request: Request) {
         return json({ next: "verify", factorId: factors.data.totp[0].id });
       const result = await db.auth.mfa.enroll({
         factorType: "totp",
-        friendlyName: `ATLAS ${new Date().toISOString()}`,
+        friendlyName: "ATLAS",
         issuer: "ATLAS",
       });
       if (result.error)
