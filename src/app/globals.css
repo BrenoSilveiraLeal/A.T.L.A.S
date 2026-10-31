@@ -1022,9 +1022,13 @@ code {
 }
 .totp-inputs {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 12px repeat(3, minmax(0, 1fr));
+  column-gap: 9px;
+  row-gap: 9px;
 }
+.totp-inputs input:nth-child(4) { grid-column: 5; }
+.totp-inputs input:nth-child(5) { grid-column: 6; }
+.totp-inputs input:nth-child(6) { grid-column: 7; }
 .login-panel .totp-inputs input {
   min-width: 0;
   min-height: 54px;

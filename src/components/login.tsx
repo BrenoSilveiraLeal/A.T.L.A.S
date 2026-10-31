@@ -136,7 +136,7 @@ export function Login({ configured }: { configured: boolean }) {
             <label>Código de 6 dígitos</label>
             <div className="totp-inputs" role="group" aria-label="Código do autenticador, seis dígitos">
               {Array.from({ length: 6 }, (_, index) => (
-                <input key={index} ref={(element) => { codeFields.current[index] = element; }} type="text" inputMode="numeric" autoComplete={index === 0 ? "one-time-code" : "off"} aria-label={`Dígito ${index + 1}`} value={code[index] ?? ""} required
+                <input key={index} ref={(element) => { codeFields.current[index] = element; }} name={`totp-digit-${index + 1}`} type="text" inputMode="numeric" autoComplete="off" aria-label={`Dígito ${index + 1}`} value={code[index] ?? ""} required
                   onChange={(event) => {
                     const digits = event.target.value.replace(/\D/g, "");
                     const chars = code.split("");
