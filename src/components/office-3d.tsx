@@ -635,6 +635,15 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     controls.touches = { ONE: mobile ? THREE.TOUCH.ROTATE : THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
     if (mobile) labels.domElement.style.touchAction = "pan-y";
     controls.zoomToCursor = true;
+    // Coming in from the ATLAS map (owner, 01/11/2026: "mostrar a transição da vista externa para o
+    // interior"): the camera starts outside the tower, facing this floor, and flies in.
+    const entry = { from: new THREE.Vector3(-55, 60, 150), at: -1 };
+    try {
+      if (sessionStorage.getItem("atlas-entering") === String(FLOOR)) {
+        sessionStorage.removeItem("atlas-entering");
+        if (!reduced) { entry.at = 0; camera.position.copy(entry.from); controls.maxDistance = Infinity; controls.enabled = false; }
+      }
+    } catch { /* storage blocked */ }
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x9c9384, 1.15));
     const sun = new THREE.DirectionalLight(0xfff4e6, 1.7);
@@ -1744,6 +1753,12 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       lastFrameAt = now;
       const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
       if (!reduced) surroundings.userData.update?.(dt);
+      if (entry.at >= 0) {
+        entry.at += dt;
+        const k = Math.min(1, entry.at / 2.4), smooth = k * k * (3 - 2 * k);
+        camera.position.lerpVectors(entry.from, home, smooth);
+        if (k >= 1) { entry.at = -1; controls.maxDistance = 62; controls.enabled = true; }
+      }
       for (const r of people.values()) {
         if (r.path.length) {
           walk(r, r.path, reduced ? 40 : 2.4, dt);

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { NotificationBell } from "./notification-bell";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Building,
   Building2,
@@ -11,19 +11,34 @@ import {
   History,
   ShieldCheck,
   OctagonX,
-  Menu,
-  X,
+  ChevronDown,
   LogOut,
 } from "lucide-react";
+import { officeById } from "@/core/building";
 
-// The ATLAS building, then the owner's four screens of this office; the technical pages are linked from Ajustes.
+/**
+ * The dividends office's frame, in the ATLAS building style (owner, 01/11/2026: "reformular o
+ * visual... combinar com o prédio"): a glass top bar with the office's floor and the way back to
+ * the map, the four main screens as tabs, every technical page under "Mais" (some had no link
+ * before), the alerts bell, the account and, always visible, the emergency stop. Only the layout
+ * changed: logout, stop, alerts and every page work exactly as before.
+ */
+const OFFICE = officeById("dividendos")!;
 const navigation = [
-  { path: "/predio", label: "Prédio", icon: Building },
   { path: "/app", label: "Escritório", icon: Building2 },
   { path: "/app/trades", label: "Carteira", icon: Wallet },
   { path: "/app/history", label: "Histórico", icon: History },
   { path: "/app/controls", label: "Ajustes", icon: SlidersHorizontal },
 ];
+/** Every other page of the office, grouped; all of them existed before (some were reachable only by address). */
+const more = [
+  { group: "Equipe", items: [{ path: "/app/agents", label: "Agentes" }, { path: "/app/office", label: "Sala e reuniões" }, { path: "/tv", label: "Modo TV" }] },
+  { group: "Dinheiro", items: [{ path: "/app/portfolio", label: "Conta e patrimônio" }, { path: "/app/treasury", label: "Tesouraria" }, { path: "/app/orders", label: "Livro de ordens" }, { path: "/app/paper", label: "Simulação" }] },
+  { group: "Mercado", items: [{ path: "/app/market", label: "Mercado e ativos" }, { path: "/app/news", label: "Notícias" }, { path: "/app/research", label: "Pesquisa" }] },
+  { group: "Sistema", items: [{ path: "/app/risk", label: "Risco e limites" }, { path: "/app/audit", label: "Auditoria" }, { path: "/app/health", label: "Saúde do sistema" }, { path: "/app/settings", label: "Configuração" }] },
+];
+const moreItems = more.flatMap((g) => g.items);
+
 export function Shell({
   children,
   configured,
@@ -38,6 +53,14 @@ export function Shell({
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  const inMore = moreItems.find((i) => pathname === i.path || pathname.startsWith(`${i.path}/`));
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!menu.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
   async function logout() {
     setBusy(true);
     try {
@@ -86,7 +109,7 @@ export function Shell({
   }
   return (
     <div
-      className="workspace"
+      className="office-frame"
       onKeyDown={(event) => {
         if (event.key === "Escape") setOpen(false);
       }}
@@ -94,110 +117,92 @@ export function Shell({
       <a className="skip-link" href="#content">
         Ir para o conteúdo
       </a>
-      <aside className={`sidebar ${open ? "is-open" : ""}`}>
-        <button
-          className="icon-button nav-close"
-          aria-label="Fechar navegação"
-          onClick={() => setOpen(false)}
-        >
-          <X size={18} />
-        </button>
-        <Link href="/app" className="brand">
-          <span className="brand-mark">A</span>
-          <span>
-            ATLAS<small>Autonomous Trading System</small>
-          </span>
-        </Link>
-        <nav aria-label="Navegação principal">
+      <header className="office-bar">
+        <div className="office-bar-id">
+          <Link href="/app" className="office-badge" aria-label={`${OFFICE.name}, andar ${OFFICE.floor} da sede ATLAS`} style={{ "--office": OFFICE.color } as React.CSSProperties}>
+            <b>{OFFICE.floor}</b>
+            <span><strong>{OFFICE.name}</strong><small>Sede ATLAS · Autonomous Trading System</small></span>
+          </Link>
+          <Link className="office-map-button" href={`/predio?andar=${OFFICE.floor}`} title="Voltar ao mapa do prédio para escolher outro escritório">
+            <Building size={15} /> <span>Trocar de escritório</span>
+          </Link>
+        </div>
+        <nav className="office-tabs" aria-label="Navegação principal">
           {navigation.map(({ path, label, icon: Icon }) => (
-            <Link
-              key={path}
-              href={path}
-              onClick={() => setOpen(false)}
-              aria-current={pathname === path ? "page" : undefined}
-            >
-              <Icon size={18} strokeWidth={1.6} />
+            <Link key={path} href={path} aria-current={pathname === path ? "page" : undefined}>
+              <Icon size={16} strokeWidth={1.8} />
               <span>{label}</span>
-              {pathname === path && <span className="nav-active" />}
             </Link>
           ))}
-        </nav>
-<div className="sidebar-spacer" />
-        <div className="owner-avatar">
-          <span>P</span>
-          <div>
-            Proprietário<small>Conta privada · Brasil</small>
-          </div>
-          {configured && (
-            <button
-              className="icon-button secondary"
-              aria-label="Sair da conta"
-              disabled={busy}
-              onClick={() => void logout()}
-            >
-              <LogOut size={15} />
+          <div className="office-more" ref={menu}>
+            <button type="button" className={inMore ? "current" : ""} aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)}>
+              <span>{inMore ? inMore.label : "Mais"}</span> <ChevronDown size={14} />
             </button>
-          )}
+            {open && (
+              <div className="office-more-menu" role="menu">
+                {more.map((g) => (
+                  <div key={g.group}>
+                    <small>{g.group}</small>
+                    {g.items.map((i) => (
+                      <Link key={i.path} href={i.path} role="menuitem" aria-current={pathname === i.path ? "page" : undefined} onClick={() => setOpen(false)}>{i.label}</Link>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </nav>
+        <div className="office-bar-actions">
+          <NotificationBell connected={configured} />
+          <div className="office-account" title="Proprietário · Conta privada · Brasil">
+            <span className="office-avatar">P</span>
+            <span className="office-account-text">Proprietário<small>Conta privada · Brasil</small></span>
+            {configured && (
+              <button className="icon-button secondary" aria-label="Sair da conta" disabled={busy} onClick={() => void logout()}>
+                <LogOut size={15} />
+              </button>
+            )}
+          </div>
         </div>
-      </aside>
-      <div className="main-shell">
-        <header className="topbar">
-          <button
-            className="icon-button mobile-menu"
-            aria-label="Abrir navegação"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
-          >
-            <Menu size={22} />
-          </button>
-          <div className="breadcrumb">
-            Workspace <span>/</span>{" "}
-            <strong>
-              {navigation.find((n) => n.path === pathname)?.label ?? "Avançado"}
-            </strong>
-          </div>
-          <div className="topbar-actions"><NotificationBell connected={configured} /></div>
-
-        </header>
-        <div className="safety-strip">
-          <div>
-            <ShieldCheck size={16} />
-            <span>
-              Dinheiro real só opera com a sua confirmação. Em emergência, pare tudo:
-            </span>
-          </div>
-          <button
-            className="kill-button"
-            onClick={() => void stop()}
-            disabled={!configured || busy}
-            title={
-              !configured
-                ? "Sem conexão: nenhuma ordem pode ser enviada pelo ATLAS."
-                : "Bloqueia novas ordens e solicita cancelamento quando houver provider. Não liquida posições."
-            }
-          >
-            <OctagonX size={15} />
-            {busy ? "Parando…" : "Parar todas as operações"}
-          </button>
+      </header>
+      <div className="safety-strip">
+        <div>
+          <ShieldCheck size={16} />
+          <span>
+            Dinheiro real só opera com a sua confirmação. Em emergência, pare tudo:
+          </span>
         </div>
-        {message && (
-          <div className="notice global-message" role="status">
-            {message}
-          </div>
-        )}
-        {localDev && (
-          <div className="notice global-message" role="status">
-            <strong>Modo desenvolvimento:</strong> login desligado neste computador (127.0.0.1). Na Vercel o login continua obrigatório.
-          </div>
-        )}
-        <main id="content" className="main-content">
-          {children}
-        </main>
-        <footer className="footer">
-          <span>ATLAS · Autonomous Trading & Learning Agent System</span>
-          <span>Dados com origem. Decisões com registro.</span>
-        </footer>
+        <button
+          className="kill-button"
+          onClick={() => void stop()}
+          disabled={!configured || busy}
+          title={
+            !configured
+              ? "Sem conexão: nenhuma ordem pode ser enviada pelo ATLAS."
+              : "Bloqueia novas ordens e solicita cancelamento quando houver provider. Não liquida posições."
+          }
+        >
+          <OctagonX size={15} />
+          {busy ? "Parando…" : "Parar todas as operações"}
+        </button>
       </div>
+      {message && (
+        <div className="notice global-message" role="status">
+          {message}
+        </div>
+      )}
+      {localDev && (
+        <div className="notice global-message" role="status">
+          <strong>Modo desenvolvimento:</strong> login desligado neste computador (127.0.0.1). Na Vercel o login continua obrigatório.
+        </div>
+      )}
+      <main id="content" className="main-content">
+        {children}
+      </main>
+      <footer className="footer">
+        <span>ATLAS · Autonomous Trading & Learning Agent System</span>
+        <span>Dados com origem. Decisões com registro.</span>
+      </footer>
     </div>
   );
 }

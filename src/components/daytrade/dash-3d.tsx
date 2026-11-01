@@ -65,6 +65,14 @@ export function Dash3D({ status }: { status: DashStatus }) {
     controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
     const reset = () => { camera.position.copy(home).multiplyScalar(el.clientWidth / Math.max(1, el.clientHeight) < 1.2 ? 1.4 : 1); controls.target.set(0, 0, 0); };
     reset();
+    // Coming in from the ATLAS map: the camera starts outside the tower and flies in.
+    const goal = camera.position.clone(), entry = { from: new THREE.Vector3(-55, 60, 150), at: -1 };
+    try {
+      if (sessionStorage.getItem("atlas-entering") === String(FLOOR)) {
+        sessionStorage.removeItem("atlas-entering");
+        if (!reduced) { entry.at = 0; camera.position.copy(entry.from); controls.maxDistance = Infinity; controls.enabled = false; }
+      }
+    } catch { /* storage blocked */ }
 
     const matte = (color: THREE.ColorRepresentation, roughness = 0.8) => new THREE.MeshStandardMaterial({ color, roughness });
     const add = (o: THREE.Object3D) => { o.traverse((c) => { if (c instanceof THREE.Mesh && !(c.material as THREE.Material).transparent) { c.castShadow = true; c.receiveShadow = true; } }); scene.add(o); return o; };
@@ -190,6 +198,12 @@ export function Dash3D({ status }: { status: DashStatus }) {
       if (!running) return;
       frame = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+      if (entry.at >= 0) {
+        entry.at += dt;
+        const k = Math.min(1, entry.at / 2.4), smooth = k * k * (3 - 2 * k);
+        camera.position.lerpVectors(entry.from, goal, smooth);
+        if (k >= 1) { entry.at = -1; controls.maxDistance = 70; controls.enabled = true; }
+      }
       if (!reduced) {
         surroundings.userData.update?.(dt);
         for (const p of people) { p.head.rotation.y = Math.sin(t * 0.4 + p.phase) * 0.35; p.group.position.y = Math.sin(t * 1.3 + p.phase) * 0.01; }

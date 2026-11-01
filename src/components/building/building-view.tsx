@@ -61,6 +61,8 @@ export function BuildingView() {
     try { localStorage.setItem(LAST_OFFICE, String(office.floor)); } catch { /* storage blocked */ }
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     setEntering(office.floor);
+    // The office page continues the move: its camera starts outside the tower and comes in.
+    try { sessionStorage.setItem("atlas-entering", String(office.floor)); } catch { /* storage blocked */ }
     window.setTimeout(() => router.push(office.href!), flat || reduced ? 0 : FLY_MS);
   }, [router, flat]);
   const remember = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* storage blocked */ } };

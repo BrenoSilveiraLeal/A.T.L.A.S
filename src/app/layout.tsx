@@ -4,6 +4,7 @@ import "./globals.css";
 import "./office.css";
 import "./building.css";
 import "./daytrade.css";
+import "./dividendos.css";
 
 export const metadata: Metadata = {
   title: "ATLAS · Centro de operações",

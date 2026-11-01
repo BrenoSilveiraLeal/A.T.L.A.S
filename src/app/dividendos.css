@@ -1,0 +1,75 @@
+/*
+ * Dividends office (/app/**): the ATLAS building look (owner, 01/11/2026: "reformular o visual...
+ * combinar com o prédio"). Navy and glass with the ATLAS green, a top bar instead of the sidebar.
+ * Colours and layout only; every screen keeps its content and actions.
+ */
+:root {
+  --bg: #0e1524; --sidebar: #111a2c; --panel: #16203a; --panel-raised: #1d2a48; --line: #2a3a5a;
+  --text: #eef3fb; --muted: #a9b6cc; --green: #6fd3a0; --green-ink: #0d2a1b; --amber: #e3c28d; --red: #f0a39b;
+  --radius: 16px;
+}
+body { background: radial-gradient(1400px 700px at 75% -15%, #1b2b4d 0%, #0e1524 60%) fixed, #0e1524; }
+button:hover { background: #8fe2b8; }
+::selection { background: #5fbf8f; color: #0d2a1b; }
+
+.office-frame { min-height: 100vh; display: flex; flex-direction: column; }
+.office-bar { position: sticky; top: 0; z-index: 30; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px;
+  padding: 12px clamp(16px, 2.5vw, 34px); background: rgba(14, 21, 36, 0.82); border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.office-bar-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.office-badge { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--text); }
+.office-badge:hover { color: var(--text); }
+.office-badge b { display: grid; place-items: center; width: 38px; height: 38px; flex: none; border-radius: 12px; background: var(--office); color: #0d2a1b; font-size: 17px; font-weight: 800; }
+.office-badge span { display: grid; min-width: 0; }
+.office-badge strong { font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.office-badge small { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.office-map-button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  color: var(--text); background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); white-space: nowrap; }
+.office-map-button:hover { color: #0d2a1b; background: #5fbf8f; border-color: #5fbf8f; }
+
+.office-tabs { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; }
+.office-tabs > a, .office-more > button { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; color: var(--muted); background: transparent; border: 1px solid transparent; white-space: nowrap; min-height: 38px; }
+.office-tabs > a:hover, .office-more > button:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.office-tabs > a[aria-current="page"], .office-more > button.current { color: #0d2a1b; background: #6fd3a0; }
+.office-more { position: relative; }
+.office-more-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; display: grid; grid-template-columns: repeat(2, minmax(170px, 1fr)); gap: 14px;
+  padding: 16px; border-radius: 16px; background: rgba(17, 26, 44, 0.97); border: 1px solid var(--line); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45); }
+.office-more-menu > div { display: grid; gap: 2px; align-content: start; }
+.office-more-menu small { margin: 0 8px 4px; font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.office-more-menu a { padding: 7px 8px; border-radius: 8px; font-size: 13px; color: var(--text); }
+.office-more-menu a:hover, .office-more-menu a[aria-current="page"] { background: rgba(111, 211, 160, 0.14); color: #a8f0c9; }
+
+.office-bar-actions { display: flex; align-items: center; gap: 12px; }
+.office-account { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); }
+.office-avatar { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: #2a3a5a; font-size: 13px; font-weight: 800; }
+.office-account-text { display: grid; font-size: 12px; font-weight: 700; padding-right: 4px; }
+.office-account-text small { font-size: 10px; }
+.office-account .icon-button { width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; }
+
+.office-frame .safety-strip { background: rgba(240, 163, 155, 0.06); border-bottom: 1px solid var(--line); padding: 8px clamp(16px, 2.5vw, 34px); }
+.office-frame .safety-strip > div { color: #b9f1d3; font-size: 12px; }
+.office-frame .kill-button { font-size: 12px; font-weight: 800; border-radius: 999px; padding: 6px 14px; min-height: 32px; border-color: rgba(240, 163, 155, 0.55); }
+.office-frame .main-content { flex: 1; width: 100%; padding: clamp(18px, 2.5vw, 34px); }
+.office-frame .global-message { margin: 14px clamp(16px, 2.5vw, 34px) 0; }
+.office-frame .footer { padding: 18px clamp(16px, 2.5vw, 34px); color: var(--muted); }
+.office-frame .notice { background: rgba(227, 194, 141, 0.08); border-color: rgba(227, 194, 141, 0.3); border-radius: 12px; }
+
+/* Cards and tables across the office screens: glass panels with rounded corners. */
+.office-frame .panel, .office-frame .metric, .office-frame .scoreboard > *, .office-frame .team-status {
+  background: rgba(22, 32, 58, 0.82); border-color: var(--line); border-radius: var(--radius); }
+.office-frame .office3d { border-radius: 22px; border-color: rgba(111, 211, 160, 0.3); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35); }
+.office-frame .office3d-canvas { max-height: 82vh; }
+
+@media (max-width: 1100px) {
+  .office-bar { grid-template-columns: 1fr auto; }
+  .office-tabs { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
+  .office-more-menu { position: fixed; top: auto; left: 12px; right: 12px; grid-template-columns: 1fr 1fr; }
+  .office-account-text { display: none; }
+}
+@media (max-width: 640px) {
+  .office-badge small, .office-map-button span { display: none; }
+  .office-tabs > a span { display: none; }
+  .office-tabs > a { padding: 0 12px; }
+  .office-more-menu { grid-template-columns: 1fr; max-height: 70vh; overflow: auto; }
+}
