@@ -33,7 +33,7 @@ export function Login({ configured }: { configured: boolean }) {
       if (!response.ok) throw new Error(data.error);
       if (data.ok) {
         setSecret("");
-        router.push("/app");
+        router.push("/predio");
         router.refresh();
       } else {
         setStep(data.next);

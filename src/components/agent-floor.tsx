@@ -282,7 +282,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
           marketNote={session.status === "OPEN" ? "As IAs podem comprar e vender (10h05 às 16h50)." : `${session.reason} As IAs só operam das 10h05 às 16h50 em dias úteis.`}
           alive={alive.length} total={alive.length} />
         <div className="office-stage three">
-          <Office3D agents={office} assistantTip={tip} boss={floor.live ? { deposited: floor.live.genial.deposited, free: floor.live.genial.free } : null} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} meeting={meeting}
+          <Office3D agents={office} assistantTip={tip} boss={floor.live ? { deposited: floor.live.genial.deposited, free: floor.live.genial.free } : null} tvHeadline={top ? { title: top.title, source: top.source } : null} selected={selected || null} meeting={meeting} buildingLink={view !== "tv"}
             onSelect={(id) => setSelected((current) => (current === id ? "" : id))}
             tvLines={[["Resultado real", `${totalPnl >= 0 ? "+" : "−"}${formatBrl(Math.abs(totalPnl).toFixed(2))}`, totalPnl >= 0 ? "#3dffa8" : "#ff5d7d"],
               ["CDI no período", cdiPct === null || !account ? "—" : `+${formatBrl(((Number(account.initial_cash) * cdiPct) / 100).toFixed(2))}`, "#ffc65c"],

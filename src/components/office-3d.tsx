@@ -13,8 +13,14 @@ import { meetingClock } from "@/core/meeting";
 import { B3_CALENDAR, saoPauloClock } from "@/core/b3-calendar";
 import { NavGrid, type Rect } from "@/core/office-nav";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
-import { LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
+import Link from "next/link";
+import { Building, LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
 import { SELLS_NEAR_HIGH } from "@/core/range";
+import { ELEVATOR, officeById, TOWER, wallSegments } from "@/core/building";
+import { buildSurroundings, SHAFT } from "./building/city";
+
+/** This office's floor in the ATLAS tower. */
+const FLOOR = officeById("dividendos")!.floor;
 
 /**
  * 3D office in the style of a modern tech office. Every agent is a person (look from
@@ -39,8 +45,11 @@ import { SELLS_NEAR_HIGH } from "@/core/range";
  * - Walking: people follow paths around the furniture on a floor grid (core/office-nav.ts), one
  *   person per seat.
  * - First person (owner, 27/10/2026): the owner takes over the boss and walks with W A S D, looking
- *   with the mouse, colliding with walls, furniture and people; ceiling and entrance door appear.
+ *   with the mouse, colliding with walls, furniture and people; the ceiling appears.
  * - When an agent goes back to work its computer beeps and flashes and it walks to the desk.
+ * - In the ATLAS tower (owner, 01/11/2026): the office is a floor of the tower, with the city around
+ *   it (building/city.ts), windows in the outside walls and an elevator where the entrance door was.
+ *   Only the look changed; everything the office does is the same.
  * Walls work like The Sims "cutaway". Falls back to the 2D map without WebGL.
  */
 type V2 = [number, number];
@@ -564,8 +573,10 @@ function beep(ctx: AudioContext | null) {
   });
 }
 
-export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, selected, onSelect, meeting = null }: {
+export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, selected, onSelect, meeting = null, buildingLink = true }: {
   agents: OfficeAgent[]; boss: Money;
+  /** Shows the button back to the ATLAS building (hidden on the TV broadcast). */
+  buildingLink?: boolean;
   /** Latest end-of-day meeting minutes (team_meetings). */
   meeting?: Meeting | null;
   /** What the boss's assistant reports when he walks to the boss (best stock outside the team). */
@@ -606,10 +617,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const unlockAudio = () => { try { audio ??= new AudioContext(); void audio.resume().then(startAmbienceIfOn); } catch { audio = null; } };
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1b1e24);
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 220);
+    // Sky, the tower below this floor and the city around it (sets the background and the fog).
+    const surroundings = buildSurroundings(scene, { floor: FLOOR, mobile });
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 1200);
     const home = new THREE.Vector3(0, 33, 33);
     camera.position.copy(home);
     const controls = new OrbitControls(camera, labels.domElement);
@@ -679,7 +691,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       frame.position.set(pane.position.x, h, pane.position.z); frame.rotation.y = pane.rotation.y; scene.add(frame);
     };
     const H = 3.4, Hi = 3.0;
-    // Only in first person: the ceiling with light panels and the closed entrance door.
+    // Only in first person: the ceiling with light panels.
     const inside = new THREE.Group(); inside.visible = false; scene.add(inside);
     {
       const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(48, 28), matte("#e9e6e0", 0.9));
@@ -688,12 +700,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       for (let x = -20; x <= 20; x += 6) for (let z = -10; z <= 10; z += 5) {
         const p = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.03, 0.6), panel); p.position.set(x, H - 0.02, z); inside.add(p);
       }
-      const door = matte("#3b2a1c", 0.6), handle = new THREE.MeshStandardMaterial({ color: 0xc9a45c, metalness: 0.7, roughness: 0.3 });
-      for (const x of [-20.375, -18.125]) {
-        const leaf = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.7, 0.08), door); leaf.position.set(x, 1.35, 14); inside.add(leaf);
-        const knob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), handle); knob.position.set(x + (x < -19 ? 0.9 : -0.9), 1.1, 13.94); inside.add(knob);
-      }
-      const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.5, H - 2.7, 0.18), matte("#2e4057", 0.85)); lintel.position.set(-19.25, 2.7 + (H - 2.7) / 2, 14); inside.add(lintel);
     }
     const paint = matte("#2e4057", 0.85);
     const backWall = wall(-24, -14, 24, -14, H, paint, true, [0, -1]);
@@ -707,6 +713,30 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     glassWall(2.77, -6, BOSS_X - 0.8, -6); glassWall(BOSS_X + 0.8, -6, 10.57, -6);
     // Meeting room front: glass with the door (the market screen stands on its own in front of it).
     glassWall(10.77, -6, MEETING_DOOR - 0.8, -6); glassWall(MEETING_DOOR + 0.8, -6, 23.9, -6);
+
+    // Elevator (owner, 01/11/2026: "trocar a porta por um elevador, já que vai ser um prédio"): steel
+    // frame and sliding doors in the old doorway, the floor display above, the call buttons beside it
+    // and the shaft outside the front wall. They drop with the front wall in the cutaway.
+    {
+      const brushed = new THREE.MeshStandardMaterial({ color: 0xc9cdd2, roughness: 0.28, metalness: 0.85 });
+      const x0 = ELEVATOR.x, half = ELEVATOR.width / 2, z = TOWER.depth / 2;
+      const parts: THREE.Object3D[] = [];
+      for (const x of [x0 - half + 0.15, x0 + half - 0.15]) parts.push(box(0.3, H, 0.24, x, H / 2, z, metal));
+      parts.push(box(ELEVATOR.width, H - 2.6, 0.24, x0, 2.6 + (H - 2.6) / 2, z, metal));
+      for (const side of [-1, 1]) parts.push(box(half - 0.32, 2.6, 0.06, x0 + side * (half - 0.3) / 2, 1.3, z - 0.06, brushed));
+      const display = canvasTexture(256, 96);
+      display.g.fillStyle = "#0b0d10"; display.g.fillRect(0, 0, 256, 96);
+      display.g.fillStyle = "#ffb347"; display.g.font = "bold 64px sans-serif"; display.g.textAlign = "center"; display.g.textBaseline = "middle";
+      display.g.fillText(`${FLOOR} ▲▼`, 128, 50); display.texture.needsUpdate = true;
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.34), new THREE.MeshBasicMaterial({ map: display.texture, toneMapped: false }));
+      screen.position.set(x0, 3.0, z - 0.13); screen.rotation.y = Math.PI; scene.add(screen); parts.push(screen);
+      parts.push(box(0.18, 0.42, 0.04, x0 + half + 0.35, 1.2, z - 0.11, brushed));
+      const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe2a8, emissiveIntensity: 0.8 });
+      for (const y of [1.29, 1.11]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.02, 16), lit); b.rotation.x = Math.PI / 2; b.position.set(x0 + half + 0.35, y, z - 0.14); scene.add(b); parts.push(b); }
+      const shaft = box(ELEVATOR.width + 0.4, H + 0.45, ELEVATOR.depth, x0, (H - 0.45) / 2, z + ELEVATOR.depth / 2, SHAFT());
+      parts.push(shaft);
+      frontWall.items.push(...parts);
+    }
 
     // Room names are painted on each room's own screen or board (no floating signs that turn with the camera).
 
@@ -1210,6 +1240,51 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     [0xff5d4d, 0xffc65c, 0x7ed957].forEach((c, i) => {
       const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), matte(c, 0.5)); fruit.position.set(22.45 + (i % 2) * 0.06, 1.26, 10.5 + i * 0.09); scene.add(fruit);
     });
+
+    // Windows in the outside walls (owner, 01/11/2026: the office is a floor of the ATLAS tower, so its
+    // walls get the tower's windows, with the façade's bay, sill and head from core/building.ts). The
+    // wall stays solid only right behind what hangs on it or tall furniture against it, like piers
+    // between windows; the rest is glass. Glass and frames are children of the wall, so they drop
+    // with it in the cutaway.
+    {
+      const blockers = scene.children.filter((o) => o !== surroundings && o !== inside && o !== floor && !walls.some((w) => w.mesh === o))
+        .map((o) => new THREE.Box3().setFromObject(o)).filter((b) => !b.isEmpty() && b.max.y > 1.5);
+      const corner = new THREE.Vector3();
+      for (const w of walls.filter((x) => x.outer)) {
+        const geometry = w.mesh.geometry as THREE.BoxGeometry, { width: len, height: h } = geometry.parameters;
+        w.mesh.updateMatrixWorld(true);
+        const toWall = w.mesh.matrixWorld.clone().invert();
+        const along = (b: THREE.Box3) => {
+          let lo = Infinity, hi = -Infinity, zlo = Infinity, zhi = -Infinity;
+          for (let i = 0; i < 8; i++) {
+            corner.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).applyMatrix4(toWall);
+            lo = Math.min(lo, corner.x); hi = Math.max(hi, corner.x); zlo = Math.min(zlo, corner.z); zhi = Math.max(zhi, corner.z);
+          }
+          return { lo, hi, gap: zlo > 0 ? zlo : zhi < 0 ? -zhi : 0 };
+        };
+        const blocked: [number, number][] = w.items.map((item) => { const a = along(new THREE.Box3().setFromObject(item)); return [a.lo, a.hi]; });
+        // Tall furniture against the wall (bookshelves); merged or room-sized meshes are skipped.
+        for (const b of blockers) { const a = along(b); if (a.gap < 0.9 && a.hi - a.lo < 6 && a.hi > -len / 2 && a.lo < len / 2) blocked.push([a.lo, a.hi]); }
+        const solid: THREE.BufferGeometry[] = [], panes: THREE.BufferGeometry[] = [], frames: THREE.BufferGeometry[] = [];
+        const part = (list: THREE.BufferGeometry[], bw: number, bh: number, d: number, x: number, y: number) => list.push(new THREE.BoxGeometry(bw, bh, d).translate(x, y, 0));
+        const glassH = TOWER.head - TOWER.sill, glassY = (TOWER.sill + TOWER.head) / 2;
+        for (const piece of wallSegments(len, blocked)) {
+          const bw = piece.to - piece.from, cx = (piece.from + piece.to) / 2;
+          if (!piece.glass) { part(solid, bw, h, 0.18, cx, h / 2); continue; }
+          part(solid, bw, TOWER.sill, 0.18, cx, TOWER.sill / 2);
+          part(solid, bw, h - TOWER.head, 0.18, cx, (TOWER.head + h) / 2);
+          part(panes, bw - 0.1, glassH, 0.04, cx, glassY);
+          for (const edge of [piece.from + 0.04, piece.to - 0.04]) part(frames, 0.08, glassH, 0.2, edge, glassY);
+        }
+        if (panes.length) {
+          geometry.dispose();
+          w.mesh.geometry = mergeGeometries(solid);
+          const pane = new THREE.Mesh(mergeGeometries(panes), glassMat), frame = new THREE.Mesh(mergeGeometries(frames), metal);
+          frame.castShadow = true; w.mesh.add(pane, frame);
+        }
+        [...solid, ...panes, ...frames].forEach((g) => g.dispose());
+      }
+    }
 
     // Staff: specialists in every council room, the boss, the receptionist, the supervisor.
     const staff: { person: Person; pose: Pose; phase: number; away?: boolean }[] = [];
@@ -2011,6 +2086,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         aria-label={`Escritório 3D com ${agents.length} IAs. ${agents.map((a) => `${a.name}: ${a.activity}`).join(" ")}`} />
       {/* Owner, 26/10/2026: the status dots always in the bottom corner; sound and centre top right. */}
       <div className="office3d-top">
+        {buildingLink && <Link className="office3d-map-link" href={`/predio?andar=${FLOOR}`} title="Voltar ao mapa do prédio ATLAS para escolher outro escritório">
+          <Building size={16} /> Trocar de escritório
+        </Link>}
         <button type="button" className={`icon-button secondary ${firstPerson ? "active" : ""}`} onClick={() => setFirstPerson((on) => !on)} aria-pressed={firstPerson}
           aria-label={firstPerson ? "Sair do modo Chefe" : "Andar pelo escritório como o Chefe"} title={firstPerson ? "Sair do modo Chefe" : "Andar como o Chefe"}>
           <PersonStanding size={18} />

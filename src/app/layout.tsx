@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "@fontsource-variable/manrope";
 import "./globals.css";
 import "./office.css";
+import "./building.css";
 
 export const metadata: Metadata = {
   title: "ATLAS · Centro de operações",

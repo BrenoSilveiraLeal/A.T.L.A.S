@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { NotificationBell } from "./notification-bell";
 import { useState } from "react";
 import {
+  Building,
   Building2,
   Wallet,
   SlidersHorizontal,
@@ -15,8 +16,9 @@ import {
   LogOut,
 } from "lucide-react";
 
-// The owner's four screens; the technical pages are linked from Ajustes.
+// The ATLAS building, then the owner's four screens of this office; the technical pages are linked from Ajustes.
 const navigation = [
+  { path: "/predio", label: "Prédio", icon: Building },
   { path: "/app", label: "Escritório", icon: Building2 },
   { path: "/app/trades", label: "Carteira", icon: Wallet },
   { path: "/app/history", label: "Histórico", icon: History },
