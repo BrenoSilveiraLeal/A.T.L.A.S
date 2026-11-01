@@ -77,6 +77,10 @@
 .building-intro span { font-size: 13px; letter-spacing: 0.28em; text-transform: uppercase; }
 @keyframes building-intro { 0%, 45% { opacity: 1; } 80%, 100% { opacity: 0; visibility: hidden; } }
 
+/* Entering an office: after the zoom to its floor, the screen fades out before the office page. */
+.building-fade { position: absolute; inset: 0; pointer-events: none; background: #0e1524; opacity: 0; animation: building-fade 1.7s ease-in forwards; }
+@keyframes building-fade { 0%, 55% { opacity: 0; } 100% { opacity: 1; } }
+
 /* Flat section of the tower (phones, or without 3D). */
 .building-flat { position: absolute; inset: 0; display: grid; place-items: center; padding: 76px 16px 220px; overflow: auto;
   background: linear-gradient(#9fd0f2, #cfe8f7 68%, #7cc35a 68.2%, #6cb14d); }

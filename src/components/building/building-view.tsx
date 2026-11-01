@@ -11,7 +11,7 @@ import type { BuildingApi } from "./building-3d";
 const LAST_OFFICE = "atlas-last-office";
 const NIGHT = "atlas-building-night";
 /** Time for the camera to fly to the floor before the office opens. */
-const FLY_MS = 900;
+const FLY_MS = 1700;
 
 // three.js is loaded only in the browser.
 const Building3D = dynamic(() => import("./building-3d").then((m) => m.Building3D), {
@@ -81,6 +81,7 @@ export function BuildingView() {
         {flat ? <div className="building-flat"><Elevator2D selected={entering ?? last} onSelect={go} onEnter={go} /></div>
           : <Building3D selected={entering} highlight={last} night={night} intro={intro} onSelect={go} onEnter={go} onFail={() => setFailed(true)} apiRef={api} />}
 
+        {entering !== null && !flat && <div className="building-fade" aria-hidden="true" />}
         {intro && !flat && <div className="building-intro" aria-hidden="true">
           <small>ATLAS apresenta</small><strong>A sede</strong><span>Escolha o escritório</span>
         </div>}

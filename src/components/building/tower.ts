@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { ELEVATOR, floorLevel, TOWER } from "@/core/building";
-import { addPalms, buildCity, facadeMaterial, glows, Mass, roundedBody, roundedSlab, SKY, type FacadeStyle } from "./city";
+import { addPalms, buildCity, facadeMaterial, glows, Mass, NIGHT_SKY, prefersNight, roundedBody, roundedSlab, setNight, SKY, type FacadeStyle } from "./city";
 
 /**
  * The ATLAS headquarters (owner, 01/11/2026: "personalizar o prédio para ser do A.T.L.A.S", "bem
@@ -210,8 +210,10 @@ export function elevatorTube(m: TowerMaterials, from = floorLevel(PODIUM_TOP), t
  * street (podium, glass floors, the elevator tube) and the city. The office floor stays at y = 0.
  */
 export function buildSurroundings(scene: THREE.Scene, { floor, mobile = false }: { floor: number; mobile?: boolean }) {
-  scene.background = new THREE.Color(SKY);
-  scene.fog = new THREE.Fog(SKY, 320, 1100);
+  // Same city, same tower and the same day or night as on the map.
+  const night = prefersNight(), sky = night ? NIGHT_SKY : SKY;
+  scene.background = new THREE.Color(sky);
+  scene.fog = new THREE.Fog(sky, 600, 2800);
   const m = towerMaterials(), street = -floorLevel(floor), group = new THREE.Group(), below = new THREE.Group();
   group.add(officeSlab(m));
   below.position.y = street;
@@ -223,6 +225,8 @@ export function buildSurroundings(scene: THREE.Scene, { floor, mobile = false }:
   group.add(below);
   // The cars down in the street keep driving (the office scene calls this every frame).
   group.userData.update = city.userData.update;
+  group.userData.night = night;
+  setNight(group, night ? 1 : 0);
   scene.add(group);
   return group;
 }

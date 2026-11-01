@@ -65,7 +65,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(SKY);
-    scene.fog = new THREE.Fog(SKY, 520, 1600);
+    scene.fog = new THREE.Fog(SKY, 700, 3000);
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     // Warm, sunny light with soft shadows: the toy-city look of a life simulator (moonlight at night).
@@ -77,11 +77,11 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     sun.shadow.bias = -0.0006;
     scene.add(sun);
 
-    const camera = new THREE.PerspectiveCamera(32, 1, 1, 3200);
+    const camera = new THREE.PerspectiveCamera(32, 1, 1, 4500);
     const controls = new OrbitControls(camera, labels.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.08;
     controls.enablePan = false;
-    controls.minDistance = 70; controls.maxDistance = 440;
+    controls.minDistance = 70; controls.maxDistance = 620;
     controls.minPolarAngle = 0.35; controls.maxPolarAngle = 1.42;
     controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
     const home = () => {
@@ -250,12 +250,14 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
 
     // Entering an office: the camera moves in towards its floor (the tower stays whole), then the
     // office opens on its own page.
-    const goal = { target: new THREE.Vector3(0, DEFAULT_TARGET, 0), distance: 0, active: false };
+    const goal = { target: new THREE.Vector3(0, DEFAULT_TARGET, 0), distance: 0, active: false }, orbit = new THREE.Spherical();
     sync.current = (floor) => {
       current = floor;
       for (const f of floors) f.tag?.element.classList.toggle("selected", f.number === floor);
       goal.target.set(0, floor ? floorLevel(floor) + 1.7 : DEFAULT_TARGET, 0);
-      goal.distance = floor ? Math.min(Math.max(camera.position.distanceTo(controls.target), 140), 185) : camera.position.distanceTo(controls.target);
+      // Zoom right up to the chosen floor (the office page then continues inside); the controls let go meanwhile.
+      if (floor) { controls.minDistance = 20; controls.maxPolarAngle = 1.45; controls.enabled = false; }
+      goal.distance = floor ? 38 : camera.position.distanceTo(controls.target);
       goal.active = true;
     };
     if (apiRef) apiRef.current = { reset: () => { goal.active = false; home(); } };
@@ -285,7 +287,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     const tick = () => {
       if (!running) return;
       frame = requestAnimationFrame(tick);
-      const dt = Math.min(clock.getDelta(), 0.1), ease = reduced ? 1 : Math.min(1, dt * 4);
+      const dt = Math.min(clock.getDelta(), 0.1);
       if (introAt >= 0) {
         // Down through the clouds; they thin out as the camera passes them.
         introAt += dt;
@@ -307,11 +309,14 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       }
       if (!reduced) city.userData.update?.(dt);
       if (goal.active) {
-        controls.target.lerp(goal.target, ease);
-        const offset = camera.position.clone().sub(controls.target);
-        const length = offset.length();
-        camera.position.copy(controls.target).add(offset.setLength(length + (goal.distance - length) * ease));
-        if (controls.target.distanceTo(goal.target) < 0.05 && Math.abs(goal.distance - length) < 0.1) goal.active = false;
+        // Entering an office: a slower, deeper move that ends level with its floor, close to the glass.
+        const step = reduced ? 1 : Math.min(1, dt * (current !== null ? 2.2 : 4));
+        controls.target.lerp(goal.target, step);
+        orbit.setFromVector3(camera.position.clone().sub(controls.target));
+        orbit.radius += (goal.distance - orbit.radius) * step;
+        if (current !== null) orbit.phi += (1.38 - orbit.phi) * step;
+        camera.position.setFromSpherical(orbit).add(controls.target);
+        if (controls.target.distanceTo(goal.target) < 0.05 && Math.abs(goal.distance - orbit.radius) < 0.1) goal.active = false;
       }
       controls.update();
       // Plates beside the tower, to the left of it from wherever the camera looks (the elevator panel is on the right).

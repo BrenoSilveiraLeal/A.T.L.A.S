@@ -621,7 +621,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     // Sky, the tower below this floor and the city around it (sets the background and the fog).
     const surroundings = buildSurroundings(scene, { floor: FLOOR, mobile });
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 1200);
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 3200);
     const home = new THREE.Vector3(0, 33, 33);
     camera.position.copy(home);
     const controls = new OrbitControls(camera, labels.domElement);
@@ -645,13 +645,15 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
     } catch { /* storage blocked */ }
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x9c9384, 1.15));
+    const sky = new THREE.HemisphereLight(0xffffff, 0x9c9384, 1.15); scene.add(sky);
     const sun = new THREE.DirectionalLight(0xfff4e6, 1.7);
     sun.position.set(-14, 30, 18); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 22, bottom: -22, near: 1, far: 90 });
     sun.shadow.bias = -0.0004;
     scene.add(sun);
+    // Night on the map is night here too: softer daylight, the city lit outside the windows.
+    if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; }
 
     // Furniture helpers.
     const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material, shadow = true) => {
