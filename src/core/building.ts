@@ -49,8 +49,8 @@ export const OFFICES: readonly Office[] = [
     summary: "Ações da B3 para longo prazo e dividendos. A equipe de IAs que já trabalha com a Genial." },
   // Names chosen by the owner, 01/11/2026. The current office's own name is still to be chosen.
   { id: "dash", name: "DASH", fullName: "Day-trading Analysis & Strategy Hub", tagline: "Núcleo de Análise e Estratégia de Day Trade",
-    floor: 9, status: "BUILDING", href: null, color: "#e3c28d",
-    summary: "Day trade. Em construção: vai começar em modo simulado, com contas e limites próprios." },
+    floor: 9, status: "BUILDING", href: "/daytrade", color: "#e3c28d",
+    summary: "Day trade. Em construção: abre em modo simulado, com contas e limites próprios; ainda não envia ordens." },
   { id: "coin", name: "COIN", fullName: "Crypto Operations & Intelligence Network", tagline: "Rede de Inteligência e Operações com Criptoativos",
     floor: 10, status: "LOCKED", href: null, color: "#9db4e8",
     summary: "Criptoativos. Bloqueado: previsto para uma etapa futura." },

@@ -6,7 +6,7 @@ import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRe
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { floorLevel, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
 import { buildCity, Mass, setNight, SKY } from "./city";
-import { crownTop, elevatorTube, floorShell, lobby, officeTerrace, towerMaterials } from "./tower";
+import { crownTop, elevatorTube, floorShell, lobby, officeSlab, towerMaterials } from "./tower";
 
 /**
  * The ATLAS headquarters in its city (owner, 01/11/2026: "a página inicial mostra um prédio
@@ -177,9 +177,8 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       const floor: Floor = { number, group, cut: 0, office };
       if (!office) group.add(floorShell(number, m));
       else {
-        // Office floor: slab, columns and fins, the terrace with planters, and a glass front showing the office.
-        group.add(floorShell(number, m, false));
-        const terrace = officeTerrace(m); terrace.position.y = 0.45; group.add(terrace);
+        // Office floor: a plain slab and clear glass showing the office inside (no balcony).
+        const slab = officeSlab(m); slab.position.y += 0.45; group.add(slab);
         const inner = new THREE.Group(); inner.position.y = 0.42; group.add(inner);
         interior(office, inner);
         const glass = new THREE.MeshPhysicalMaterial({ color: office.status === "LOCKED" ? 0xe4f3ec : 0xd8f1ff, transparent: true,
@@ -193,11 +192,11 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         floor.ceiling = ceiling;
         // Coloured band at the slab edge: the office's colour, brighter when hovered or chosen.
         const band = new THREE.MeshStandardMaterial({ color: office.color, emissive: new THREE.Color(office.color), emissiveIntensity: 0.25, roughness: 0.5 });
-        const strip = new Mass(), hw = W / 2 + 3.05, hd = D / 2 + 3.05;
+        const strip = new Mass(), hw = W / 2 + 0.45, hd = D / 2 + 0.45;
         strip.box(0, 0, hd, hw * 2, 0.3, 0.08, false); strip.box(0, 0, -hd, hw * 2, 0.3, 0.08, false);
         strip.box(hw, 0, 0, 0.08, 0.3, hd * 2, false); strip.box(-hw, 0, 0, 0.08, 0.3, hd * 2, false);
         const bandMesh = new THREE.Mesh(strip.geometry(), band); bandMesh.position.y = 0.12; group.add(bandMesh);
-        const hit = new THREE.Mesh(new THREE.BoxGeometry(W + 6, H, D + 6), new THREE.MeshBasicMaterial({ visible: false }));
+        const hit = new THREE.Mesh(new THREE.BoxGeometry(W + 1, H, D + 1), new THREE.MeshBasicMaterial({ visible: false }));
         hit.position.y = H / 2; hit.userData.floor = number; group.add(hit);
         // Readable plate (HTML), kept beside the tower on the side the camera looks from.
         const tag = document.createElement("button");
@@ -330,7 +329,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
           const y = floorLevel(f.number) + 1.9;
           f.tag.position.set(-side.x * 36 + toCamera.x * 6, floorLevel(middle) + 1.9 + (f.number - middle) * spacing, -side.z * 36 + toCamera.z * 6);
           const ends = f.leader!.geometry.attributes.position as THREE.BufferAttribute;
-          ends.setXYZ(0, -side.x * 27 + toCamera.x * 17, y, -side.z * 27 + toCamera.z * 17);
+          ends.setXYZ(0, -side.x * 24.5 + toCamera.x * 14.5, y, -side.z * 24.5 + toCamera.z * 14.5);
           ends.setXYZ(1, f.tag.position.x, f.tag.position.y, f.tag.position.z); ends.needsUpdate = true;
           const on = f.number === current, over = f.number === hovered || f.number === glow.current;
           f.band!.emissiveIntensity = on ? 1.4 : over ? 0.9 : 0.25;

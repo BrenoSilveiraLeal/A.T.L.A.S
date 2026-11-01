@@ -251,14 +251,22 @@ const mesh = (mass: Mass, material: THREE.Material, shadows = false) => {
 export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed?: number } = {}) {
   const random = seeded(seed), city = new THREE.Group();
   const reach = mobile ? 2 : 3;
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), plain("#4c5463", 0.95));
+  // Grass everywhere; asphalt only under the city's blocks, so the city ends in green land, not in road.
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), plain("#86bf6a", 1));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; city.add(ground);
+  /** The city is roughly round: the corner blocks of the grid are left to the outskirts. */
+  const inside = (i: number, j: number) => Math.abs(i) <= reach && Math.abs(j) <= reach && Math.hypot(i, j) <= reach + 0.35;
+  /** Ring road around the city, linking the ends of its streets. */
+  const RING = (reach + 1) * PITCH, ROAD = 14;
+  const asphalt = new Mass();
 
   const plinths = new Mass(), lawns = new Mass(), plaza = new Mass(), marks = new Mass(), zebra = new Mass(), roofs = new Mass(), terracotta = new Mass();
-  const pools = new Mass(), decks = new Mass(), pads = new Mass();
+  const pools = new Mass(), decks = new Mass();
   const facades = STREET_STYLES.map(() => new Mass()), rounds: THREE.BufferGeometry[][] = STREET_STYLES.map(() => []);
   const boards: THREE.BufferGeometry[][] = [[], [], [], []], discs: THREE.BufferGeometry[] = [];
-  const trees: [number, number, number][] = [], bushes: [number, number, number][] = [], lamps: [number, number][] = [], cars: [number, number, number][] = [];
+  const trees: [number, number, number][] = [], bushes: [number, number, number][] = [], lamps: [number, number][] = [];
+  /** Cars: x, z, heading, and the stretch of street they drive along (they loop within it). */
+  const cars: [number, number, number, number, number][] = [];
   const palms: [number, number, number, number][] = [];
   const treeRow = (x0: number, z0: number, x1: number, z1: number, step: number) => {
     const n = Math.floor(Math.hypot(x1 - x0, z1 - z0) / step);
@@ -269,13 +277,12 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       if (i < n && random() < 0.7) bushes.push([x + (x1 - x0) / Math.max(1, n) / 2, z + (z1 - z0) / Math.max(1, n) / 2, 0.6 + random() * 0.5]);
     }
   };
-  /** A rooftop: pool with deck, garden with palms, helipad or machinery. */
+  /** A rooftop: pool with deck, garden with palms, or light machinery (no dark helipads). */
   const rooftop = (x: number, y: number, z: number, w: number, d: number) => {
     roofs.box(x, y, z, w + 0.8, 0.6, d + 0.8);
     const kind = random(), top = y + 0.6;
-    if (kind < 0.3 && w > 14) { decks.box(x, top, z, w - 2, 0.12, d - 2); pools.box(x, top + 0.12, z, (w - 2) * 0.55, 0.08, (d - 2) * 0.45); palms.push([x + w * 0.35, top, z + d * 0.32, 0.55], [x - w * 0.35, top, z - d * 0.32, 0.5]); }
-    else if (kind < 0.55) { lawns.box(x, top, z, w - 3, 0.15, d - 3); palms.push([x, top, z, 0.6]); bushes.push([x + w * 0.3, z + d * 0.3, 0.7], [x - w * 0.3, z - d * 0.25, 0.6]); }
-    else if (kind < 0.7 && w > 16) pads.box(x, top, z, Math.min(w, d) * 0.6, 0.1, Math.min(w, d) * 0.6);
+    if (kind < 0.35 && w > 14) { decks.box(x, top, z, w - 2, 0.12, d - 2); pools.box(x, top + 0.12, z, (w - 2) * 0.55, 0.08, (d - 2) * 0.45); palms.push([x + w * 0.35, top, z + d * 0.32, 0.55], [x - w * 0.35, top, z - d * 0.32, 0.5]); }
+    else if (kind < 0.7) { lawns.box(x, top, z, w - 3, 0.15, d - 3); palms.push([x, top, z, 0.6]); bushes.push([x + w * 0.3, z + d * 0.3, 0.7], [x - w * 0.3, z - d * 0.25, 0.6]); }
     else roofs.box(x + (random() - 0.5) * w * 0.4, top, z + (random() - 0.5) * d * 0.4, 4, 2.2, 3);
   };
   /** An LED panel on the face of a tower that looks at +z or -z. */
@@ -285,8 +292,10 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   };
 
   for (let i = -reach; i <= reach; i++) for (let j = -reach; j <= reach; j++) {
+    if (!inside(i, j)) continue;
     const cx = i * PITCH, cz = j * PITCH, edge = BLOCK / 2 - 2.5;
     const center = i === 0 && j === 0;
+    asphalt.box(cx, 0, cz, PITCH, 0.02, PITCH);
     const park = !center && random() < 0.14;
     (center ? plaza : plinths).box(cx, 0, cz, BLOCK, 0.3, BLOCK);
     treeRow(cx - edge, cz + edge, cx + edge, cz + edge, 11); treeRow(cx - edge, cz - edge, cx + edge, cz - edge, 11);
@@ -347,27 +356,74 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       if (random() < 0.3) billboard(cx - w / 2 + 5, base + 14, cz - d / 2, -1);
     }
   }
-  // Lane markings (yellow centre lines), crosswalks at every crossing and cars on every street.
-  const span = (reach + 0.5) * PITCH;
+  // Streets between the blocks: each runs only as far as the blocks beside it, then a short link
+  // reaches the ring road. Yellow centre lines, crosswalks at the crossings, cars on every street.
+  const extents: [number, number][] = [];
   for (let k = -reach; k <= reach + 1; k++) {
-    const line = (k - 0.5) * PITCH;
-    for (let s = -span; s < span; s += 9) {
-      const nearCrossing = Math.abs(((s + PITCH / 2) % PITCH + PITCH) % PITCH - PITCH / 2) > PITCH / 2 - 14;
-      if (!nearCrossing) { marks.box(line, 0.02, s, 0.3, 0.01, 4.5); marks.box(s, 0.02, line, 4.5, 0.01, 0.3); }
-      if (random() < 0.1) cars.push([line + (random() < 0.5 ? -3 : 3), s, 0]);
-      if (random() < 0.1) cars.push([s, line + (random() < 0.5 ? -3 : 3), Math.PI / 2]);
+    const rows = [];
+    for (let j = -reach; j <= reach; j++) if (inside(k - 1, j) || inside(k, j)) rows.push(j);
+    extents[k + reach] = rows.length ? [Math.min(...rows) * PITCH - PITCH / 2, Math.max(...rows) * PITCH + PITCH / 2] : [0, 0];
+  }
+  const extentOf = (k: number) => extents[k + reach] ?? [0, 0];
+  const streets: { line: number; from: number; to: number; alongZ: boolean }[] = [];
+  for (let k = -reach; k <= reach + 1; k++) {
+    const line = (k - 0.5) * PITCH, [from, to] = extentOf(k);
+    if (to <= from) continue;
+    // The grid is symmetric: the same extent serves the street along z (x = line) and along x (z = line).
+    streets.push({ line, from, to, alongZ: true }, { line, from, to, alongZ: false });
+    const reachRing = Math.sqrt(Math.max(0, (RING - ROAD / 2) ** 2 - line * line));
+    for (const [a, b] of [[to, reachRing], [-reachRing, from]]) if (b > a) {
+      const mid = (a + b) / 2, len = b - a;
+      asphalt.box(line, 0, mid, ROAD, 0.02, len); asphalt.box(mid, 0, line, len, 0.02, ROAD);
     }
-    for (let m = -reach; m <= reach + 1; m++) {
-      const cross = (m - 0.5) * PITCH;
-      for (let t = -8; t <= 8; t += 1.6) {
-        zebra.box(line + t, 0.03, cross - 13, 0.8, 0.01, 3.2); zebra.box(line + t, 0.03, cross + 13, 0.8, 0.01, 3.2);
-        zebra.box(cross - 13, 0.03, line + t, 3.2, 0.01, 0.8); zebra.box(cross + 13, 0.03, line + t, 3.2, 0.01, 0.8);
-      }
+  }
+  for (const s of streets) {
+    for (let p = s.from; p < s.to; p += 9) {
+      const nearCrossing = Math.abs(((p + PITCH / 2) % PITCH + PITCH) % PITCH - PITCH / 2) > PITCH / 2 - 14;
+      if (!nearCrossing) { if (s.alongZ) marks.box(s.line, 0.02, p, 0.3, 0.01, 4.5); else marks.box(p, 0.02, s.line, 4.5, 0.01, 0.3); }
+      if (random() < 0.1) cars.push([s.alongZ ? s.line + (random() < 0.5 ? -3 : 3) : p, s.alongZ ? p : s.line + (random() < 0.5 ? -3 : 3), s.alongZ ? 0 : Math.PI / 2, s.from, s.to]);
+    }
+  }
+  for (let k = -reach; k <= reach + 1; k++) for (let m = -reach; m <= reach + 1; m++) {
+    const line = (k - 0.5) * PITCH, cross = (m - 0.5) * PITCH, [a, b] = extentOf(k), [c, d] = extentOf(m);
+    if (cross < a || cross > b || line < c || line > d) continue; // no crossing out here
+    for (let t = -8; t <= 8; t += 1.6) {
+      zebra.box(line + t, 0.03, cross - 13, 0.8, 0.01, 3.2); zebra.box(line + t, 0.03, cross + 13, 0.8, 0.01, 3.2);
+      zebra.box(cross - 13, 0.03, line + t, 3.2, 0.01, 0.8); zebra.box(cross + 13, 0.03, line + t, 3.2, 0.01, 0.8);
     }
   }
 
+  // The outskirts, out to the hills: a ring road, a lake, woods and little houses with gardens.
+  const ring = new THREE.Mesh(new THREE.RingGeometry(RING - ROAD / 2, RING + ROAD / 2, 160).rotateX(-Math.PI / 2).translate(0, 0.012, 0), plain("#4c5463", 0.95));
+  ring.receiveShadow = true; city.add(ring);
+  const lakeAt = new THREE.Vector2(Math.cos(2.4) * 440, Math.sin(2.4) * 440);
+  const shore = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(78, 1, 52).translate(lakeAt.x, 0.02, lakeAt.y), plain("#e8d9b4", 1));
+  const lake = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(70, 1, 45).translate(lakeAt.x, 0.05, lakeAt.y),
+    glows(new THREE.MeshStandardMaterial({ color: 0x5cc4ea, emissive: 0x1e6f9a, roughness: 0.12, metalness: 0.2 }), 0.08, 0.25));
+  city.add(shore, lake);
+  const yards = new Mass(), outskirts = Math.round((mobile ? 0.5 : 1) * 110);
+  const free = (x: number, z: number, r: number) => Math.hypot(x - lakeAt.x, z - lakeAt.y) > 85 + r && Math.abs(Math.hypot(x, z) - RING) > ROAD + r;
+  for (let n = 0; n < outskirts; n++) {
+    const a = random() * Math.PI * 2, r = RING + 22 + random() * 190, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (!free(x, z, 12)) continue;
+    const w = 9 + random() * 5, d = 8 + random() * 5, h = 5 + random() * 3;
+    yards.box(x, 0, z, w + 7, 0.12, d + 7);
+    facades[LOW_STYLES[Math.floor(random() * LOW_STYLES.length)]].box(x, 0.12, z, w, h, d, false, random());
+    terracotta.box(x, h + 0.12, z, w + 1, 0.8, d + 1);
+    trees.push([x + w / 2 + 2.5, z + d / 2 + 2, 0.7 + random() * 0.3]);
+    if (random() < 0.5) bushes.push([x - w / 2 - 1.5, z + d / 2 + 2.5, 0.6]);
+  }
+  for (let n = 0; n < (mobile ? 10 : 22); n++) {
+    const a = random() * Math.PI * 2, r = RING + 40 + random() * 200, cx = Math.cos(a) * r, cz = Math.sin(a) * r;
+    for (let k = 0; k < 16; k++) {
+      const x = cx + (random() - 0.5) * 50, z = cz + (random() - 0.5) * 50;
+      if (free(x, z, 3)) { if (random() < 0.85) trees.push([x, z, 1 + random() * 0.8]); else palms.push([x, 0, z, 1 + random() * 0.3]); }
+    }
+  }
+  city.add(mesh(asphalt, plain("#4c5463", 0.95)), mesh(yards, plain("#9fd07f", 1)));
+
   city.add(mesh(plinths, plain("#d9dde2")), mesh(plaza, plain("#eef0f2")), mesh(lawns, plain("#7cc35a", 1)), mesh(marks, plain("#f2c94c", 0.6)), mesh(zebra, plain("#f4f6f8", 0.6)));
-  city.add(mesh(roofs, plain("#e9edf1", 0.7)), mesh(terracotta, plain("#d0714f", 0.7)), mesh(decks, plain("#d9a36e", 0.75)), mesh(pads, plain("#3d4654", 0.6)));
+  city.add(mesh(roofs, plain("#e9edf1", 0.7)), mesh(terracotta, plain("#d0714f", 0.7)), mesh(decks, plain("#d9a36e", 0.75)));
   if (discs.length) city.add(new THREE.Mesh(mergeGeometries(discs)!, plain("#e9edf1", 0.7)));
   if (!pools.empty) city.add(mesh(pools, glows(new THREE.MeshStandardMaterial({ color: 0x4fd1f0, emissive: 0x2fb8e8, roughness: 0.15, metalness: 0.1 }), 0.25, 0.8)));
   facades.forEach((mass, n) => {
@@ -417,9 +473,9 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
 
   // Toy-like cars driving on their side of the street, with headlights that glow at night.
   const CAR_COLORS = [0xf25f5c, 0x2f80ed, 0xf2c94c, 0x27ae60, 0xffffff, 0x9b51e0, 0x56ccf2, 0xf2994a];
-  const traffic = cars.map(([x, z, turn]) => {
+  const traffic = cars.map(([x, z, turn, from, to]) => {
     const alongZ = turn === 0, across = alongZ ? x : z, line = Math.round(across / PITCH - 0.5) * PITCH + PITCH / 2;
-    return { x, z, alongZ, dir: across - line > 0 ? 1 : -1, speed: 7 + random() * 6 };
+    return { x, z, alongZ, dir: across - line > 0 ? 1 : -1, speed: 7 + random() * 6, from, to };
   });
   const bodies = new THREE.InstancedMesh(new THREE.BoxGeometry(2, 1, 4.4), plain("#ffffff", 0.35), traffic.length);
   const cabins = new THREE.InstancedMesh(new THREE.BoxGeometry(1.7, 0.8, 2.2), plain("#dff2ff", 0.2), traffic.length);
@@ -433,11 +489,12 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   });
   place();
   city.add(bodies, cabins, beams);
-  /** Moves the cars; the caller runs it every frame (they wrap around at the edge of the city). */
+  /** Moves the cars; the caller runs it every frame (each loops along its own street, inside the city). */
   city.userData.update = (dt: number) => {
     for (const c of traffic) {
-      if (c.alongZ) { c.z += c.dir * c.speed * dt; if (c.z > span) c.z -= span * 2; if (c.z < -span) c.z += span * 2; }
-      else { c.x += c.dir * c.speed * dt; if (c.x > span) c.x -= span * 2; if (c.x < -span) c.x += span * 2; }
+      const length = c.to - c.from;
+      if (c.alongZ) { c.z += c.dir * c.speed * dt; if (c.z > c.to) c.z -= length; if (c.z < c.from) c.z += length; }
+      else { c.x += c.dir * c.speed * dt; if (c.x > c.to) c.x -= length; if (c.x < c.from) c.x += length; }
     }
     place();
     bodies.instanceMatrix.needsUpdate = cabins.instanceMatrix.needsUpdate = beams.instanceMatrix.needsUpdate = true;

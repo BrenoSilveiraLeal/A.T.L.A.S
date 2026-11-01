@@ -9,7 +9,7 @@ import { addPalms, buildCity, facadeMaterial, glows, Mass, roundedBody, roundedS
  * - Podium (lobby and floors 1–2): wider, blue glass with rounded corners, entrance canopy, the
  *   ATLAS sign and flags; its roof is a garden with palms.
  * - Shaft (floors 3–15): glass with rounded corners and a white slab band at every floor; the office
- *   floors have a terrace with a glass railing and planters (the office scene stands on it).
+ *   floors are clear glass on a plain slab, showing the office inside (no balconies).
  * - Crown (floors 16–18): set back, green-tinted glass, a deck with sun umbrellas, and on the roof
  *   an infinity pool with palms and loungers, under the logo on all four sides.
  * - A panoramic glass elevator up the front, where each office's elevator doors open.
@@ -90,24 +90,13 @@ function railing(group: THREE.Group, m: TowerMaterials, hw: number, hd: number, 
 }
 
 /**
- * The terrace around an office floor: slab, glass railing and wooden planters with flowers and small
- * palms along it. The office scene stands on the same terrace, so it matches the building view.
+ * The slab under an office floor (top at y = 0): just the white slab edge, no balcony (owner,
+ * 01/11/2026: "não gostei dessas varandinhas, tire"). The office scene stands on the same slab.
  */
-export function officeTerrace(m: TowerMaterials) {
-  const g = new THREE.Group(), hw = W / 2 + 2.9, hd = D / 2 + 2.9;
-  const slab = new THREE.Mesh(roundedSlab(W + 6, D + 6, 1.2, 0.45, -0.465), m.slab); slab.receiveShadow = true; g.add(slab);
-  railing(g, m, hw, hd);
-  const planters = new Mass(), flowers: [number, number, number, number][] = [], palms: [number, number, number, number][] = [];
-  for (let x = -hw + 4; x <= hw - 4; x += 8) for (const z of [hd - 0.6, -hd + 0.6]) {
-    if (z > 0 && Math.abs(x - ELEVATOR.x) < 4) continue; // keep the elevator landing clear
-    planters.box(x, 0, z, 2.6, 0.55, 0.8); flowers.push([x - 0.6, 0.55, z, 0.55]);
-    palms.push([x + 0.7, 0.55, z, 0.32]);
-  }
-  for (let z = -hd + 4; z <= hd - 4; z += 8) for (const x of [hw - 0.6, -hw + 0.6]) { planters.box(x, 0, z, 0.8, 0.55, 2.6); flowers.push([x, 0.55, z - 0.6, 0.55], [x, 0.55, z + 0.6, 0.5]); }
-  g.add(new THREE.Mesh(planters.geometry(), m.wood));
-  bushes(g, m, flowers);
-  addPalms(g, palms);
-  return g;
+export function officeSlab(m: TowerMaterials) {
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(W + 0.8, 0.45, D + 0.8), m.slab);
+  slab.position.y = -0.24; slab.receiveShadow = true;
+  return slab;
 }
 
 /**
@@ -217,14 +206,14 @@ export function elevatorTube(m: TowerMaterials, from = floorLevel(PODIUM_TOP), t
 }
 
 /**
- * Around one office floor (the office scene): sky, the floor's terrace, the tower below down to the
+ * Around one office floor (the office scene): sky, the floor's slab, the tower below down to the
  * street (podium, glass floors, the elevator tube) and the city. The office floor stays at y = 0.
  */
 export function buildSurroundings(scene: THREE.Scene, { floor, mobile = false }: { floor: number; mobile?: boolean }) {
   scene.background = new THREE.Color(SKY);
   scene.fog = new THREE.Fog(SKY, 320, 1100);
   const m = towerMaterials(), street = -floorLevel(floor), group = new THREE.Group(), below = new THREE.Group();
-  group.add(officeTerrace(m));
+  group.add(officeSlab(m));
   below.position.y = street;
   below.add(lobby(m));
   for (let f = 1; f < floor; f++) { const shell = floorShell(f, m); shell.position.y = floorLevel(f); below.add(shell); }

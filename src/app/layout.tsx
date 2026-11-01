@@ -3,6 +3,7 @@ import "@fontsource-variable/manrope";
 import "./globals.css";
 import "./office.css";
 import "./building.css";
+import "./daytrade.css";
 
 export const metadata: Metadata = {
   title: "ATLAS · Centro de operações",

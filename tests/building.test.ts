@@ -12,9 +12,9 @@ describe("ATLAS tower", () => {
     expect(officeOnFloor(10)).toMatchObject({ fullName: "Crypto Operations & Intelligence Network", tagline: "Rede de Inteligência e Operações com Criptoativos" });
   });
 
-  it("keeps the current office at its own route and the others closed", () => {
+  it("opens the current office at its own route and DASH at /daytrade; COIN stays closed", () => {
     expect(officeOnFloor(8)).toMatchObject({ status: "ACTIVE", href: "/app" });
-    expect(officeOnFloor(9)).toMatchObject({ status: "BUILDING", href: null });
+    expect(officeOnFloor(9)).toMatchObject({ status: "BUILDING", href: "/daytrade" });
     expect(officeOnFloor(10)).toMatchObject({ status: "LOCKED", href: null });
   });
 
