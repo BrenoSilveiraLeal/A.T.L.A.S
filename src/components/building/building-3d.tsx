@@ -13,8 +13,8 @@ import { crownTop, elevatorTube, floorShell, lobby, officeTerrace, towerMaterial
  * comercial grande... três andares interativos no meio"; the whole tower is ATLAS's, modelled in
  * tower.ts). Drag turns the camera around the tower, the wheel zooms; the three office floors are
  * glass, labelled and clickable. Choosing one works like a life-sim's city map (owner: "igual àquela
- * DLC de Vida na Cidade"): the camera flies to the floor, the floors above disappear and its walls
- * drop, then the office opens on its own page. Plain geometry only.
+ * DLC de Vida na Cidade"): the camera moves in towards the floor, with the tower whole, and the
+ * office opens on its own page. Plain geometry only.
  */
 export interface BuildingApi { reset: () => void }
 
@@ -249,14 +249,12 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     labels.domElement.addEventListener("pointerdown", onDown);
     labels.domElement.addEventListener("pointerup", onUp);
 
-    // Camera moves towards the selected floor; the floors above it rise out of the way.
+    // Entering an office: the camera moves in towards its floor (the tower stays whole), then the
+    // office opens on its own page.
     const goal = { target: new THREE.Vector3(0, DEFAULT_TARGET, 0), distance: 0, active: false };
     sync.current = (floor) => {
       current = floor;
-      for (const f of floors) {
-        f.tag?.element.classList.toggle("selected", f.number === floor);
-        if (f.ceiling) f.ceiling.visible = f.number !== floor;
-      }
+      for (const f of floors) f.tag?.element.classList.toggle("selected", f.number === floor);
       goal.target.set(0, floor ? floorLevel(floor) + 1.7 : DEFAULT_TARGET, 0);
       goal.distance = floor ? Math.min(Math.max(camera.position.distanceTo(controls.target), 140), 185) : camera.position.distanceTo(controls.target);
       goal.active = true;
@@ -327,11 +325,6 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       const flip = ((probe.x + 1) / 2) * el.clientWidth < 230 ? -1 : 1;
       side.multiplyScalar(flip);
       for (const f of floors) {
-        // Level view: the floors above the chosen one are hidden and its walls drop (the cutaway).
-        f.group.visible = current === null || f.number <= current;
-        const cut = f.number === current ? 1 : 0;
-        f.cut += (cut - f.cut) * (reduced ? 1 : Math.min(1, dt * 6));
-        f.walls?.forEach((w) => (w.scale.y = 1 - f.cut * 0.72));
         if (f.tag) {
           f.tag.center.set(flip > 0 ? 1 : 0, 0.5);
           const y = floorLevel(f.number) + 1.9;
@@ -341,11 +334,9 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
           ends.setXYZ(1, f.tag.position.x, f.tag.position.y, f.tag.position.z); ends.needsUpdate = true;
           const on = f.number === current, over = f.number === hovered || f.number === glow.current;
           f.band!.emissiveIntensity = on ? 1.4 : over ? 0.9 : 0.25;
-          if (f.office?.status !== "LOCKED") f.glass!.opacity = on ? 0.1 : 0.24;
           f.tag.element.classList.toggle("hovered", over);
         }
       }
-      roof.visible = current === null;
       // The panoramic elevator's cab travels up and down the tower.
       if (!reduced) lift.cab.position.y = lift.from + 1.5 + (lift.to - lift.from - 3) * (0.5 - 0.5 * Math.cos(clock.elapsedTime * 0.12));
       renderer.render(scene, camera); labels.render(scene, camera);

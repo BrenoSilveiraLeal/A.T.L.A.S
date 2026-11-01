@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { TOWER } from "@/core/building";
 
 /**
@@ -8,9 +9,10 @@ import { TOWER } from "@/core/building";
  * into a handful of meshes, with façades drawn on canvas: no downloaded models or textures.
  */
 /**
- * Look (owner, 01/11/2026: "é pra ter uma pegada mais The Sims 4"): a sunny, saturated toy-city
- * palette — pastel stucco façades with white window frames, round trees and bushes, warm light.
- * Only the mood is borrowed; every shape and colour here is our own.
+ * Look (owner, 01/11/2026: "pegada The Sims 4", then "mais moderno, como a foto"): a sunny modern
+ * downtown — glass towers with white slab bands (boxes on podiums, cylinders, stepped), roof pools
+ * and gardens, LED panels, palms and round trees, crosswalks, a few colourful low-rise blocks.
+ * Only the mood of the reference is borrowed; every shape and colour here is our own.
  */
 export const SKY = 0x9fd0f2;
 /** Distance between street centre lines; each block is BLOCK wide, the rest is street. */
@@ -31,14 +33,23 @@ export function seeded(seed: number) {
 /** One façade tile covers this many window bays and storeys, so the lit windows do not repeat too often. */
 const TILE = 8;
 
-/** A façade: wall colour, the band at each slab, and whether the windows run edge to edge (curtain wall). */
-export interface FacadeStyle { wall: string; band: string; curtain?: boolean }
-/** The neighbours' façades: pastel stucco and a couple of glass towers. */
+/**
+ * A façade: wall colour, the band at each slab, whether the windows run edge to edge (curtain
+ * wall), the glass gradient (light to dark) and how many rooms show a warm light by day.
+ */
+export interface FacadeStyle { wall: string; band: string; curtain?: boolean; glass?: readonly [string, string, string]; lit?: number }
+const SKY_GLASS = ["#dff3ff", "#8fcbef", "#4f97cf"] as const;
+/** Modern glass towers (first four) and colourful low-rise blocks (last three). */
 export const STREET_STYLES: readonly FacadeStyle[] = [
-  { wall: "#ec9a82", band: "#d77d65" }, { wall: "#f0cf72", band: "#d9b453" }, { wall: "#73c2b4", band: "#58a698" },
-  { wall: "#b3a5dd", band: "#988ac4" }, { wall: "#f3e7cf", band: "#ddcdab" }, { wall: "#cf7458", band: "#b35d43" },
-  { wall: "#7fb0e0", band: "#5f93c6", curtain: true }, { wall: "#9ad19a", band: "#7dba7d" },
+  { wall: "#f4f8fb", band: "#ffffff", curtain: true, glass: SKY_GLASS, lit: 0.08 },
+  { wall: "#dfeaf3", band: "#f6f9fb", curtain: true, glass: ["#cfe7f7", "#6fa9d6", "#2f6b9e"], lit: 0.06 },
+  { wall: "#2e3b4c", band: "#465569", curtain: true, glass: ["#8fb6d6", "#3e5d7c", "#1e3147"], lit: 0.1 },
+  { wall: "#e6f5f1", band: "#ffffff", curtain: true, glass: ["#e2fbf5", "#8fd8ca", "#45a092"], lit: 0.06 },
+  { wall: "#f3ead9", band: "#e5d6bb", lit: 0.25 },
+  { wall: "#ec9a82", band: "#d77d65", lit: 0.25 },
+  { wall: "#f0cf72", band: "#d9b453", lit: 0.25 },
 ];
+export const TOWER_STYLES = [0, 1, 2, 3], LOW_STYLES = [4, 5, 6];
 
 /**
  * A façade: window bays of the tower's size with white frames, sky-blue glass and a few lit or
@@ -59,14 +70,15 @@ export function facadeMaps(style: FacadeStyle, seed: number) {
     const inset = style.curtain ? cell * 0.05 : cell * 0.18;
     const wx = x + inset, wy = y + (style.curtain ? cell * 0.06 : cell * 0.16), ww = cell - inset * 2, wh = cell * (style.curtain ? 0.74 : 0.56);
     g.fillStyle = "#ffffff"; g.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
+    const [g0, g1, g2] = style.glass ?? SKY_GLASS, litByDay = style.lit ?? 0.22;
     const pane = g.createLinearGradient(wx, wy, wx + ww * 0.6, wy + wh);
-    pane.addColorStop(0, "#d9f1ff"); pane.addColorStop(0.45, "#8cc8ee"); pane.addColorStop(1, "#5aa2d6");
+    pane.addColorStop(0, g0); pane.addColorStop(0.45, g1); pane.addColorStop(1, g2);
     g.fillStyle = pane; g.fillRect(wx, wy, ww, wh);
     const roll = random();
-    if (roll < 0.22) { g.fillStyle = "#ffe9b8"; g.fillRect(wx, wy, ww, wh); }
-    else if (roll < 0.4) { g.fillStyle = CURTAINS[Math.floor(random() * CURTAINS.length)]; g.fillRect(wx, wy, ww * 0.28, wh); g.fillRect(wx + ww * 0.72, wy, ww * 0.28, wh); }
+    if (roll < litByDay) { g.fillStyle = "#ffe9b8"; g.fillRect(wx, wy, ww, wh); }
+    else if (roll < litByDay + 0.15) { g.fillStyle = CURTAINS[Math.floor(random() * CURTAINS.length)]; g.fillRect(wx, wy, ww * 0.28, wh); g.fillRect(wx + ww * 0.72, wy, ww * 0.28, wh); }
     // At night about half the rooms have the light on.
-    if (roll < 0.5) { n.fillStyle = roll < 0.22 ? "#ffd98a" : "#f5c46a"; n.fillRect(wx, wy, ww, wh); }
+    if (roll < 0.5) { n.fillStyle = roll < litByDay ? "#ffd98a" : "#f5c46a"; n.fillRect(wx, wy, ww, wh); }
     // Sky glint and the middle mullion.
     g.fillStyle = "rgba(255,255,255,0.45)"; g.beginPath(); g.moveTo(wx, wy + wh * 0.35); g.lineTo(wx + ww * 0.35, wy); g.lineTo(wx + ww * 0.5, wy); g.lineTo(wx, wy + wh * 0.5); g.fill();
     g.fillStyle = "#ffffff"; g.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
@@ -157,6 +169,74 @@ export class Mass {
   }
 }
 
+/**
+ * An open glass cylinder (a round tower or a rounded corner) with UVs in metres like `Mass`, so its
+ * windows have the same size as on the flat façades. Same attributes as `Mass`, so they merge.
+ */
+export function cylinder(x: number, y0: number, z: number, r: number, h: number, levelBase = 0, shift = 0, segments = 28) {
+  const geometry = new THREE.CylinderGeometry(r, r, h, segments, 1, true).translate(x, y0 + h / 2, z);
+  const uv = geometry.attributes.uv as THREE.BufferAttribute, pos = geometry.attributes.position as THREE.BufferAttribute;
+  const su = TOWER.bay * TILE, sv = TOWER.storey * TILE, around = (2 * Math.PI * r) / su;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, shift + uv.getX(i) * around, (pos.getY(i) - levelBase) / sv);
+  return geometry;
+}
+
+/** Rounded-rectangle outline, centred on the origin. */
+export function roundedRect(w: number, d: number, r: number) {
+  const s = new THREE.Shape(), x = w / 2, z = d / 2;
+  s.moveTo(-x + r, -z); s.lineTo(x - r, -z); s.absarc(x - r, -z + r, r, -Math.PI / 2, 0, false);
+  s.lineTo(x, z - r); s.absarc(x - r, z - r, r, 0, Math.PI / 2, false);
+  s.lineTo(-x + r, z); s.absarc(-x + r, z - r, r, Math.PI / 2, Math.PI, false);
+  s.lineTo(-x, -z + r); s.absarc(-x + r, -z + r, r, Math.PI, Math.PI * 1.5, false);
+  return s;
+}
+/** A flat slab with rounded corners, from y0 up `h`. */
+export function roundedSlab(w: number, d: number, r: number, h: number, y0 = 0) {
+  return new THREE.ExtrudeGeometry(roundedRect(w, d, r), { depth: h, bevelEnabled: false, curveSegments: 10 }).rotateX(-Math.PI / 2).translate(0, y0, 0);
+}
+/** Glass body with rounded corners (two crossed boxes and four corner cylinders), one geometry. */
+export function roundedBody(w: number, d: number, r: number, y0: number, h: number, levelBase = 0, shift = 0) {
+  const flat = new Mass(levelBase);
+  flat.box(0, y0, 0, w - 2 * r, h, d, false, shift); flat.box(0, y0, 0, w, h, d - 2 * r, false, shift);
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => cylinder(sx * (w / 2 - r), y0, sz * (d / 2 - r), r, h, levelBase, shift, 12));
+  const geometry = mergeGeometries([flat.geometry().toNonIndexed(), ...corners.map((c) => c.toNonIndexed())])!;
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+/** A palm crown: drooping fronds around the top of the trunk (origin at the trunk's top). */
+function palmCrown() {
+  const fronds = Array.from({ length: 8 }, (_, k) => new THREE.BoxGeometry(0.55, 0.06, 3.4).translate(0, 0, 1.6).rotateX(0.45).rotateY((k / 8) * Math.PI * 2));
+  return mergeGeometries(fronds)!;
+}
+/** Palms (trunk and crown, one draw call each): [x, y, z, scale]. */
+export function addPalms(group: THREE.Object3D, spots: readonly (readonly [number, number, number, number])[]) {
+  if (!spots.length) return;
+  const dummy = new THREE.Object3D(), tone = new THREE.Color();
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.28, 7, 7).translate(0, 3.5, 0), new THREE.MeshStandardMaterial({ color: 0xa47a52, roughness: 0.9 }), spots.length);
+  const crowns = new THREE.InstancedMesh(palmCrown(), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, side: THREE.DoubleSide }), spots.length);
+  spots.forEach(([x, y, z, s], n) => {
+    const lean = ((n * 37) % 10) / 100 - 0.05;
+    dummy.position.set(x, y, z); dummy.rotation.set(lean, n * 1.3, -lean); dummy.scale.setScalar(s); dummy.updateMatrix(); trunks.setMatrixAt(n, dummy.matrix);
+    dummy.position.set(x + lean * 7 * s, y + 7 * s, z + lean * 7 * s); dummy.rotation.set(0, n * 1.3, 0); dummy.updateMatrix(); crowns.setMatrixAt(n, dummy.matrix);
+    crowns.setColorAt(n, tone.setHSL(0.28 + (n % 4) * 0.02, 0.55, 0.36 + (n % 3) * 0.05));
+  });
+  trunks.castShadow = crowns.castShadow = true;
+  group.add(trunks, crowns);
+}
+
+/** LED panels on façades: bright abstract adverts (no real brands), glowing more at night. */
+function billboardTexture(k: number) {
+  const canvas = document.createElement("canvas"); canvas.width = 256; canvas.height = 384;
+  const g = canvas.getContext("2d")!, palettes = [["#ff6b9a", "#ffb86b"], ["#4fd1ff", "#7b61ff"], ["#59e3a7", "#2f9bff"], ["#ffd84f", "#ff7a59"]];
+  const [a, b] = palettes[k % palettes.length], grad = g.createLinearGradient(0, 0, 256, 384);
+  grad.addColorStop(0, a); grad.addColorStop(1, b); g.fillStyle = grad; g.fillRect(0, 0, 256, 384);
+  g.fillStyle = "rgba(255,255,255,0.85)"; g.beginPath(); g.arc(128, 150, 70 - k * 6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "rgba(255,255,255,0.9)"; g.fillRect(40, 270, 176, 22); g.fillRect(70, 305, 116, 16);
+  const t = new THREE.CanvasTexture(canvas); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 const plain = (color: THREE.ColorRepresentation, roughness = 0.85) => new THREE.MeshStandardMaterial({ color, roughness });
 const mesh = (mass: Mass, material: THREE.Material, shadows = false) => {
   const m = new THREE.Mesh(mass.geometry(), material);
@@ -171,74 +251,135 @@ const mesh = (mass: Mass, material: THREE.Material, shadows = false) => {
 export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed?: number } = {}) {
   const random = seeded(seed), city = new THREE.Group();
   const reach = mobile ? 2 : 3;
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), plain("#5c6472", 0.95));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), plain("#4c5463", 0.95));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; city.add(ground);
 
-  const plinths = new Mass(), lawns = new Mass(), plaza = new Mass(), marks = new Mass(), roofs = new Mass(), terracotta = new Mass();
-  const facades = STREET_STYLES.map(() => new Mass());
+  const plinths = new Mass(), lawns = new Mass(), plaza = new Mass(), marks = new Mass(), zebra = new Mass(), roofs = new Mass(), terracotta = new Mass();
+  const pools = new Mass(), decks = new Mass(), pads = new Mass();
+  const facades = STREET_STYLES.map(() => new Mass()), rounds: THREE.BufferGeometry[][] = STREET_STYLES.map(() => []);
+  const boards: THREE.BufferGeometry[][] = [[], [], [], []], discs: THREE.BufferGeometry[] = [];
   const trees: [number, number, number][] = [], bushes: [number, number, number][] = [], lamps: [number, number][] = [], cars: [number, number, number][] = [];
+  const palms: [number, number, number, number][] = [];
   const treeRow = (x0: number, z0: number, x1: number, z1: number, step: number) => {
     const n = Math.floor(Math.hypot(x1 - x0, z1 - z0) / step);
     for (let i = 0; i <= n; i++) {
-      const x = x0 + ((x1 - x0) * i) / Math.max(1, n), z = z0 + ((z1 - z0) * i) / Math.max(1, n);
-      if (random() < 0.8) trees.push([x, z, 0.8 + random() * 0.5]); else lamps.push([x, z]);
-      // Round bushes between the trees.
+      const x = x0 + ((x1 - x0) * i) / Math.max(1, n), z = z0 + ((z1 - z0) * i) / Math.max(1, n), roll = random();
+      // Palms and round trees alternate along the sidewalk, with a street lamp now and then.
+      if (roll < 0.4) palms.push([x, 0.3, z, 0.8 + random() * 0.3]); else if (roll < 0.8) trees.push([x, z, 0.8 + random() * 0.5]); else lamps.push([x, z]);
       if (i < n && random() < 0.7) bushes.push([x + (x1 - x0) / Math.max(1, n) / 2, z + (z1 - z0) / Math.max(1, n) / 2, 0.6 + random() * 0.5]);
     }
+  };
+  /** A rooftop: pool with deck, garden with palms, helipad or machinery. */
+  const rooftop = (x: number, y: number, z: number, w: number, d: number) => {
+    roofs.box(x, y, z, w + 0.8, 0.6, d + 0.8);
+    const kind = random(), top = y + 0.6;
+    if (kind < 0.3 && w > 14) { decks.box(x, top, z, w - 2, 0.12, d - 2); pools.box(x, top + 0.12, z, (w - 2) * 0.55, 0.08, (d - 2) * 0.45); palms.push([x + w * 0.35, top, z + d * 0.32, 0.55], [x - w * 0.35, top, z - d * 0.32, 0.5]); }
+    else if (kind < 0.55) { lawns.box(x, top, z, w - 3, 0.15, d - 3); palms.push([x, top, z, 0.6]); bushes.push([x + w * 0.3, z + d * 0.3, 0.7], [x - w * 0.3, z - d * 0.25, 0.6]); }
+    else if (kind < 0.7 && w > 16) pads.box(x, top, z, Math.min(w, d) * 0.6, 0.1, Math.min(w, d) * 0.6);
+    else roofs.box(x + (random() - 0.5) * w * 0.4, top, z + (random() - 0.5) * d * 0.4, 4, 2.2, 3);
+  };
+  /** An LED panel on the face of a tower that looks at +z or -z. */
+  const billboard = (x: number, y: number, z: number, facing: 1 | -1) => {
+    const plane = new THREE.PlaneGeometry(7, 10.5).rotateY(facing > 0 ? 0 : Math.PI).translate(x, y, z + facing * 0.2);
+    boards[Math.floor(random() * boards.length)].push(plane);
   };
 
   for (let i = -reach; i <= reach; i++) for (let j = -reach; j <= reach; j++) {
     const cx = i * PITCH, cz = j * PITCH, edge = BLOCK / 2 - 2.5;
     const center = i === 0 && j === 0;
-    const park = !center && random() < 0.16;
+    const park = !center && random() < 0.14;
     (center ? plaza : plinths).box(cx, 0, cz, BLOCK, 0.3, BLOCK);
-    // Trees along the sidewalk, on the side of the street.
     treeRow(cx - edge, cz + edge, cx + edge, cz + edge, 11); treeRow(cx - edge, cz - edge, cx + edge, cz - edge, 11);
     treeRow(cx - edge, cz - edge + 8, cx - edge, cz + edge - 8, 11); treeRow(cx + edge, cz - edge + 8, cx + edge, cz + edge - 8, 11);
     if (center) {
-      // Lawns in the plaza around the tower.
-      for (const [x, z] of [[-17, 21], [17, 21], [-17, -21], [17, -21]]) lawns.box(cx + x, 0.3, cz + z, 18, 0.06, 7);
+      // The ATLAS plaza: lawns with palms around the tower.
+      for (const [x, z] of [[-17, 21], [17, 21], [-17, -21], [17, -21]]) { lawns.box(cx + x, 0.3, cz + z, 18, 0.06, 7); palms.push([cx + x - 6, 0.36, cz + z, 0.9], [cx + x + 6, 0.36, cz + z, 0.85]); }
       continue;
     }
     if (park) {
       lawns.box(cx, 0.3, cz, BLOCK - 8, 0.05, BLOCK - 8);
-      for (let k = 0; k < 18; k++) trees.push([cx + (random() - 0.5) * (BLOCK - 14), cz + (random() - 0.5) * (BLOCK - 14), 1 + random() * 0.6]);
+      for (let k = 0; k < 12; k++) trees.push([cx + (random() - 0.5) * (BLOCK - 14), cz + (random() - 0.5) * (BLOCK - 14), 1 + random() * 0.6]);
+      for (let k = 0; k < 8; k++) palms.push([cx + (random() - 0.5) * (BLOCK - 14), 0.35, cz + (random() - 0.5) * (BLOCK - 14), 0.9 + random() * 0.3]);
       for (let k = 0; k < 24; k++) bushes.push([cx + (random() - 0.5) * (BLOCK - 12), cz + (random() - 0.5) * (BLOCK - 12), 0.5 + random() * 0.6]);
       continue;
     }
-    // One, two or four buildings on the block; taller downtown, near the tower.
-    const near = Math.max(Math.abs(i), Math.abs(j));
-    const layout = random();
-    const lots: [number, number, number, number][] = layout < 0.3 ? [[cx, cz, BLOCK - 10, BLOCK - 10]]
-      : layout < 0.6 ? [[cx - 13, cz, 24, BLOCK - 10], [cx + 13, cz, 24, BLOCK - 10]]
-      : [[cx - 13, cz - 13, 24, 24], [cx + 13, cz - 13, 24, 24], [cx - 13, cz + 13, 24, 24], [cx + 13, cz + 13, 24, 24]];
-    for (const [x, z, w, d] of lots) {
-      // The blocks next to the tower stay lower, so the ATLAS tower stands out.
-      const height = Math.round((near === 1 ? 10 : 16) + random() ** 1.6 * (near === 1 ? 28 : 70));
-      const style = Math.floor(random() * STREET_STYLES.length), target = facades[style], shift = random();
-      const bw = w - random() * 4, bd = d - random() * 4;
-      target.box(x, 0.3, z, bw, height, bd, false, shift);
-      // Flat roofs with a coloured cornice; the low ones get a terracotta roof top.
-      (height < 22 && !STREET_STYLES[style].curtain ? terracotta : roofs).box(x, height + 0.3, z, bw + 0.6, 0.6, bd + 0.6);
-      // A setback crown on some of the taller ones, and machinery on the roof.
-      if (height > 40 && random() < 0.5) { const top = 6 + random() * 10; target.box(x, height + 0.9, z, bw * 0.6, top, bd * 0.6, false, shift); roofs.box(x, height + top + 0.9, z, bw * 0.6 + 0.6, 0.6, bd * 0.6 + 0.6); }
-      else roofs.box(x + (random() - 0.5) * bw * 0.4, height + 0.9, z + (random() - 0.5) * bd * 0.4, 4, 2.2, 3);
+    // Downtown: modern towers (box on a podium, round, stepped) and some colourful low-rise blocks.
+    const near = Math.max(Math.abs(i), Math.abs(j)), kind = random();
+    const lowRise = near === 1 ? kind < 0.5 : kind < 0.22;
+    if (lowRise) {
+      const lots: [number, number, number, number][] = random() < 0.5 ? [[cx - 13, cz, 24, BLOCK - 10], [cx + 13, cz, 24, BLOCK - 10]]
+        : [[cx - 13, cz - 13, 24, 24], [cx + 13, cz - 13, 24, 24], [cx - 13, cz + 13, 24, 24], [cx + 13, cz + 13, 24, 24]];
+      for (const [x, z, w, d] of lots) {
+        const h = Math.round(10 + random() * 12), style = LOW_STYLES[Math.floor(random() * LOW_STYLES.length)];
+        facades[style].box(x, 0.3, z, w - 2, h, d - 2, false, random());
+        if (random() < 0.5) terracotta.box(x, h + 0.3, z, w - 1.4, 0.6, d - 1.4); else rooftop(x, h + 0.3, z, w - 2, d - 2);
+      }
+      continue;
+    }
+    const style = TOWER_STYLES[Math.floor(random() * TOWER_STYLES.length)], shift = random();
+    const podium = 7 + Math.round(random() * 5), tall = Math.round((near === 1 ? 26 : 40) + random() ** 1.4 * (near === 1 ? 26 : 70));
+    // Podium: a low glass base filling most of the block, with a garden on top.
+    facades[style].box(cx, 0.3, cz, BLOCK - 8, podium, BLOCK - 8, false, shift);
+    roofs.box(cx, podium + 0.3, cz, BLOCK - 7, 0.6, BLOCK - 7);
+    lawns.box(cx + (BLOCK - 8) / 2 - 4, podium + 0.9, cz, 5, 0.15, BLOCK - 14);
+    const base = podium + 0.9, shape = random();
+    if (shape < 0.3) {
+      // Round tower.
+      const r = 12 + random() * 3;
+      rounds[style].push(cylinder(cx, base, cz, r, tall, 0, shift));
+      discs.push(new THREE.CylinderGeometry(r + 0.6, r + 0.6, 0.6, 28).translate(cx, base + tall + 0.3, cz));
+      if (random() < 0.5) { pools.box(cx, base + tall + 0.65, cz, r, 0.08, r * 0.5); palms.push([cx + r * 0.55, base + tall + 0.6, cz, 0.5]); }
+    } else if (shape < 0.6) {
+      // Stepped tower: three set-backs.
+      let w = 34, d = 30, y = base;
+      for (const part of [0.5, 0.3, 0.2]) {
+        const h = Math.round(tall * part);
+        facades[style].box(cx, y, cz, w, h, d, false, shift); y += h;
+        rooftop(cx, y, cz, w, d); y += 0.6; w -= 8; d -= 7;
+      }
+      if (random() < 0.4) billboard(cx - 34 / 2 + 5, base + 10, cz + 15, 1);
+    } else {
+      // Slab tower, sometimes with a crown.
+      const w = 30 + random() * 8, d = 22 + random() * 6;
+      facades[style].box(cx, base, cz, w, tall, d, false, shift);
+      rooftop(cx, base + tall, cz, w, d);
+      if (random() < 0.45) billboard(cx + w / 2 - 5, base + 12, cz + d / 2, 1);
+      if (random() < 0.3) billboard(cx - w / 2 + 5, base + 14, cz - d / 2, -1);
     }
   }
-  // Lane markings (yellow centre lines) and cars on every street between the blocks.
+  // Lane markings (yellow centre lines), crosswalks at every crossing and cars on every street.
   const span = (reach + 0.5) * PITCH;
   for (let k = -reach; k <= reach + 1; k++) {
     const line = (k - 0.5) * PITCH;
     for (let s = -span; s < span; s += 9) {
-      marks.box(line, 0.02, s, 0.3, 0.01, 4.5); marks.box(s, 0.02, line, 4.5, 0.01, 0.3);
+      const nearCrossing = Math.abs(((s + PITCH / 2) % PITCH + PITCH) % PITCH - PITCH / 2) > PITCH / 2 - 14;
+      if (!nearCrossing) { marks.box(line, 0.02, s, 0.3, 0.01, 4.5); marks.box(s, 0.02, line, 4.5, 0.01, 0.3); }
       if (random() < 0.1) cars.push([line + (random() < 0.5 ? -3 : 3), s, 0]);
       if (random() < 0.1) cars.push([s, line + (random() < 0.5 ? -3 : 3), Math.PI / 2]);
     }
+    for (let m = -reach; m <= reach + 1; m++) {
+      const cross = (m - 0.5) * PITCH;
+      for (let t = -8; t <= 8; t += 1.6) {
+        zebra.box(line + t, 0.03, cross - 13, 0.8, 0.01, 3.2); zebra.box(line + t, 0.03, cross + 13, 0.8, 0.01, 3.2);
+        zebra.box(cross - 13, 0.03, line + t, 3.2, 0.01, 0.8); zebra.box(cross + 13, 0.03, line + t, 3.2, 0.01, 0.8);
+      }
+    }
   }
 
-  city.add(mesh(plinths, plain("#e8dfcc")), mesh(plaza, plain("#f1e8d6")), mesh(lawns, plain("#7cc35a", 1)), mesh(marks, plain("#f2c94c", 0.6)));
-  city.add(mesh(roofs, plain("#c3c7cc")), mesh(terracotta, plain("#d0714f", 0.7)));
-  facades.forEach((mass, n) => { if (!mass.empty) city.add(mesh(mass, facadeMaterial(STREET_STYLES[n], seed + n))); });
+  city.add(mesh(plinths, plain("#d9dde2")), mesh(plaza, plain("#eef0f2")), mesh(lawns, plain("#7cc35a", 1)), mesh(marks, plain("#f2c94c", 0.6)), mesh(zebra, plain("#f4f6f8", 0.6)));
+  city.add(mesh(roofs, plain("#e9edf1", 0.7)), mesh(terracotta, plain("#d0714f", 0.7)), mesh(decks, plain("#d9a36e", 0.75)), mesh(pads, plain("#3d4654", 0.6)));
+  if (discs.length) city.add(new THREE.Mesh(mergeGeometries(discs)!, plain("#e9edf1", 0.7)));
+  if (!pools.empty) city.add(mesh(pools, glows(new THREE.MeshStandardMaterial({ color: 0x4fd1f0, emissive: 0x2fb8e8, roughness: 0.15, metalness: 0.1 }), 0.25, 0.8)));
+  facades.forEach((mass, n) => {
+    const geometries = [...(mass.empty ? [] : [mass.geometry().toNonIndexed()]), ...rounds[n].map((g) => g.toNonIndexed())];
+    if (geometries.length) { const m = new THREE.Mesh(mergeGeometries(geometries)!, facadeMaterial(STREET_STYLES[n], seed + n)); m.receiveShadow = true; city.add(m); }
+  });
+  boards.forEach((list, k) => {
+    if (!list.length) return;
+    const texture = billboardTexture(k);
+    city.add(new THREE.Mesh(mergeGeometries(list)!, glows(new THREE.MeshStandardMaterial({ map: texture, emissiveMap: texture, emissive: 0xffffff, roughness: 0.4 }), 0.35, 1.3)));
+  });
+  addPalms(city, palms);
 
   // Round trees, bushes and street lamps: one draw call each kind.
   const tone = new THREE.Color(), dummy = new THREE.Object3D();

@@ -7,7 +7,7 @@ Atualizado em 01/11/2026. Mudança só visual e de navegação. Agentes, regras,
 - `/` e o login abrem o **mapa** (`/predio`): a sede ATLAS numa cidade, no estilo de um simulador de vida (pegada The Sims 4, tudo modelado em código, sem assets de terceiros).
 - Apresentação no estilo de vitrine de empreendimento: abertura descendo pelas nuvens ("ATLAS apresenta"), botão **Dia/Noite** (à noite as janelas, postes, faróis e o lobby acendem; padrão pela hora local, escolha salva em `atlas-building-night`), carros andando, morros ao redor, cartões de vidro escuro sobre a cena.
 - O prédio inteiro é do ATLAS. O painel lista só os escritórios: **8 Escritório de Dividendos** (nome provisório), **9 DASH**, **10 COIN**.
-- Clicar num escritório aberto faz a câmera voar até o andar (os de cima somem, as paredes baixam) e **abre a página do escritório** (`/app`), separada do mapa. DASH e COIN só mostram um aviso (em construção / bloqueado).
+- Clicar num escritório aberto faz a câmera se aproximar do andar (o prédio continua inteiro) e **abre a página do escritório** (`/app`), separada do mapa. DASH e COIN só mostram um aviso (em construção / bloqueado).
 - Dentro do escritório, **"Trocar de escritório"** volta ao mapa, que destaca o último escritório usado.
 - O escritório fica no terraço do andar 8 da mesma torre: janelas nas paredes externas, cidade lá fora, **elevador no lugar da porta** (abre para o elevador panorâmico da fachada). O modo Chefe em primeira pessoa continua igual.
 
@@ -16,8 +16,8 @@ Atualizado em 01/11/2026. Mudança só visual e de navegação. Agentes, regras,
 | Arquivo | O que faz |
 | --- | --- |
 | `src/core/building.ts` | Medidas da torre (`TOWER`), elevador (`ELEVATOR`), escritórios (`OFFICES`, com nome completo e descrição do DASH e do COIN), janelas (`windowBays`, `wallSegments`). Puro, testado em `tests/building.test.ts` |
-| `src/components/building/tower.ts` | A sede ATLAS: pódio com lobby, marquise, logo e bandeiras; jardim no teto do pódio; torre de vidro com colunas brancas e aletas verdes; terraço com floreiras nos andares dos escritórios; topo recuado com deck, logo nos quatro lados e antena; elevador panorâmico. `buildSurroundings` monta a mesma torre em volta do escritório |
-| `src/components/building/city.ts` | Cidade compartilhada: ruas, fachadas pastel desenhadas em canvas, árvores, arbustos, postes, carros |
+| `src/components/building/tower.ts` | A sede ATLAS moderna: vidro com cantos arredondados e faixa branca em cada laje; pódio com lobby, marquise, logo, bandeiras e palmeiras; jardim no teto do pódio; terraço com floreiras nos andares dos escritórios; topo recuado com deck, piscina de borda infinita, palmeiras e logo nos quatro lados; elevador panorâmico. `buildSurroundings` monta a mesma torre em volta do escritório |
+| `src/components/building/city.ts` | Cidade moderna compartilhada: torres de vidro (com pódio, cilíndricas, escalonadas), coberturas com piscina/jardim/heliponto, painéis de LED, prédios baixos coloridos, palmeiras, árvores, faixas de pedestre, carros andando, morros; janelas acendem à noite |
 | `src/components/building/building-3d.tsx` | Cena do mapa: câmera orbital, placas dos escritórios, voo até o andar escolhido, cabine do elevador em movimento |
 | `src/components/building/building-view.tsx` | Tela `/predio`: lista dos escritórios, entrar, avisos, último usado (`localStorage atlas-last-office`), alterna 3D/2D |
 | `src/components/building/elevator-2d.tsx` | Prédio em corte (SVG) para celular ou sem WebGL |
