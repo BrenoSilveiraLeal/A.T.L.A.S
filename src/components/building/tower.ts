@@ -198,9 +198,10 @@ export function elevatorTube(m: TowerMaterials, from = floorLevel(PODIUM_TOP), t
   const g = new THREE.Group(), h = to - from, z = D / 2 + ELEVATOR.depth / 2;
   const tube = new THREE.Mesh(new THREE.BoxGeometry(ELEVATOR.width, h, ELEVATOR.depth), m.tube); tube.position.set(ELEVATOR.x, from + h / 2, z); g.add(tube);
   const posts = new Mass(), rings = new Mass();
-  for (const dx of [-1, 1]) for (const dz of [-1, 1]) posts.box(ELEVATOR.x + (dx * ELEVATOR.width) / 2, from, z + (dz * ELEVATOR.depth) / 2, 0.3, h, 0.3, false);
+  // Slim white posts (they cross the office floors' glass, so they stay discreet).
+  for (const dx of [-1, 1]) for (const dz of [-1, 1]) posts.box(ELEVATOR.x + (dx * ELEVATOR.width) / 2, from, z + (dz * ELEVATOR.depth) / 2, 0.16, h, 0.16, false);
   for (let y = from; y <= to + 0.01; y += H) rings.box(ELEVATOR.x, y, z, ELEVATOR.width + 0.2, 0.18, ELEVATOR.depth + 0.2);
-  g.add(new THREE.Mesh(posts.geometry(), m.green), new THREE.Mesh(rings.geometry(), m.white));
+  g.add(new THREE.Mesh(posts.geometry(), m.white), new THREE.Mesh(rings.geometry(), m.white));
   const cab = new THREE.Mesh(new THREE.BoxGeometry(ELEVATOR.width - 0.5, 2.8, ELEVATOR.depth - 0.5), m.cab); cab.position.set(ELEVATOR.x, from + 1.5, z); g.add(cab);
   return { group: g, cab, from, to };
 }

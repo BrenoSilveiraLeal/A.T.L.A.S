@@ -1,20 +1,28 @@
-/* DASH office (/daytrade): the trading room and the day-trade dashboard, in the ATLAS building style. */
-.dash { --d-bg: #0f1626; --d-card: rgba(22, 31, 50, 0.86); --d-line: rgba(255, 255, 255, 0.1); --d-text: #eef3fb; --d-muted: #a9b6cc; --d-accent: #e3c28d;
-  min-height: 100dvh; padding: 18px clamp(16px, 3vw, 32px) 40px; background: radial-gradient(1200px 600px at 70% -10%, #1d2b48, var(--d-bg)); color: var(--d-text);
-  font-family: "Manrope Variable", sans-serif; display: grid; gap: 16px; align-content: start; }
-.dash-loading { display: grid; place-items: center; color: #eef3fb; }
-.dash-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.dash-name { display: flex; align-items: center; gap: 12px; }
-.dash-mark { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--d-accent); color: #1b1206; font-size: 20px; font-weight: 800; }
-.dash-name strong { display: block; font-size: 20px; font-weight: 800; letter-spacing: 0.06em; }
-.dash-name small { display: block; font-size: 12px; color: var(--d-muted); }
-.dash-top-actions { display: flex; align-items: center; gap: 10px; }
+/*
+ * DASH office (/daytrade): the trading room and the day-trade panels in the same frame as the
+ * dividends office (dividendos.css: .office-frame, .office-bar, tabs, safety strip), in DASH amber.
+ */
+.dash-frame { --d-card: rgba(22, 31, 50, 0.86); --d-line: rgba(255, 255, 255, 0.1); --d-text: #eef3fb; --d-muted: #a9b6cc; --d-accent: #e3c28d; color: var(--d-text); }
+.dash-loading { display: grid; place-items: center; color: #eef3fb; min-height: 100vh; }
+.dash-frame .office-badge { padding: 0; background: none; border: 0; min-height: 0; cursor: pointer; text-align: left; }
+.dash-frame .office-badge:hover { background: none; }
+.dash-frame .office-badge b { color: #2a1a05; }
+.dash-frame .office-map-button:hover { color: #2a1a05; background: var(--d-accent); border-color: var(--d-accent); }
+.dash-frame .office-tabs > button { display: inline-flex; align-items: center; gap: 7px; height: 38px; min-height: 38px; padding: 0 14px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; color: var(--muted); background: transparent; border: 1px solid transparent; white-space: nowrap; }
+.dash-frame .office-tabs > button:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.dash-frame .office-tabs > button[aria-current="page"] { color: #2a1a05; background: var(--d-accent); }
+.office-frame.dash-frame .safety-strip { background: rgba(255, 179, 71, 0.06); }
+.office-frame.dash-frame .safety-strip > div { color: #ffe3b0; }
+.dash-main { display: grid; gap: 16px; align-content: start; }
+.dash-main .page-heading { margin-bottom: 0; }
+.dash-frame .dash3d { border-color: rgba(227, 194, 141, 0.35); }
+.dash-frame .dash3d-canvas { max-height: 78vh; }
+.dash-rules { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; line-height: 1.5; }
+@media (max-width: 900px) { .dash-frame .office-tabs { overflow-x: auto; justify-content: flex-start; } }
 .dash-mode { padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; letter-spacing: 0.1em; }
 .dash-mode.sim { background: rgba(255, 179, 71, 0.16); color: #ffcf8a; border: 1px solid rgba(255, 179, 71, 0.4); }
 .dash-mode.live { background: rgba(255, 93, 125, 0.16); color: #ff9db1; border: 1px solid rgba(255, 93, 125, 0.4); }
-.dash-map-link { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px; border-radius: 999px; font-size: 13px; font-weight: 800;
-  color: #fff; background: var(--d-card); border: 1px solid var(--d-line); }
-.dash-map-link:hover { color: #1b1206; background: var(--d-accent); }
 
 .dash3d { position: relative; border-radius: 22px; overflow: hidden; border: 1px solid var(--d-line); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35); background: #9fd0f2; }
 .dash3d-canvas { width: 100%; aspect-ratio: 16 / 8; min-height: 380px; max-height: 70vh; touch-action: none; }
@@ -22,8 +30,6 @@
 .dash3d-labels { position: absolute; inset: 0; cursor: grab; }
 .dash3d-labels:active { cursor: grabbing; }
 .dash3d-loading, .dash3d-failed { display: grid; place-items: center; min-height: 380px; color: #eef3fb; background: #141c33; }
-.dash3d-reset { position: absolute; top: 12px; right: 12px; width: 38px; height: 38px; min-height: 38px; padding: 0; display: grid; place-items: center; border-radius: 50%;
-  background: rgba(15, 22, 38, 0.82); color: #fff; border: 1px solid var(--d-line); }
 .dash-desk-tag { display: grid; gap: 1px; padding: 4px 10px; border-radius: 10px; background: rgba(15, 22, 38, 0.85); border: 1px solid var(--desk); color: #fff; text-align: center; pointer-events: none; }
 .dash-desk-tag b { font-size: 12px; }
 .dash-desk-tag span { font-size: 10px; color: #a9b6cc; white-space: nowrap; }

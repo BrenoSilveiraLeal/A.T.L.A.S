@@ -275,6 +275,35 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const asphalt = new Mass();
   /** Asphalt from below the grass up to ROAD_TOP. */
   const pave = (x: number, z: number, w: number, d: number) => asphalt.box(x, GROUND - 0.05, z, w, ROAD_TOP - GROUND + 0.05, d);
+  // A river (owner, 01/11/2026: "talvez com um rio passando"): it comes down a valley in the
+  // mountains, crosses the city on a diagonal under the streets' bridges, and ends in the lake.
+  const lakeAt = new THREE.Vector2(Math.cos(2.4) * (edgeMetres(2.4) + 220), Math.sin(2.4) * (edgeMetres(2.4) + 220));
+  const lakeBlock = (cx: number, cz: number) => Math.hypot((cx - lakeAt.x) / 130, (cz - lakeAt.y) / 100) < 1;
+  const RIVER = mobile ? 18 : 26; // half its width
+  const flow = lakeAt.clone().normalize(), sLake = lakeAt.length();
+  /** How far the river's middle line runs to the side of the line from the mountains to the lake. */
+  const bend = (s: number) => {
+    const fade = Math.min(1, Math.max(0, (sLake - s) / 500));
+    return (190 + 60 * Math.sin(s * 0.005 + 1) + 35 * Math.sin(s * 0.013)) * fade * fade * (3 - 2 * fade);
+  };
+  /** Distance from a point to the river's middle line (close enough for its gentle bends). */
+  const riverDist = (x: number, z: number) => {
+    const s = x * flow.x + z * flow.y, q = -x * flow.y + z * flow.x;
+    if (s > sLake) return Infinity;
+    const slope = (bend(s + 1) - bend(s - 1)) / 2;
+    return Math.abs(q - bend(s)) / Math.sqrt(1 + slope * slope);
+  };
+  const riverBlock = (cx: number, cz: number) => riverDist(cx, cz) < RIVER + 43;
+  /** A block the river runs through: a park on the banks, crossed by its streets as bridges over the water. */
+  const riverside = (cx: number, cz: number) => {
+    for (const t of [-1, 1]) { pave(cx, cz + t * (PITCH / 2 - 3.5), PITCH, 7); pave(cx + t * (PITCH / 2 - 3.5), cz, 7, PITCH); }
+    banks.box(cx, GROUND, cz, PITCH - 14, 0.07, PITCH - 14);
+    for (let k = 0; k < 16; k++) {
+      const x = cx + (random() - 0.5) * (PITCH - 20), z = cz + (random() - 0.5) * (PITCH - 20), d = riverDist(x, z);
+      if (d > RIVER + 7 && d < RIVER + 30) trees.push([x, z, 1 + random() * 0.6, GROUND + 0.07]);
+    }
+  };
+  const banks = new Mass();
 
   const plinths = new Mass(), lawns = new Mass(), plaza = new Mass(), marks = new Mass(), zebra = new Mass(), roofs = new Mass(), terracotta = new Mass();
   const pools = new Mass(), decks = new Mass(), dirt = new Mass(), courts = new Mass(), courtLines = new Mass(), cranes = new Mass(), benches = new Mass(), shelters = new Mass(), stopGlass = new Mass();
@@ -341,6 +370,7 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     if (!inside(i, j)) continue;
     const cx = i * PITCH, cz = j * PITCH, edge = BLOCK / 2 - 2.5;
     const center = i === 0 && j === 0;
+    if (!center && riverBlock(cx, cz)) { riverside(cx, cz); continue; }
     pave(cx, cz, PITCH, PITCH);
     const roll = random(), park = !center && roll < 0.12, site = !center && !park && roll < 0.16;
     (center ? plaza : plinths).box(cx, 0, cz, BLOCK, 0.3, BLOCK);
@@ -478,31 +508,69 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   // vai até o limite da visão"): simpler blocks — buildings, roofs, parks and streets, no cars or
   // street furniture — getting lower with distance and fading into the haze, with a lake in a park.
   const FAR = mobile ? 1300 : 2300;
-  const lakeAt = new THREE.Vector2(Math.cos(2.4) * (edgeMetres(2.4) + 220), Math.sin(2.4) * (edgeMetres(2.4) + 220));
+  const waterMaterial = glows(new THREE.MeshStandardMaterial({ color: 0x5cc4ea, emissive: 0x1e6f9a, roughness: 0.12, metalness: 0.2, side: THREE.DoubleSide }), 0.08, 0.25);
   const shore = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(92, 1, 64).translate(lakeAt.x, GROUND + 0.08, lakeAt.y), plain("#e8d9b4", 1));
-  const lake = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(82, 1, 55).translate(lakeAt.x, GROUND + 0.18, lakeAt.y),
-    glows(new THREE.MeshStandardMaterial({ color: 0x5cc4ea, emissive: 0x1e6f9a, roughness: 0.12, metalness: 0.2 }), 0.08, 0.25));
+  const lake = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(82, 1, 55).translate(lakeAt.x, GROUND + 0.18, lakeAt.y), waterMaterial);
   city.add(shore, lake);
-  // Hills rise from the middle of the city to mountains on the horizon (owner, 01/11/2026: "prédios
-  // nos morros, como uma cidade grande, ruas que sobem os morros, mas mostrando grande parte dos
-  // morros"). Neighbourhoods climb the slopes and thin out with height, so most of each hill is green.
-  const HILLS_FROM = mobile ? 650 : 1000;
+  {
+    // The river's water, and stone quays along it in town (left open where a street bridges it).
+    const water: number[] = [], quay: number[] = [];
+    const quad = (out: number[], a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, d: THREE.Vector2, y: number) =>
+      out.push(a.x, y, a.y, c.x, y, c.y, b.x, y, b.y, b.x, y, b.y, c.x, y, c.y, d.x, y, d.y);
+    const side = (s: number, off: number) => {
+      const q = bend(s), slope = (bend(s + 1) - bend(s - 1)) / 2;
+      const t = new THREE.Vector2(flow.x - flow.y * slope, flow.y + flow.x * slope).normalize();
+      return new THREE.Vector2(flow.x * s - flow.y * q - t.y * off, flow.y * s + flow.x * q + t.x * off);
+    };
+    const onStreet = (v: number) => { const m = ((v + PITCH / 2) % PITCH + PITCH) % PITCH; return m < 8 || m > PITCH - 8; };
+    for (let s = -4500; s < sLake; s += 6) {
+      const e = Math.min(s + 6, sLake);
+      quad(water, side(s, RIVER), side(e, RIVER), side(s, -RIVER), side(e, -RIVER), GROUND + 0.12);
+      const mid = side(s + 3, 0);
+      if (Math.hypot(mid.x, mid.y) < FAR) for (const k of [1, -1]) {
+        const p = side(s + 3, k * (RIVER + 1.5));
+        if (!onStreet(p.x) && !onStreet(p.y)) quad(quay, side(s, k * RIVER), side(e, k * RIVER), side(s, k * (RIVER + 5)), side(e, k * (RIVER + 5)), GROUND + 0.16);
+      }
+    }
+    const surface = (points: number[]) => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(points, 3)); g.computeVertexNormals(); return g; };
+    city.add(new THREE.Mesh(surface(water), waterMaterial), new THREE.Mesh(surface(quay), new THREE.MeshStandardMaterial({ color: 0xd8d0c0, roughness: 0.9, side: THREE.DoubleSide })));
+  }
+  // The city lies in a valley (owner, 01/11/2026: "prédios nos morros, como uma cidade grande, ruas
+  // que sobem os morros, mas mostrando grande parte dos morros"; "a cidade tá muito plana"; "tem que
+  // parecer real"): the hills start just past the outskirts, following the city's edge, and rise to
+  // mountains. Neighbourhoods fill a few patches of the lower slopes in blocks; the rest is grass,
+  // forest and, on the tops, rock. The lake keeps a flat park around it.
   const ridge = (x: number, z: number) => 0.55 + 0.25 * Math.sin(x * 0.0042 + 1.3) * Math.cos(z * 0.0037 - 0.4) + 0.2 * Math.sin((x + z) * 0.0091 + 2.2);
   const heightAt = (x: number, z: number) => {
-    const r = Math.hypot(x, z), k = Math.min(1, Math.max(0, (r - HILLS_FROM) / 900));
+    const r = Math.hypot(x, z), from = edgeMetres(Math.atan2(z, x)) + (mobile ? 120 : 170);
+    const k = Math.min(1, Math.max(0, (r - from) / 700));
     if (k <= 0) return 0;
-    return k * k * (3 - 2 * k) * (50 + 320 * ridge(x, z) * Math.min(1, r / (FAR + 400)));
+    // Flat around the lake, and a valley floor along the river.
+    const lakeFlat = Math.min(1, Math.max(0, (Math.hypot((x - lakeAt.x) / 1.4, z - lakeAt.y) - 150) / 250));
+    const valley = Math.min(1, Math.max(0, (riverDist(x, z) - 60) / 320));
+    return k * k * (3 - 2 * k) * (60 + 340 * ridge(x, z)) * lakeFlat * valley;
   };
-  const settled = (x: number, z: number) => { const h = heightAt(x, z); return h < 4 || 0.5 + 0.5 * Math.sin(x * 0.013 + Math.cos(z * 0.011) * 2.5) > h / 230; };
+  const patch = (x: number, z: number) => 0.6 * Math.sin(x * 0.0062 + 1.1) * Math.cos(z * 0.0057 - 0.7) + 0.4 * Math.sin((x - z) * 0.0041 + 0.5);
+  const settled = (x: number, z: number) => { const h = heightAt(x, z); return h < 4 || (h < 150 && patch(x, z) > 0.15 + h / 300); };
+  const woods = (x: number, z: number) => Math.sin(x * 0.009 + 2) * Math.cos(z * 0.0083 - 1) + 0.3 * Math.sin(z * 0.021 + x * 0.004);
   {
-    // Terrain: one mesh, flat under the city, rising into the hills; greener higher up.
+    // Terrain: one mesh, flat under the city, rising into the hills: grass, darker forest, rock on the tops.
     const SIZE = 10000, SEGS = mobile ? 220 : 380;
     const terrain = new THREE.PlaneGeometry(SIZE, SIZE, SEGS, SEGS).rotateX(-Math.PI / 2);
     const pos = terrain.attributes.position as THREE.BufferAttribute, colors: number[] = [], c = new THREE.Color();
+    // Colours picked in sRGB (as on screen), not in the linear working space, so the hills aren't washed out.
+    const SRGB = THREE.SRGBColorSpace;
+    const grass = new THREE.Color(), forest = new THREE.Color().setHSL(0.3, 0.45, 0.27, SRGB), rock = new THREE.Color().setHSL(0.09, 0.1, 0.55, SRGB), town = new THREE.Color().setHSL(0.15, 0.15, 0.6, SRGB);
     for (let n = 0; n < pos.count; n++) {
       const x = pos.getX(n), z = pos.getZ(n), h = heightAt(x, z);
       pos.setY(n, GROUND + h);
-      c.setHSL(0.27 + Math.sin(x * 0.01) * 0.015, 0.42 - Math.min(0.12, h / 2500), 0.48 + Math.min(0.1, h / 1500) - (h > 4 && settled(x, z) ? 0.04 : 0));
+      grass.setHSL(0.25 + Math.sin(x * 0.01) * 0.012, 0.42, 0.42 + Math.sin(z * 0.013 + x * 0.004) * 0.03, SRGB);
+      c.copy(grass);
+      if (h > 4) {
+        if (settled(x, z)) c.lerp(town, 0.45);
+        else if (woods(x, z) > 0.25) c.lerp(forest, Math.min(1, (woods(x, z) - 0.25) * 3));
+        if (h > 230) c.lerp(rock, Math.min(0.75, (h - 230) / 160));
+      }
       colors.push(c.r, c.g, c.b);
     }
     terrain.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
@@ -511,14 +579,22 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     land.receiveShadow = true; city.add(land);
   }
   /** Streets that climb the hills: ribbons along the grid lines, following the ground, where people live. */
-  const climbing: number[] = [], climbIdx: number[] = [];
+  const climbing: number[] = [], climbIdx: number[] = [], dashes: number[] = [], dashIdx: number[] = [];
   const ribbon = (points: [number, number, number][], alongZ: boolean) => {
-    if (points.length < 2) return;
+    if (points.length < 3) return;
     const base = climbing.length / 3;
     for (const [x, y, z] of points) {
       if (alongZ) climbing.push(x - 4, y, z, x + 4, y, z); else climbing.push(x, y, z - 4, x, y, z + 4);
     }
-    for (let k = 0; k < points.length - 1; k++) { const a = base + k * 2; climbIdx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    for (let k = 0; k < points.length - 1; k++) {
+      const a = base + k * 2; climbIdx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      if (k % 2) continue;
+      // Centre line, dashed: every other stretch.
+      const d = dashes.length / 3, [x0, y0, z0] = points[k], [x1, y1, z1] = points[k + 1];
+      if (alongZ) dashes.push(x0 - 0.15, y0 + 0.06, z0, x0 + 0.15, y0 + 0.06, z0, x1 - 0.15, y1 + 0.06, z1 - 4, x1 + 0.15, y1 + 0.06, z1 - 4);
+      else dashes.push(x0, y0 + 0.06, z0 - 0.15, x0, y0 + 0.06, z0 + 0.15, x1 - 4, y1 + 0.06, z1 - 0.15, x1 - 4, y1 + 0.06, z1 + 0.15);
+      dashIdx.push(d, d + 2, d + 1, d + 1, d + 2, d + 3);
+    }
   };
   const farGreen = new Mass();
   const farReach = Math.ceil(FAR / PITCH);
@@ -527,27 +603,45 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     if (r > FAR || inside(gi, gj) || r < edgeMetres(Math.atan2(cz, cx)) - PITCH * 0.3) continue;
     const hb = heightAt(cx, cz);
     if (hb > 3) {
-      // On the slopes: a hillside neighbourhood of small colourful houses, or woods.
       if (!settled(cx, cz)) {
-        for (let k = 0; k < 3; k++) { const x = cx + (random() - 0.5) * 70, z = cz + (random() - 0.5) * 70; trees.push([x, z, 1.4 + random() * 0.8, GROUND + heightAt(x, z) - 0.3]); }
+        // Forest in clumps where the ground is darker; open grass elsewhere and on the tops.
+        if (hb < 260 && woods(cx, cz) > 0.35) for (let k = 0; k < 5; k++) {
+          const a = random() * Math.PI * 2, s = random() * 16, x = cx + Math.cos(a) * s, z = cz + Math.sin(a) * s;
+          trees.push([x, z, 1.7 + random() * 0.9, GROUND + heightAt(x, z) - 0.3]);
+        }
         continue;
       }
-      for (let k = 0; k < 5; k++) {
-        const x = cx + (random() - 0.5) * 56, z = cz + (random() - 0.5) * 56, ground = GROUND + heightAt(x, z);
-        const w = 8 + random() * 7, d = 7 + random() * 6, h = 6 + random() * (random() < 0.15 ? 22 : 9);
-        const style = random() < 0.15 ? TOWER_STYLES[Math.floor(random() * TOWER_STYLES.length)] : LOW_STYLES[Math.floor(random() * LOW_STYLES.length)];
-        facades[style].box(x, ground - 5, z, w, h + 5, d, false, random());
-        (STREET_STYLES[style].curtain ? roofs : terracotta).box(x, ground + h, z, w + 0.8, 0.6, d + 0.8);
+      // A hillside neighbourhood: a block of four lots between the streets that climb the hill,
+      // each building stepped into the slope; lower and sparser further up.
+      for (const [dx, dz] of [[-17, -17], [17, -17], [-17, 17], [17, 17]]) {
+        if (random() < 0.2 + hb / 400) continue;
+        const x = cx + dx, z = cz + dz, w = 17 + random() * 6, d = 17 + random() * 6;
+        const corners = [heightAt(x - w / 2, z - d / 2), heightAt(x + w / 2, z - d / 2), heightAt(x - w / 2, z + d / 2), heightAt(x + w / 2, z + d / 2)];
+        const low = GROUND + Math.min(...corners), top = GROUND + Math.max(...corners);
+        const tall = random() < 0.12 * (1 - hb / 150), h = tall ? 28 + random() * 30 : 7 + random() * 14 * (1 - hb / 220);
+        const style = tall || random() < 0.35 ? TOWER_STYLES[Math.floor(random() * TOWER_STYLES.length)] : LOW_STYLES[Math.floor(random() * LOW_STYLES.length)];
+        facades[style].box(x, low - 1, z, w, top - low + 1 + h, d, false, random());
+        (STREET_STYLES[style].curtain || random() < 0.4 ? roofs : terracotta).box(x, top + h, z, w + 0.6, 0.6, d + 0.6);
       }
       continue;
     }
-    const nearLake = Math.hypot((cx - lakeAt.x) / 100, (cz - lakeAt.y) / 72) < 1;
+    if (lakeBlock(cx, cz)) {
+      // The lake's open shore: grass and a ring of trees.
+      for (let k = 0; k < 6; k++) { const x = cx + (random() - 0.5) * PITCH, z = cz + (random() - 0.5) * PITCH; if (Math.hypot((x - lakeAt.x) / 100, (z - lakeAt.y) / 70) > 1) trees.push([x, z, 1 + random() * 0.6, GROUND]); }
+      continue;
+    }
+    // Centre lines on this block's west and south streets (unless the centre's street already has them).
+    for (const p of [-24, -12, 0, 12, 24]) {
+      if (!inside(gi - 1, gj)) marks.box(cx - PITCH / 2, ROAD_TOP, cz + p, 0.3, 0.06, 5);
+      if (!inside(gi, gj - 1)) marks.box(cx + p, ROAD_TOP, cz - PITCH / 2, 5, 0.06, 0.3);
+    }
+    if (riverBlock(cx, cz)) { riverside(cx, cz); continue; }
     pave(cx, cz, PITCH, PITCH);
     plinths.box(cx, 0, cz, BLOCK, 0.3, BLOCK);
-    if (nearLake || random() < 0.12) {
-      // A park block (around the lake, and here and there): lawn and a few round trees.
+    if (random() < 0.12) {
+      // A park block here and there: lawn and a few round trees.
       farGreen.box(cx, 0.3, cz, BLOCK - 4, 0.1, BLOCK - 4);
-      if (!nearLake) for (let k = 0; k < 6; k++) trees.push([cx + (random() - 0.5) * (BLOCK - 12), cz + (random() - 0.5) * (BLOCK - 12), 1 + random() * 0.6, 0.4]);
+      for (let k = 0; k < 6; k++) trees.push([cx + (random() - 0.5) * (BLOCK - 12), cz + (random() - 0.5) * (BLOCK - 12), 1 + random() * 0.6, 0.4]);
       continue;
     }
     // Heights fall off with distance; a few taller towers break the skyline.
@@ -568,18 +662,31 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     let run: [number, number, number][] = [];
     for (let p = -FAR; p <= FAR; p += 10) {
       const x = alongZ ? line : p, z = alongZ ? p : line, h = heightAt(x, z);
-      if (h > 2 && Math.hypot(x, z) < FAR && settled(x, z)) run.push([x, GROUND + h + 0.35, z]);
+      if (h > 2 && Math.hypot(x, z) < FAR && settled(x, z) && riverDist(x, z) > RIVER + 6) run.push([x, GROUND + h + 0.5, z]);
       else { ribbon(run, alongZ); run = []; }
     }
     ribbon(run, alongZ);
   }
   if (climbIdx.length) {
-    const roads = new THREE.BufferGeometry();
-    roads.setAttribute("position", new THREE.Float32BufferAttribute(climbing, 3)); roads.setIndex(climbIdx); roads.computeVertexNormals();
-    const hillRoads = new THREE.Mesh(roads, new THREE.MeshStandardMaterial({ color: 0x5a6170, roughness: 0.95, side: THREE.DoubleSide }));
-    hillRoads.receiveShadow = true; city.add(hillRoads);
+    const sheet = (points: number[], index: number[]) => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(points, 3)); g.setIndex(index); g.computeVertexNormals(); return g; };
+    const hillRoads = new THREE.Mesh(sheet(climbing, climbIdx), new THREE.MeshStandardMaterial({ color: 0x4c5463, roughness: 0.95, side: THREE.DoubleSide }));
+    hillRoads.receiveShadow = true;
+    city.add(hillRoads, new THREE.Mesh(sheet(dashes, dashIdx), new THREE.MeshStandardMaterial({ color: 0xf2c94c, roughness: 0.6, side: THREE.DoubleSide })));
   }
-  city.add(mesh(farGreen, plain("#7cc35a", 1)));
+  // Bridges: a parapet on each side wherever a street crosses the river.
+  const paved = (gi: number, gj: number) => {
+    const cx = gi * PITCH, cz = gj * PITCH, r = Math.hypot(cx, cz);
+    return inside(gi, gj) || (r <= FAR && r >= edgeMetres(Math.atan2(cz, cx)) - PITCH * 0.3 && heightAt(cx, cz) <= 3 && !lakeBlock(cx, cz));
+  };
+  for (let k = -farReach; k <= farReach + 1; k++) for (const alongZ of [true, false]) {
+    const line = (k - 0.5) * PITCH;
+    for (let p = -FAR; p <= FAR; p += 2) {
+      const x = alongZ ? line : p, z = alongZ ? p : line, n = Math.round(p / PITCH);
+      if (riverDist(x, z) > RIVER + 1 || !(alongZ ? paved(k - 1, n) || paved(k, n) : paved(n, k - 1) || paved(n, k))) continue;
+      for (const t of [-7.2, 7.2]) shelters.box(alongZ ? x + t : x, ROAD_TOP, alongZ ? z : z + t, alongZ ? 0.5 : 2.05, 1, alongZ ? 2.05 : 0.5);
+    }
+  }
+  city.add(mesh(farGreen, plain("#7cc35a", 1)), mesh(banks, plain("#7cc35a", 1)));
   city.add(mesh(asphalt, plain("#4c5463", 0.95)));
 
   city.add(mesh(plinths, plain("#d9dde2")), mesh(plaza, plain("#eef0f2")), mesh(lawns, plain("#7cc35a", 1)), mesh(marks, plain("#f2c94c", 0.6)), mesh(zebra, plain("#f4f6f8", 0.6)));

@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { LocateFixed } from "lucide-react";
+import { LocateFixed, PersonStanding } from "lucide-react";
 import { ELEVATOR, officeById, TOWER, windowBays } from "@/core/building";
 import { DESKS, deskState, MARKET_LABEL, DATA_LABEL, type DashStatus } from "@/core/daytrade/desks";
 import { Mass } from "@/components/building/city";
@@ -26,12 +26,13 @@ function screen(w: number, h: number) {
  * DASH para eu poder entrar e começar a mexer"): a horseshoe of desks facing the wall screen, one
  * agent per role (core/daytrade/desks.ts), glass walls with the city outside and the elevator where
  * the entrance is. The screens only show what is known: with no feed and no account they say so.
- * Drag to turn, wheel to zoom.
+ * Drag to turn, wheel to zoom; or walk the room in first person, as in the dividends office.
  */
 export function Dash3D({ status }: { status: DashStatus }) {
   const host = useRef<HTMLDivElement>(null);
-  const api = useRef<{ reset: () => void; status: (s: DashStatus) => void } | null>(null);
+  const api = useRef<{ reset: () => void; status: (s: DashStatus) => void; walk: (on: boolean) => void } | null>(null);
   const [failed, setFailed] = useState(false);
+  const [walking, setWalking] = useState(false);
   const initial = useRef(status);
 
   useEffect(() => {
@@ -131,11 +132,14 @@ export function Dash3D({ status }: { status: DashStatus }) {
     const people: { group: THREE.Group; head: THREE.Mesh; phase: number }[] = [];
     const monitors: { draw: (s: DashStatus) => void }[] = [];
     const deskMat = matte("#e9e4dc", 0.6), chairMat = matte("#22262d", 0.6), screenBack = matte("#1b1e24", 0.4);
+    /** What blocks the way in first person: x, z, radius. */
+    const obstacles: [number, number, number][] = [[16, 8.4, 3.2], [16, 5.6, 1.2]];
     DESKS.forEach((desk, k) => {
       const supervisor = desk.id === "supervisor";
       // Five desks on an arc facing the wall screen, the supervisor's behind them in the middle.
       const angle = Math.PI * (0.12 + (k / 4) * 0.76);
       const x = supervisor ? 0 : Math.cos(angle) * 14, z = supervisor ? 9 : 4.5 - Math.sin(angle) * 9;
+      obstacles.push([x, z, 2]);
       const g = new THREE.Group(); g.position.set(x, 0, z); g.lookAt(0, 0, supervisor ? -20 : -6);
       const top = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 1.4), deskMat); top.position.set(0, 0.76, 0); g.add(top);
       for (const sx of [-1.5, 1.5]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.76, 1.2), metal); leg.position.set(sx, 0.38, 0); g.add(leg); }
@@ -176,7 +180,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
     const sofa = new Mass(); sofa.box(16, 0, 8, 6, 0.5, 2); sofa.box(16, 0.5, 8.8, 6, 0.6, 0.4); add(new THREE.Mesh(sofa.geometry(), matte("#3d5a80", 0.9)));
     const table = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.08, 24), deskMat); table.position.set(16, 0.45, 5.6); add(table);
     for (const [px, pz] of [[-22, -12], [22, -12], [-22, 12], [22, 12], [-8, -12], [8, -12]]) {
-      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.3, 0.6, 16), white); pot.position.set(px, 0.3, pz); add(pot);
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.3, 0.6, 16), white); pot.position.set(px, 0.3, pz); add(pot); obstacles.push([px, pz, 1]);
       const leaves = new THREE.Mesh(new THREE.SphereGeometry(0.8, 14, 10), matte("#4f9a45", 0.85)); leaves.position.set(px, 1.2, pz); add(leaves);
     }
     const rules = screen(800, 520); {
@@ -189,7 +193,49 @@ export function Dash3D({ status }: { status: DashStatus }) {
 
     const sync = (s: DashStatus) => { drawWall(s); monitors.forEach((m) => m.draw(s)); };
     sync(initial.current);
-    api.current = { reset, status: sync };
+
+    // First person (as in the dividends office): from the elevator, W A S D or the arrows to walk,
+    // drag to look around; desks, sofa, plants and the glass stop you.
+    const walk = { on: false, yaw: 0, pitch: 0, keys: new Set<string>(), drag: null as { x: number; y: number } | null };
+    const KEYS: Record<string, [number, number]> = { w: [0, 1], arrowup: [0, 1], s: [0, -1], arrowdown: [0, -1], a: [-1, 0], arrowleft: [-1, 0], d: [1, 0], arrowright: [1, 0] };
+    const firstPerson = (on: boolean) => {
+      walk.on = on; walk.keys.clear(); controls.enabled = !on && entry.at < 0;
+      if (on) { entry.at = -1; camera.position.set(ELEVATOR.x, 1.65, D / 2 - 2.2); walk.yaw = 0; walk.pitch = -0.05; }
+      else reset();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (!walk.on) return;
+      const key = e.key.toLowerCase();
+      if (key === "escape" && e.type === "keydown") { firstPerson(false); setWalking(false); return; }
+      if (!KEYS[key]) return;
+      e.preventDefault();
+      if (e.type === "keydown") walk.keys.add(key); else walk.keys.delete(key);
+    };
+    const onLookStart = (e: PointerEvent) => { if (walk.on) walk.drag = { x: e.clientX, y: e.clientY }; };
+    const onLook = (e: PointerEvent) => {
+      if (!walk.on || !walk.drag) return;
+      walk.yaw -= (e.clientX - walk.drag.x) * 0.005; walk.pitch = Math.max(-1.1, Math.min(1.1, walk.pitch - (e.clientY - walk.drag.y) * 0.004));
+      walk.drag = { x: e.clientX, y: e.clientY };
+    };
+    const onLookEnd = () => { walk.drag = null; };
+    window.addEventListener("keydown", onKey); window.addEventListener("keyup", onKey);
+    labels.domElement.addEventListener("pointerdown", onLookStart); window.addEventListener("pointermove", onLook); window.addEventListener("pointerup", onLookEnd);
+    const step = (dt: number) => {
+      let ahead = 0, aside = 0;
+      for (const k of walk.keys) { ahead += KEYS[k][1]; aside += KEYS[k][0]; }
+      if (ahead || aside) {
+        const len = Math.hypot(ahead, aside), speed = 3.2 * dt, sin = Math.sin(walk.yaw), cos = Math.cos(walk.yaw);
+        const p = camera.position;
+        p.x += ((-sin * ahead + cos * aside) / len) * speed; p.z += ((-cos * ahead - sin * aside) / len) * speed;
+        p.x = Math.max(-W / 2 + 0.6, Math.min(W / 2 - 0.6, p.x)); p.z = Math.max(-D / 2 + 1.2, Math.min(D / 2 - 0.6, p.z));
+        for (const [ox, oz, r] of obstacles) {
+          const dx = p.x - ox, dz = p.z - oz, dist = Math.hypot(dx, dz);
+          if (dist < r && dist > 0.001) { p.x = ox + (dx / dist) * r; p.z = oz + (dz / dist) * r; }
+        }
+      }
+      camera.rotation.set(walk.pitch, walk.yaw, 0, "YXZ");
+    };
+    api.current = { reset, status: sync, walk: firstPerson };
 
     const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h); labels.setSize(w, h); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
@@ -209,7 +255,8 @@ export function Dash3D({ status }: { status: DashStatus }) {
         surroundings.userData.update?.(dt);
         for (const p of people) { p.head.rotation.y = Math.sin(t * 0.4 + p.phase) * 0.35; p.group.position.y = Math.sin(t * 1.3 + p.phase) * 0.01; }
       }
-      controls.update(); renderer.render(scene, camera); labels.render(scene, camera);
+      if (walk.on) step(dt); else controls.update();
+      renderer.render(scene, camera); labels.render(scene, camera);
     };
     const start = () => { if (!running) { running = true; clock.getDelta(); frame = requestAnimationFrame(tick); } };
     const stop = () => { running = false; cancelAnimationFrame(frame); };
@@ -218,6 +265,8 @@ export function Dash3D({ status }: { status: DashStatus }) {
     start();
     return () => {
       stop(); visibility.disconnect(); observer.disconnect(); document.removeEventListener("visibilitychange", onPage);
+      window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKey);
+      window.removeEventListener("pointermove", onLook); window.removeEventListener("pointerup", onLookEnd);
       controls.dispose(); pmrem.dispose();
       scene.traverse((o) => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { (m as THREE.MeshStandardMaterial).map?.dispose(); m.dispose(); }); } });
       renderer.dispose(); el.replaceChildren(); api.current = null;
@@ -225,12 +274,24 @@ export function Dash3D({ status }: { status: DashStatus }) {
   }, []);
 
   useEffect(() => { api.current?.status(status); }, [status]);
+  useEffect(() => { api.current?.walk(walking); }, [walking]);
 
   if (failed) return <div className="dash3d dash3d-failed" role="status">O 3D não está disponível neste aparelho. O painel abaixo mostra o estado da mesa.</div>;
   return (
     <div className="dash3d">
       <div ref={host} className="dash3d-canvas" role="img" aria-label={`Sala do DASH no andar ${FLOOR} da sede ATLAS: ${DESKS.length} mesas (${DESKS.map((d) => `${d.person.name}, ${d.role}`).join("; ")}), telão e a cidade lá fora.`} />
-      <button type="button" className="dash3d-reset" onClick={() => api.current?.reset()} aria-label="Centralizar a sala" title="Centralizar"><LocateFixed size={17} /></button>
+      <div className="office3d-top">
+        <button type="button" className={`icon-button secondary ${walking ? "active" : ""}`} onClick={() => setWalking((on) => !on)} aria-pressed={walking}
+          aria-label={walking ? "Sair do modo andar" : "Andar pela sala do DASH"} title={walking ? "Sair do modo andar" : "Andar pela sala"}>
+          <PersonStanding size={18} />
+        </button>
+        <button type="button" className="icon-button secondary" onClick={() => { setWalking(false); api.current?.reset(); }} aria-label="Centralizar a sala" title="Centralizar">
+          <LocateFixed size={18} />
+        </button>
+      </div>
+      {walking && <div className="office3d-fp-hint" role="status">
+        <b>W A S D</b> ou setas para andar · arraste para olhar · <b>Esc</b> ou o bonequinho para sair
+      </div>}
     </div>
   );
 }

@@ -50,13 +50,14 @@ export const OFFICES: readonly Office[] = [
   // Names chosen by the owner, 01/11/2026. The current office's own name is still to be chosen.
   { id: "dash", name: "DASH", fullName: "Day-trading Analysis & Strategy Hub", tagline: "Núcleo de Análise e Estratégia de Day Trade",
     floor: 9, status: "BUILDING", href: "/daytrade", color: "#e3c28d",
-    summary: "Day trade. Em construção: abre em modo simulado, com contas e limites próprios; ainda não envia ordens." },
+    summary: "Day trade. Aberto em modo simulado, com contas e limites próprios; ainda não envia ordens." },
   { id: "coin", name: "COIN", fullName: "Crypto Operations & Intelligence Network", tagline: "Rede de Inteligência e Operações com Criptoativos",
     floor: 10, status: "LOCKED", href: null, color: "#9db4e8",
     summary: "Criptoativos. Bloqueado: previsto para uma etapa futura." },
 ];
 
-export const STATUS_LABEL: Record<OfficeStatus, string> = { ACTIVE: "Ativo", BUILDING: "Em construção", LOCKED: "Bloqueado" };
+/** BUILDING: still being built, but it opens, in simulated mode (owner, 01/11/2026: "ainda não dá pra entrar no DASH"). */
+export const STATUS_LABEL: Record<OfficeStatus, string> = { ACTIVE: "Ativo", BUILDING: "Simulado · entrar", LOCKED: "Bloqueado" };
 
 export const officeOnFloor = (floor: number) => OFFICES.find((o) => o.floor === floor) ?? null;
 export const officeById = (id: string) => OFFICES.find((o) => o.id === id) ?? null;

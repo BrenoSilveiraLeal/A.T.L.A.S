@@ -5,8 +5,9 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { floorLevel, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
-import { buildCity, Mass, setNight, SKY } from "./city";
-import { crownTop, elevatorTube, floorShell, lobby, officeSlab, towerMaterials } from "./tower";
+import { DESKS } from "@/core/daytrade/desks";
+import { buildCity, glows, Mass, roundedSlab, setNight, SKY } from "./city";
+import { crownTop, elevatorTube, floorShell, lobby, towerMaterials } from "./tower";
 
 /**
  * The ATLAS headquarters in its city (owner, 01/11/2026: "a página inicial mostra um prédio
@@ -117,7 +118,10 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     // ----- The tower: the ATLAS headquarters from tower.ts, the same one the office scene stands in -----
     const m = towerMaterials();
     const matte = (color: THREE.ColorRepresentation, roughness = 0.8) => new THREE.MeshStandardMaterial({ color, roughness });
-    const shadowed = <T extends THREE.Object3D>(o: T) => { o.traverse((c) => { if (c instanceof THREE.Mesh && !(c.material as THREE.Material).transparent) { c.castShadow = true; c.receiveShadow = true; } }); return o; };
+    const shadowed = <T extends THREE.Object3D>(o: T) => {
+      o.traverse((c) => { if (c instanceof THREE.Mesh && ![c.material].flat().some((x: THREE.Material) => x.transparent)) { c.castShadow = true; c.receiveShadow = true; } });
+      return o;
+    };
     const W = TOWER.width, D = TOWER.depth, H = TOWER.storey;
     scene.add(shadowed(lobby(m)));
     const lift = elevatorTube(m); scene.add(lift.group);
@@ -127,48 +131,147 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     const floors: Floor[] = [];
     const bays = { width: windowBays(W), depth: windowBays(D) };
 
-    /** Mullions at the bay edges, as in the office's own windows. */
-    const mullions = (mass: Mass) => {
-      for (const b of bays.width) for (const z of [D / 2, -D / 2]) mass.box(b.from, 0, z, 0.12, TOWER.ceiling, 0.12, false);
-      for (const b of bays.depth) for (const x of [W / 2, -W / 2]) mass.box(x, 0, b.from, 0.12, TOWER.ceiling, 0.12, false);
-      mass.box(W / 2, 0, D / 2, 0.12, TOWER.ceiling, 0.12, false);
-      mass.box(0, TOWER.sill, D / 2, W, 0.06, 0.1, false); mass.box(0, TOWER.sill, -D / 2, W, 0.06, 0.1, false);
-      mass.box(W / 2, TOWER.sill, 0, 0.1, 0.06, D, false); mass.box(-W / 2, TOWER.sill, 0, 0.1, 0.06, D, false);
+    // Office floors from outside (owner, 01/11/2026: "a forma que o escritório é vista do lado de fora
+    // tá feia"): the tower's rounded outline and white bands, clear glass from sill to head (where the
+    // office's own windows are) and, behind it, the office laid out as it is inside, lit at night.
+    const OFFICE_R = 4;
+    /** Only the sides of an extruded rounded slab (its caps would cover the floor). */
+    const sides = (material: THREE.Material) => [new THREE.MeshBasicMaterial({ visible: false }), material];
+    /** Mullions round the glass at the bay edges, as in the office's own windows, and on the rounded corners. */
+    const mullions = (mass: Mass, y: number, h: number) => {
+      const sx = W / 2 - OFFICE_R, sz = D / 2 - OFFICE_R;
+      for (const b of bays.width) for (const x of [b.from, b.to]) if (Math.abs(x) <= sx + 0.01) for (const z of [D / 2, -D / 2]) mass.box(x, y, z, 0.1, h, 0.1, false);
+      for (const b of bays.depth) for (const z of [b.from, b.to]) if (Math.abs(z) <= sz + 0.01) for (const x of [W / 2, -W / 2]) mass.box(x, y, z, 0.1, h, 0.1, false);
+      for (const [cx, cz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) for (const a of [Math.PI / 6, Math.PI / 3]) {
+        mass.box(cx * (sx + OFFICE_R * Math.cos(a)), y, cz * (sz + OFFICE_R * Math.sin(a)), 0.1, h, 0.1, false);
+      }
+    };
+    /** Opaque glass below the sill and above the head, in the tint of the tower's glass. */
+    const spandrel = new THREE.MeshPhysicalMaterial({ color: 0x9fcbe6, roughness: 0.12, metalness: 0.35, clearcoat: 0.6 });
+    const SKINS = ["#f1c9a5", "#d9a47c", "#a86b47", "#7a4a2e", "#e8b896"];
+    /** People as simple figures (shirt and head; legs when standing): x, z, shirt, seated, skin. */
+    const crowd = (g: THREE.Group, list: [number, number, string, boolean, string?][]) => {
+      const standing = list.filter((p) => !p[3]).length, tone = new THREE.Color(), dummy = new THREE.Object3D();
+      const torso = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.27, 0.5, 3, 10), matte("#ffffff", 0.75), list.length);
+      const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.21, 14, 10), matte("#ffffff", 0.6), list.length);
+      const legs = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.19, 0.55, 3, 8), matte("#2b3140", 0.85), Math.max(1, standing));
+      let n = 0;
+      list.forEach(([x, z, shirt, seated, skin], k) => {
+        const lift = seated ? 0 : 0.3;
+        dummy.position.set(x, 0.95 + lift, z); dummy.updateMatrix(); torso.setMatrixAt(k, dummy.matrix); torso.setColorAt(k, tone.set(shirt));
+        dummy.position.set(x, 1.52 + lift, z); dummy.updateMatrix(); heads.setMatrixAt(k, dummy.matrix); heads.setColorAt(k, tone.set(skin ?? SKINS[k % SKINS.length]));
+        if (!seated) { dummy.position.set(x, 0.45, z); dummy.updateMatrix(); legs.setMatrixAt(n++, dummy.matrix); }
+      });
+      legs.count = standing;
+      g.add(torso, heads, legs);
     };
 
-    /** A small interior that reads from outside: floor, desks with lit screens, people, back rooms. */
+    /** The office behind the glass, in the plan and colours of its own scene (office-3d / dash-3d). */
     const interior = (office: Office, g: THREE.Group) => {
-      const floorColor = office.id === "dividendos" ? "#a07f5f" : office.id === "dash" ? "#2b3138" : "#c9d3de";
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(W - 0.4, 0.06, D - 0.4), matte(floorColor, 0.7)); plate.position.y = 0.03; g.add(plate);
-      if (office.status === "LOCKED") return;
-      const desks = new Mass(), screens = new Mass(), rooms = new Mass(), people: [number, number][] = [];
-      if (office.id === "dividendos") {
-        // Same plan as the office: council, boss and meeting rooms at the back, desks in front.
-        for (const x of [-17.33, -10.67, -4, 2.67, 10.67]) rooms.box(x, 0, -10, 0.18, 3, 8, false);
-        rooms.box(0, 0, -14 + 0.1, W - 0.4, 3, 0.18, false);
-        for (let row = 0; row < 3; row++) for (let col = 0; col < 4; col++) {
-          const x = -20 + col * 6.5, z = -1.5 + row * 4.2;
-          desks.box(x, 0.72, z, 2.8, 0.06, 1.2); screens.box(x, 0.8, z - 0.4, 0.9, 0.55, 0.05);
-          people.push([x, z + 0.9]);
+      const dash = office.id === "dash", locked = office.status === "LOCKED";
+      g.add(new THREE.Mesh(roundedSlab(W - 0.3, D - 0.3, OFFICE_R - 0.15, 0.05), matte(dash ? "#2f3540" : locked ? "#c9d3de" : "#a07f5f", 0.7)));
+      if (locked) return;
+      // Light panels on the ceiling, as in the office; brighter at night.
+      const panels = new Mass();
+      for (let x = -20; x <= 20; x += 6) for (let z = -10; z <= 10; z += 5) panels.box(x, H - 0.55, z, 1.8, 0.04, 0.6);
+      g.add(new THREE.Mesh(panels.geometry(), glows(new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff1d6, roughness: 0.5 }), 0.7, 2.4)));
+      g.add(new THREE.Mesh(roundedSlab(W - 0.3, D - 0.3, OFFICE_R - 0.15, 0.02, H - 0.5),
+        glows(new THREE.MeshStandardMaterial({ color: 0xf4f1ea, emissive: 0xffe2b5, roughness: 0.9 }), 0.04, 0.5)));
+      const light = new Mass(), wood = new Mass(), dark = new Mass(), sofas = new Mass(), screens = new Mass(), pots: [number, number][] = [];
+      const people: [number, number, string, boolean, string?][] = [];
+      const SHIRTS = ["#e8543a", "#2f6fd6", "#f2a541", "#22a06b", "#7c4dcc", "#1fa3b8", "#e85d75", "#3d7be0"];
+      const rug = (w: number, d: number, x: number, z: number, c: string) => { const r = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, d), matte(c, 1)); r.position.set(x, 0.06, z); g.add(r); };
+      /** Office chair facing +z (facing 1) or -z (facing -1). */
+      const chair = (x: number, z: number, facing: number) => { dark.box(x, 0.42, z, 0.6, 0.1, 0.6); dark.box(x, 0.52, z - facing * 0.3, 0.6, 0.62, 0.08); };
+      const screenGlow = glows(new THREE.MeshStandardMaterial({ color: 0x0d1418, emissive: new THREE.Color(dash ? "#f0b45a" : "#8fe3ff"), roughness: 0.3 }), 0.5, 1.3);
+      if (!dash) {
+        // The dividends office: rugs, the back rooms behind glass with their coloured walls, the four
+        // desk islands, the snack bar, the TV lounge, the market corner and the reception.
+        rug(29, 8.4, -7.75, 0.4, "#2f3b52"); rug(16, 5.8, -2, 10.4, "#6b3a48"); rug(16.4, 7.6, 15.8, 10.1, "#c98b5e"); rug(12, 8, 16.5, 0.4, "#24504c");
+        const slate = new Mass(); slate.box(0, 0, -13.3, 43, 3.1, 0.18);
+        g.add(new THREE.Mesh(slate.geometry(), matte("#2e4057", 0.85)));
+        [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => {
+          const wall = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3, 7.3), matte(["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"][i % 4], 0.8));
+          wall.position.set(x, 1.5, -9.65); g.add(wall);
+        });
+        const front = new THREE.Mesh(new THREE.BoxGeometry(43, 2.6, 0.05), new THREE.MeshPhysicalMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.22, roughness: 0.05, depthWrite: false }));
+        front.position.set(0, 1.3, -6); g.add(front);
+        dark.box(0, 2.6, -6, 43, 0.06, 0.08);
+        // Council rooms: oval table, specialists.
+        [-20.67, -14, -7.33, -0.67].forEach((x, i) => {
+          wood.box(x, 0.72, -10, 3.6, 0.07, 1.8);
+          for (const dx of [-1, 1]) { chair(x + dx * 0.8, -11.4, 1); chair(x + dx * 0.8, -8.6, -1); }
+          people.push([x - 0.8, -11.4, ["#22a06b", "#2f6fd6", "#f28c28", "#9b6bff"][i], true], [x + 0.8, -8.6, ["#9b6bff", "#f28c28", "#22a06b", "#2f6fd6"][i], true]);
+        });
+        // The boss's office and the team meeting room.
+        light.box(6.67, 0.72, -11.4, 2.6, 0.08, 1.1); chair(6.67, -12.5, 1); people.push([6.67, -12.5, "#2b2f3a", true]);
+        screens.box(6.67, 1.1, -13.1, 3, 1.4, 0.05);
+        wood.box(17.3, 0.72, -10, 10.6, 0.08, 2.2);
+        for (const x of [12.75, 15.45, 18.15, 20.85]) { chair(x, -11.6, 1); chair(x, -8.4, -1); }
+        // Desk islands: four desks two by two, screens back to back, a low divider; the agents at them.
+        let n = 0;
+        for (const [cx, cz] of [[-19, 0.4], [-11.5, 0.4], [-4, 0.4], [3.5, 0.4]]) {
+          dark.box(cx, 0.72, cz, 3.3, 0.38, 0.05);
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+            const x = cx + sx * 0.82, z = cz + sz * 0.45;
+            light.box(x, 0.72, z, 1.55, 0.06, 0.8); dark.box(x - 0.7, 0, z, 0.06, 0.72, 0.7); dark.box(x + 0.7, 0, z, 0.06, 0.72, 0.7);
+            screens.box(x, 0.85, cz + sz * 0.12, 0.62, 0.38, 0.04);
+            chair(x, cz + sz * 1.35, -sz);
+            if (n++ % 4 !== 3) people.push([x, cz + sz * 1.35, SHIRTS[n % SHIRTS.length], true]);
+          }
         }
-        desks.box(16, 0, 1, 7, 0.45, 2.4); desks.box(17, 0, 10, 8, 0.9, 3);
+        // Market corner: the chart screen on the meeting room's glass, sofas facing it.
+        screens.box(16.5, 0.9, -5.85, 5, 1.8, 0.08);
+        sofas.box(16.5, 0, 2.6, 5.2, 0.45, 0.9); sofas.box(16.5, 0.45, 3.0, 5.2, 0.5, 0.22);
+        people.push([15.3, 2.5, "#1fa3b8", true], [17.6, 2.5, "#e85d75", true]);
+        // Snack bar on the right: counter, two high tables, two having a coffee.
+        light.box(22.1, 0, 8.6, 1, 1.05, 6); wood.box(22.1, 1.05, 8.6, 1.15, 0.06, 6.1);
+        for (const z of [7.6, 11.4]) { wood.box(16.4, 1.05, z, 1.1, 0.05, 1.1); dark.box(16.4, 0, z, 0.1, 1.05, 0.1); }
+        people.push([15.6, 7.6, "#f2a541", false], [17.2, 7.6, "#7c4dcc", false]);
+        // Pool table and the TV lounge.
+        const felt = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.18, 1.4), matte("#2f8f5a", 0.9)); felt.position.set(11.6, 0.82, 11); g.add(felt);
+        wood.box(11.6, 0, 11, 2.4, 0.73, 1.2);
+        dark.box(-2, 0.35, 7.9, 3.4, 1.8, 0.12); screens.box(-2, 0.5, 8.0, 3.1, 1.5, 0.04);
+        sofas.box(-2, 0, 11.6, 7, 0.45, 1); sofas.box(-2, 0.45, 12.05, 7, 0.55, 0.25);
+        people.push([-3.5, 11.4, "#22a06b", true], [-0.5, 11.4, "#3d7be0", true]);
+        // Reception by the elevator: desk with the receptionist, and the logo wall in ATLAS green.
+        light.box(-19.5, 0, 9.4, 3.6, 1.05, 0.8); wood.box(-19.5, 1.05, 9.4, 3.8, 0.06, 0.95);
+        people.push([-19.5, 8.6, "#ffffff", true]);
+        const logoWall = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2.6, 0.15), matte("#5fbf8f", 0.6)); logoWall.position.set(-19.5, 1.3, 6.6); g.add(logoWall);
+        pots.push([-22.3, -4.5], [22.3, -4.5], [9.4, 4.6], [-22.4, 4.4], [6.6, 12.6], [-10.6, 12.6], [21.8, 12.2]);
       } else {
-        // DASH: a trading horseshoe with many screens; still being set up.
-        for (let k = 0; k < 9; k++) {
-          const a = Math.PI * (0.15 + (k / 8) * 0.7), x = Math.cos(a) * 13, z = 4 - Math.sin(a) * 8;
-          desks.box(x, 0.72, z, 3, 0.06, 1.3); screens.box(x - 0.6, 0.8, z, 0.8, 0.5, 0.05); screens.box(x + 0.6, 0.8, z, 0.8, 0.5, 0.05);
-          if (k % 3 === 0) people.push([x, z + 0.9]);
-        }
-        screens.box(0, 0.6, -12.5, 16, 2.4, 0.1);
-        for (const [x, z] of [[-18, 9], [-15.5, 10.5], [18, -9]]) rooms.box(x, 0, z, 1.6, 1.2, 1.6);
+        // DASH: the trading floor of dash-3d — dark floor, warm rug, the horseshoe of desks facing the
+        // wall screen (supervisor behind), the lounge and the plants.
+        const rugMesh = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2), matte("#6b4f2f", 0.95));
+        rugMesh.scale.set(17, 1, 12); rugMesh.position.set(0, 0.06, 1); g.add(rugMesh);
+        screens.box(0, 0.6, -D / 2 + 1.2, 14, 2.4, 0.1); dark.box(0, 0.5, -D / 2 + 1.05, 14.6, 2.6, 0.1);
+        const at = new THREE.Vector3(), aim = new THREE.Vector3();
+        DESKS.forEach((desk, k) => {
+          const supervisor = desk.id === "supervisor", angle = Math.PI * (0.12 + (k / 4) * 0.76);
+          at.set(supervisor ? 0 : Math.cos(angle) * 14, 0, supervisor ? 9 : 4.5 - Math.sin(angle) * 9);
+          aim.set(0, 0, supervisor ? -20 : -6).sub(at).normalize();
+          const desk3d = new THREE.Group(); desk3d.position.copy(at); desk3d.lookAt(0, 0, supervisor ? -20 : -6);
+          const top = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 1.4), matte("#e9e4dc", 0.6)); top.position.y = 0.76; desk3d.add(top);
+          for (let m2 = 0; m2 < (supervisor ? 3 : 2); m2++) {
+            const mon = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.54, 0.05), screenGlow); mon.position.set((m2 - (supervisor ? 1 : 0.5)) * 0.98, 1.25, 0.45); desk3d.add(mon);
+          }
+          const seat = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.7), matte("#22262d", 0.6)); seat.position.set(0, 0.5, -0.9); desk3d.add(seat);
+          g.add(desk3d);
+          people.push([at.x - aim.x * 0.85, at.z - aim.z * 0.85, desk.person.shirt, true, desk.person.skin]);
+        });
+        sofas.box(16, 0, 8, 6, 0.5, 2); sofas.box(16, 0.5, 8.8, 6, 0.6, 0.4);
+        pots.push([-21.5, -11.5], [21.5, -11.5], [-21.5, 11.5], [21.5, 11.5], [-8, -12], [8, -12]);
       }
-      g.add(new THREE.Mesh(desks.geometry(), matte(office.id === "dash" ? "#3a3f46" : "#eceae6", 0.6)));
-      g.add(new THREE.Mesh(screens.geometry(), new THREE.MeshStandardMaterial({ color: 0x0d1418, emissive: new THREE.Color(office.id === "dash" ? "#e3a64a" : "#3dffa8"), emissiveIntensity: 0.55 })));
-      g.add(new THREE.Mesh(rooms.geometry(), matte(office.id === "dash" ? "#c9a14a" : "#2e4057", 0.8)));
-      const bodies = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.3, 0.9, 3, 8), matte("#ffffff", 0.7), people.length);
-      const tone = new THREE.Color(), dummy = new THREE.Object3D(), shirts = ["#e8543a", "#2f6fd6", "#f2a541", "#22a06b", "#7c4dcc", "#1fa3b8"];
-      people.forEach(([x, z], n) => { dummy.position.set(x, 0.75, z); dummy.updateMatrix(); bodies.setMatrixAt(n, dummy.matrix); bodies.setColorAt(n, tone.set(shirts[n % shirts.length])); });
-      g.add(bodies);
+      g.add(new THREE.Mesh(light.geometry(), matte(dash ? "#e9e4dc" : "#eceae6", 0.6)), new THREE.Mesh(wood.geometry(), matte("#b98a5a", 0.6)));
+      g.add(new THREE.Mesh(dark.geometry(), matte("#2b2e34", 0.5)), new THREE.Mesh(sofas.geometry(), matte(dash ? "#3d5a80" : "#46566e", 0.9)));
+      g.add(new THREE.Mesh(screens.geometry(), screenGlow));
+      if (pots.length) {
+        const pot = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.3, 0.6, 14), matte("#f4f6f8", 0.5), pots.length);
+        const leaf = new THREE.InstancedMesh(new THREE.SphereGeometry(0.8, 12, 9), matte("#4f9a45", 0.85), pots.length), dummy = new THREE.Object3D();
+        pots.forEach(([x, z], k) => { dummy.position.set(x, 0.3, z); dummy.updateMatrix(); pot.setMatrixAt(k, dummy.matrix); dummy.position.y = 1.2; dummy.updateMatrix(); leaf.setMatrixAt(k, dummy.matrix); });
+        g.add(pot, leaf);
+      }
+      crowd(g, people);
     };
 
     for (let number = 1; number <= TOWER.floors; number++) {
@@ -177,25 +280,24 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       const floor: Floor = { number, group, cut: 0, office };
       if (!office) group.add(floorShell(number, m));
       else {
-        // Office floor: a plain slab and clear glass showing the office inside (no balcony).
-        const slab = officeSlab(m); slab.position.y += 0.45; group.add(slab);
-        const inner = new THREE.Group(); inner.position.y = 0.42; group.add(inner);
+        // Office floor: the same rounded white slab as the other floors; tinted glass up to the sill and
+        // above the head, where the office has wall inside; clear glass between them, where its windows
+        // are (frosted on the locked floor), with mullions; and the office inside.
+        const locked = office.status === "LOCKED", sill = 0.45 + TOWER.sill, head = 0.45 + TOWER.head;
+        const slab = new THREE.Mesh(roundedSlab(W + 0.8, D + 0.8, OFFICE_R + 0.4, 0.45), m.slab); group.add(slab);
+        group.add(new THREE.Mesh(roundedSlab(W, D, OFFICE_R, sill - 0.45, 0.45), sides(spandrel)));
+        group.add(new THREE.Mesh(roundedSlab(W, D, OFFICE_R, H - head, head), sides(spandrel)));
+        const glass = new THREE.MeshPhysicalMaterial({ color: locked ? 0xe4f3ec : 0xeaf6ff, transparent: true, opacity: locked ? 0.86 : 0.12,
+          roughness: locked ? 0.55 : 0.04, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false });
+        const pane = new THREE.Mesh(roundedSlab(W, D, OFFICE_R, head - sill, sill), sides(glass)); pane.renderOrder = 2;
+        const frame = new Mass(); mullions(frame, sill, head - sill);
+        floor.walls = [pane, new THREE.Mesh(frame.geometry(), m.white)];
+        group.add(...floor.walls);
+        const inner = new THREE.Group(); inner.position.y = 0.45; group.add(inner);
         interior(office, inner);
-        const glass = new THREE.MeshPhysicalMaterial({ color: office.status === "LOCKED" ? 0xe4f3ec : 0xd8f1ff, transparent: true,
-          opacity: office.status === "LOCKED" ? 0.82 : 0.24, roughness: office.status === "LOCKED" ? 0.6 : 0.05, side: THREE.DoubleSide, depthWrite: false });
-        const panes = new Mass(); panes.box(0, 0, 0, W, TOWER.ceiling, D, false);
-        const frame = new Mass(); mullions(frame);
-        floor.walls = [new THREE.Mesh(panes.geometry(), glass), new THREE.Mesh(frame.geometry(), m.white)];
-        inner.add(...floor.walls);
-        // Ceiling: removed while the floor is shown, so its interior shows from above.
-        const ceiling = new THREE.Mesh(new THREE.BoxGeometry(W, 0.3, D), m.slab); ceiling.position.y = TOWER.ceiling + 0.15; inner.add(ceiling);
-        floor.ceiling = ceiling;
-        // Coloured band at the slab edge: the office's colour, brighter when hovered or chosen.
+        // Coloured line along the slab edge: the office's colour, brighter when hovered or chosen.
         const band = new THREE.MeshStandardMaterial({ color: office.color, emissive: new THREE.Color(office.color), emissiveIntensity: 0.25, roughness: 0.5 });
-        const strip = new Mass(), hw = W / 2 + 0.45, hd = D / 2 + 0.45;
-        strip.box(0, 0, hd, hw * 2, 0.3, 0.08, false); strip.box(0, 0, -hd, hw * 2, 0.3, 0.08, false);
-        strip.box(hw, 0, 0, 0.08, 0.3, hd * 2, false); strip.box(-hw, 0, 0, 0.08, 0.3, hd * 2, false);
-        const bandMesh = new THREE.Mesh(strip.geometry(), band); bandMesh.position.y = 0.12; group.add(bandMesh);
+        group.add(new THREE.Mesh(roundedSlab(W + 0.96, D + 0.96, OFFICE_R + 0.48, 0.14, 0.16), band));
         const hit = new THREE.Mesh(new THREE.BoxGeometry(W + 1, H, D + 1), new THREE.MeshBasicMaterial({ visible: false }));
         hit.position.y = H / 2; hit.userData.floor = number; group.add(hit);
         // Readable plate (HTML), kept beside the tower on the side the camera looks from.
