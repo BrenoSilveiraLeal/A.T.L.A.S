@@ -250,14 +250,20 @@ const mesh = (mass: Mass, material: THREE.Material, shadows = false) => {
  */
 export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed?: number } = {}) {
   const random = seeded(seed), city = new THREE.Group();
-  const reach = mobile ? 2 : 3;
+  // The city's edge, in blocks from the centre, changes with the direction: it spreads out along
+  // valleys between the hills instead of being a circle (owner, 01/11/2026: "se estender mais entre
+  // as montanhas").
+  const size = mobile ? 3.2 : 5.2;
+  const edgeAt = (angle: number) => size * (0.74 + 0.3 * Math.sin(3 * angle + 0.6) + 0.12 * Math.sin(5 * angle + 2.1));
+  const reach = Math.ceil(size * 1.18);
   // Grass everywhere; asphalt only under the city's blocks, so the city ends in green land, not in road.
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), plain("#86bf6a", 1));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(5000, 5000), plain("#86bf6a", 1));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; city.add(ground);
-  /** The city is roughly round: the corner blocks of the grid are left to the outskirts. */
-  const inside = (i: number, j: number) => Math.abs(i) <= reach && Math.abs(j) <= reach && Math.hypot(i, j) <= reach + 0.35;
-  /** Ring road around the city, linking the ends of its streets. */
-  const RING = (reach + 1) * PITCH, ROAD = 14;
+  /** Blocks inside the city's irregular edge (the centre block, the ATLAS plaza, always is). */
+  const inside = (i: number, j: number) => Math.abs(i) <= reach && Math.abs(j) <= reach && (i === 0 && j === 0 || Math.hypot(i, j) <= edgeAt(Math.atan2(j, i)) + 0.2);
+  /** Distance from the centre to the city's edge in a direction, in metres. */
+  const edgeMetres = (angle: number) => (edgeAt(angle) + 0.6) * PITCH;
+  const ROAD = 14;
   const asphalt = new Mass();
 
   const plinths = new Mass(), lawns = new Mass(), plaza = new Mass(), marks = new Mass(), zebra = new Mass(), roofs = new Mass(), terracotta = new Mass();
@@ -313,8 +319,9 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       continue;
     }
     // Downtown: modern towers (box on a podium, round, stepped) and some colourful low-rise blocks.
-    const near = Math.max(Math.abs(i), Math.abs(j)), kind = random();
-    const lowRise = near === 1 ? kind < 0.5 : kind < 0.22;
+    // Taller downtown, lower and more low-rise blocks towards the edge.
+    const near = Math.max(Math.abs(i), Math.abs(j)), kind = random(), out = Math.hypot(i, j) / edgeAt(Math.atan2(j, i));
+    const lowRise = near === 1 ? kind < 0.5 : kind < 0.15 + Math.max(0, out - 0.45) * 0.9;
     if (lowRise) {
       const lots: [number, number, number, number][] = random() < 0.5 ? [[cx - 13, cz, 24, BLOCK - 10], [cx + 13, cz, 24, BLOCK - 10]]
         : [[cx - 13, cz - 13, 24, 24], [cx + 13, cz - 13, 24, 24], [cx - 13, cz + 13, 24, 24], [cx + 13, cz + 13, 24, 24]];
@@ -326,7 +333,8 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       continue;
     }
     const style = TOWER_STYLES[Math.floor(random() * TOWER_STYLES.length)], shift = random();
-    const podium = 7 + Math.round(random() * 5), tall = Math.round((near === 1 ? 26 : 40) + random() ** 1.4 * (near === 1 ? 26 : 70));
+    const podium = 7 + Math.round(random() * 5), fade = Math.max(0.35, 1.15 - out * 0.8);
+    const tall = Math.round(((near === 1 ? 26 : 40) + random() ** 1.4 * (near === 1 ? 26 : 70)) * (near === 1 ? 1 : fade));
     // Podium: a low glass base filling most of the block, with a garden on top.
     facades[style].box(cx, 0.3, cz, BLOCK - 8, podium, BLOCK - 8, false, shift);
     roofs.box(cx, podium + 0.3, cz, BLOCK - 7, 0.6, BLOCK - 7);
@@ -356,25 +364,22 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       if (random() < 0.3) billboard(cx - w / 2 + 5, base + 14, cz - d / 2, -1);
     }
   }
-  // Streets between the blocks: each runs only as far as the blocks beside it, then a short link
-  // reaches the ring road. Yellow centre lines, crosswalks at the crossings, cars on every street.
-  const extents: [number, number][] = [];
-  for (let k = -reach; k <= reach + 1; k++) {
-    const rows = [];
-    for (let j = -reach; j <= reach; j++) if (inside(k - 1, j) || inside(k, j)) rows.push(j);
-    extents[k + reach] = rows.length ? [Math.min(...rows) * PITCH - PITCH / 2, Math.max(...rows) * PITCH + PITCH / 2] : [0, 0];
-  }
-  const extentOf = (k: number) => extents[k + reach] ?? [0, 0];
+  // Streets between the blocks: each runs only as far as the blocks beside it; every other one goes
+  // on out of the city as an avenue into the outskirts. Yellow centre lines, crosswalks, cars.
+  const span = (k: number, alongZ: boolean): [number, number] => {
+    const list: number[] = [];
+    for (let n = -reach; n <= reach; n++) if (alongZ ? inside(k - 1, n) || inside(k, n) : inside(n, k - 1) || inside(n, k)) list.push(n);
+    return list.length ? [Math.min(...list) * PITCH - PITCH / 2, Math.max(...list) * PITCH + PITCH / 2] : [0, 0];
+  };
   const streets: { line: number; from: number; to: number; alongZ: boolean }[] = [];
-  for (let k = -reach; k <= reach + 1; k++) {
-    const line = (k - 0.5) * PITCH, [from, to] = extentOf(k);
+  for (let k = -reach; k <= reach + 1; k++) for (const alongZ of [true, false]) {
+    const line = (k - 0.5) * PITCH, [from, to] = span(k, alongZ);
     if (to <= from) continue;
-    // The grid is symmetric: the same extent serves the street along z (x = line) and along x (z = line).
-    streets.push({ line, from, to, alongZ: true }, { line, from, to, alongZ: false });
-    const reachRing = Math.sqrt(Math.max(0, (RING - ROAD / 2) ** 2 - line * line));
-    for (const [a, b] of [[to, reachRing], [-reachRing, from]]) if (b > a) {
+    streets.push({ line, from, to, alongZ });
+    if (k % 2 !== 0) continue;
+    for (const [a, b] of [[to, to + 150], [from - 150, from]]) {
       const mid = (a + b) / 2, len = b - a;
-      asphalt.box(line, 0, mid, ROAD, 0.02, len); asphalt.box(mid, 0, line, len, 0.02, ROAD);
+      if (alongZ) asphalt.box(line, 0, mid, ROAD, 0.02, len); else asphalt.box(mid, 0, line, len, 0.02, ROAD);
     }
   }
   for (const s of streets) {
@@ -385,7 +390,7 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     }
   }
   for (let k = -reach; k <= reach + 1; k++) for (let m = -reach; m <= reach + 1; m++) {
-    const line = (k - 0.5) * PITCH, cross = (m - 0.5) * PITCH, [a, b] = extentOf(k), [c, d] = extentOf(m);
+    const line = (k - 0.5) * PITCH, cross = (m - 0.5) * PITCH, [a, b] = span(k, true), [c, d] = span(m, false);
     if (cross < a || cross > b || line < c || line > d) continue; // no crossing out here
     for (let t = -8; t <= 8; t += 1.6) {
       zebra.box(line + t, 0.03, cross - 13, 0.8, 0.01, 3.2); zebra.box(line + t, 0.03, cross + 13, 0.8, 0.01, 3.2);
@@ -393,18 +398,16 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     }
   }
 
-  // The outskirts, out to the hills: a ring road, a lake, woods and little houses with gardens.
-  const ring = new THREE.Mesh(new THREE.RingGeometry(RING - ROAD / 2, RING + ROAD / 2, 160).rotateX(-Math.PI / 2).translate(0, 0.012, 0), plain("#4c5463", 0.95));
-  ring.receiveShadow = true; city.add(ring);
-  const lakeAt = new THREE.Vector2(Math.cos(2.4) * 440, Math.sin(2.4) * 440);
+  // The outskirts, out to the hills: a lake, woods and little houses with gardens, all along the city's edge.
+  const lakeAt = new THREE.Vector2(Math.cos(2.4) * (edgeMetres(2.4) + 150), Math.sin(2.4) * (edgeMetres(2.4) + 150));
   const shore = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(78, 1, 52).translate(lakeAt.x, 0.02, lakeAt.y), plain("#e8d9b4", 1));
   const lake = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(70, 1, 45).translate(lakeAt.x, 0.05, lakeAt.y),
     glows(new THREE.MeshStandardMaterial({ color: 0x5cc4ea, emissive: 0x1e6f9a, roughness: 0.12, metalness: 0.2 }), 0.08, 0.25));
   city.add(shore, lake);
-  const yards = new Mass(), outskirts = Math.round((mobile ? 0.5 : 1) * 110);
-  const free = (x: number, z: number, r: number) => Math.hypot(x - lakeAt.x, z - lakeAt.y) > 85 + r && Math.abs(Math.hypot(x, z) - RING) > ROAD + r;
+  const yards = new Mass(), outskirts = Math.round((mobile ? 0.5 : 1) * 170);
+  const free = (x: number, z: number, r: number) => Math.hypot(x - lakeAt.x, z - lakeAt.y) > 85 + r && !inside(Math.round(x / PITCH), Math.round(z / PITCH)) && Math.hypot(x, z) > edgeMetres(Math.atan2(z, x)) - 10 + r;
   for (let n = 0; n < outskirts; n++) {
-    const a = random() * Math.PI * 2, r = RING + 22 + random() * 190, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const a = random() * Math.PI * 2, r = edgeMetres(a) + 20 + random() * 170, x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (!free(x, z, 12)) continue;
     const w = 9 + random() * 5, d = 8 + random() * 5, h = 5 + random() * 3;
     yards.box(x, 0, z, w + 7, 0.12, d + 7);
@@ -414,7 +417,7 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     if (random() < 0.5) bushes.push([x - w / 2 - 1.5, z + d / 2 + 2.5, 0.6]);
   }
   for (let n = 0; n < (mobile ? 10 : 22); n++) {
-    const a = random() * Math.PI * 2, r = RING + 40 + random() * 200, cx = Math.cos(a) * r, cz = Math.sin(a) * r;
+    const a = random() * Math.PI * 2, r = edgeMetres(a) + 50 + random() * 220, cx = Math.cos(a) * r, cz = Math.sin(a) * r;
     for (let k = 0; k < 16; k++) {
       const x = cx + (random() - 0.5) * 50, z = cz + (random() - 0.5) * 50;
       if (free(x, z, 3)) { if (random() < 0.85) trees.push([x, z, 1 + random() * 0.8]); else palms.push([x, 0, z, 1 + random() * 0.3]); }
@@ -461,10 +464,10 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   city.add(trunks, crowns, shrubs, poles, bulbs);
 
   // Rolling green hills around the city, fading into the distance.
-  const hillSpots = mobile ? 16 : 28;
+  const hillSpots = mobile ? 18 : 34;
   const hills = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 20, 12), plain("#8cc673", 1), hillSpots);
   for (let n = 0; n < hillSpots; n++) {
-    const angle = (n / hillSpots) * Math.PI * 2 + random() * 0.2, r = 560 + random() * 260, w = 90 + random() * 90;
+    const angle = (n / hillSpots) * Math.PI * 2 + random() * 0.2, r = edgeMetres(angle) + 280 + random() * 240, w = 100 + random() * 100;
     dummy.position.set(Math.cos(angle) * r, -12, Math.sin(angle) * r); dummy.rotation.set(0, random() * Math.PI, 0);
     dummy.scale.set(w, 30 + random() * 50, w * (0.6 + random() * 0.5)); dummy.updateMatrix(); hills.setMatrixAt(n, dummy.matrix);
     hills.setColorAt(n, tone.setHSL(0.27 + random() * 0.06, 0.38, 0.5 + random() * 0.08));

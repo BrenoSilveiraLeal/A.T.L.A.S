@@ -65,7 +65,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(SKY);
-    scene.fog = new THREE.Fog(SKY, 420, 1200);
+    scene.fog = new THREE.Fog(SKY, 520, 1600);
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     // Warm, sunny light with soft shadows: the toy-city look of a life simulator (moonlight at night).
@@ -77,11 +77,11 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     sun.shadow.bias = -0.0006;
     scene.add(sun);
 
-    const camera = new THREE.PerspectiveCamera(32, 1, 1, 2400);
+    const camera = new THREE.PerspectiveCamera(32, 1, 1, 3200);
     const controls = new OrbitControls(camera, labels.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.08;
     controls.enablePan = false;
-    controls.minDistance = 70; controls.maxDistance = 330;
+    controls.minDistance = 70; controls.maxDistance = 440;
     controls.minPolarAngle = 0.35; controls.maxPolarAngle = 1.42;
     controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
     const home = () => {
