@@ -25,7 +25,13 @@ export const TOWER = {
 export const ELEVATOR = { x: -19.25, width: 4.5, depth: 3.2 } as const;
 
 /** Height of a floor above the street (floor 0 is the lobby at street level). */
-export const floorLevel = (floor: number) => (floor <= 0 ? 0 : TOWER.lobby + (floor - 1) * TOWER.storey);
+/**
+ * The office floors' glass walls (owner, 01/11/2026: "tem que ter vidro"): floor-to-ceiling glass on a
+ * low kerb (`from`, above the floor) and under a thin band (`head`, below the ceiling), as the tower.
+ */
+export const OFFICE_GLASS = { from: 0.12, head: 0.22 };
+
+export const floorLevel =(floor: number) => (floor <= 0 ? 0 : TOWER.lobby + (floor - 1) * TOWER.storey);
 
 export type OfficeStatus = "ACTIVE" | "BUILDING" | "LOCKED";
 export interface Office {

@@ -4,8 +4,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { floorLevel, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
-import { DESKS } from "@/core/daytrade/desks";
+import { floorLevel, OFFICE_GLASS, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
+import { DESKS, SECTORS } from "@/core/daytrade/desks";
+import { DASH_FLOOR, deskAt, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "@/components/daytrade/dash-layout";
 import { buildCity, glows, Mass, roundedSlab, setNight, SKY } from "./city";
 import { crownTop, elevatorTube, floorShell, lobby, towerMaterials } from "./tower";
 
@@ -169,7 +170,10 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     /** The office behind the glass, in the plan and colours of its own scene (office-3d / dash-3d). */
     const interior = (office: Office, g: THREE.Group) => {
       const dash = office.id === "dash", locked = office.status === "LOCKED";
-      g.add(new THREE.Mesh(roundedSlab(W - 0.3, D - 0.3, OFFICE_R - 0.15, 0.05), matte(dash ? "#2f3540" : locked ? "#c9d3de" : "#a07f5f", 0.7)));
+      // The floor catches the ceiling lights at night (an emissive tint stands in for lamps).
+      const floorColor = dash ? DASH_FLOOR : locked ? "#c9d3de" : "#a07f5f";
+      g.add(new THREE.Mesh(roundedSlab(W - 0.3, D - 0.3, OFFICE_R - 0.15, 0.05),
+        glows(new THREE.MeshStandardMaterial({ color: floorColor, emissive: new THREE.Color(floorColor), roughness: 0.7 }), 0, locked ? 0 : 0.45)));
       if (locked) return;
       // Light panels on the ceiling, as in the office; brighter at night.
       const panels = new Mass();
@@ -188,8 +192,6 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         // The dividends office: rugs, the back rooms behind glass with their coloured walls, the four
         // desk islands, the snack bar, the TV lounge, the market corner and the reception.
         rug(29, 8.4, -7.75, 0.4, "#2f3b52"); rug(16, 5.8, -2, 10.4, "#6b3a48"); rug(16.4, 7.6, 15.8, 10.1, "#c98b5e"); rug(12, 8, 16.5, 0.4, "#24504c");
-        const slate = new Mass(); slate.box(0, 0, -13.3, 43, 3.1, 0.18);
-        g.add(new THREE.Mesh(slate.geometry(), matte("#2e4057", 0.85)));
         [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => {
           const wall = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3, 7.3), matte(["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"][i % 4], 0.8));
           wall.position.set(x, 1.5, -9.65); g.add(wall);
@@ -240,29 +242,36 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         const logoWall = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2.6, 0.15), matte("#5fbf8f", 0.6)); logoWall.position.set(-19.5, 1.3, 6.6); g.add(logoWall);
         pots.push([-22.3, -4.5], [22.3, -4.5], [9.4, 4.6], [-22.4, 4.4], [6.6, 12.6], [-10.6, 12.6], [21.8, 12.2]);
       } else {
-        // DASH: the trading floor of dash-3d — dark floor, warm rug, the horseshoe of desks facing the
-        // wall screen (supervisor behind), the lounge and the plants.
-        const rugMesh = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2), matte("#6b4f2f", 0.95));
-        rugMesh.scale.set(17, 1, 12); rugMesh.position.set(0, 0.06, 1); g.add(rugMesh);
-        screens.box(0, 0.6, -D / 2 + 1.2, 14, 2.4, 0.1); dark.box(0, 0.5, -D / 2 + 1.05, 14.6, 2.6, 0.1);
-        const at = new THREE.Vector3(), aim = new THREE.Vector3();
-        DESKS.forEach((desk, k) => {
-          const supervisor = desk.id === "supervisor", angle = Math.PI * (0.12 + (k / 4) * 0.76);
-          at.set(supervisor ? 0 : Math.cos(angle) * 14, 0, supervisor ? 9 : 4.5 - Math.sin(angle) * 9);
-          aim.set(0, 0, supervisor ? -20 : -6).sub(at).normalize();
-          const desk3d = new THREE.Group(); desk3d.position.copy(at); desk3d.lookAt(0, 0, supervisor ? -20 : -6);
-          const top = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 1.4), matte("#e9e4dc", 0.6)); top.position.y = 0.76; desk3d.add(top);
-          for (let m2 = 0; m2 < (supervisor ? 3 : 2); m2++) {
-            const mon = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.54, 0.05), screenGlow); mon.position.set((m2 - (supervisor ? 1 : 0.5)) * 0.98, 1.25, 0.45); desk3d.add(mon);
-          }
-          const seat = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.7), matte("#22262d", 0.6)); seat.position.set(0, 0.5, -0.9); desk3d.add(seat);
-          g.add(desk3d);
-          people.push([at.x - aim.x * 0.85, at.z - aim.z * 0.85, desk.person.shirt, true, desk.person.skin]);
-        });
-        sofas.box(16, 0, 8, 6, 0.5, 2); sofas.box(16, 0.5, 8.8, 6, 0.6, 0.4);
-        pots.push([-21.5, -11.5], [21.5, -11.5], [-21.5, 11.5], [21.5, 11.5], [-8, -12], [8, -12]);
+        // DASH: the plan of its own scene (dash-layout.ts) — back rooms behind glass, the sector
+        // islands facing the video wall, the supervisor on the floor, the break area and the reception.
+        for (const r of ROOMS) {
+          const accent = new THREE.Mesh(new THREE.BoxGeometry(r.x1 - r.x0 - 0.3, 3.2, 0.06), matte(r.color, 0.85)); accent.position.set((r.x0 + r.x1) / 2, 1.6, -D / 2 + 0.6); g.add(accent);
+          if (r.x0 > -W / 2) light.box(r.x0, 0, (ROOM_FRONT - D / 2) / 2, 0.14, 3.2, ROOM_FRONT + D / 2);
+        }
+        light.box(ROOMS[ROOMS.length - 1].x1, 0, (ROOM_FRONT - D / 2) / 2, 0.14, 3.2, ROOM_FRONT + D / 2);
+        const roomGlass = new THREE.Mesh(new THREE.BoxGeometry(ROOMS[ROOMS.length - 1].x1 - ROOMS[0].x0 - 1, 3.2, 0.05), new THREE.MeshPhysicalMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.22, roughness: 0.05, depthWrite: false }));
+        roomGlass.position.set((ROOMS[0].x0 + ROOMS[ROOMS.length - 1].x1) / 2 + 0.5, 1.6, ROOM_FRONT); g.add(roomGlass);
+        screens.box(VIDEO_WALL.x, VIDEO_WALL.y, VIDEO_WALL.z, VIDEO_WALL.w, VIDEO_WALL.h, 0.08);
+        for (const island of ISLANDS) rug(island.w, 3.9, island.x, island.z + 0.3, SECTORS.find((s) => s.id === island.sector)!.color);
+        for (const r of RUGS) rug(r.w, r.d, r.x, r.z, r.color);
+        for (const desk of DESKS) {
+          const seat = SEATS[desk.id];
+          if (seat.standing) { people.push([PATROL[1][0], PATROL[1][1], desk.person.shirt, false, desk.person.skin]); continue; }
+          const at = deskAt(desk.id);
+          light.box(at.x, 0.72, at.z, 1.8, 0.06, 0.8);
+          screens.box(at.x, 0.92, at.z + seat.face * 0.26, 1.3, 0.37, 0.04);
+          chair(seat.x, seat.z, -seat.face);
+          people.push([seat.x, seat.z, desk.person.shirt, true, desk.person.skin]);
+        }
+        for (const b of FURNITURE) {
+          const target = b.kind === "glow" ? screens : b.kind === "wood" ? wood : b.kind === "fabric" ? sofas : null;
+          if (target) target.box(b.x, b.y ?? 0, b.z, b.w, b.h, b.d);
+          else { const piece = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), matte(b.kind === "plant" ? "#4f9a45" : b.color, 0.6)); piece.position.set(b.x, (b.y ?? 0) + b.h / 2, b.z); g.add(piece); }
+        }
+        pots.push(...PLANTS);
       }
-      g.add(new THREE.Mesh(light.geometry(), matte(dash ? "#e9e4dc" : "#eceae6", 0.6)), new THREE.Mesh(wood.geometry(), matte("#b98a5a", 0.6)));
+      g.add(new THREE.Mesh(light.geometry(), glows(new THREE.MeshStandardMaterial({ color: 0xeceae6, emissive: 0xfff1d6, roughness: 0.6 }), 0, 0.35)),
+        new THREE.Mesh(wood.geometry(), matte("#b98a5a", 0.6)));
       g.add(new THREE.Mesh(dark.geometry(), matte("#2b2e34", 0.5)), new THREE.Mesh(sofas.geometry(), matte(dash ? "#3d5a80" : "#46566e", 0.9)));
       g.add(new THREE.Mesh(screens.geometry(), screenGlow));
       if (pots.length) {
@@ -280,10 +289,10 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       const floor: Floor = { number, group, cut: 0, office };
       if (!office) group.add(floorShell(number, m));
       else {
-        // Office floor: the same rounded white slab as the other floors; tinted glass up to the sill and
-        // above the head, where the office has wall inside; clear glass between them, where its windows
-        // are (frosted on the locked floor), with mullions; and the office inside.
-        const locked = office.status === "LOCKED", sill = 0.45 + TOWER.sill, head = 0.45 + TOWER.head;
+        // Office floor: the same rounded white slab as the other floors; clear glass from a low kerb to a
+        // thin band under the ceiling, as the office's own glass walls (frosted on the locked floor),
+        // with mullions; and the office inside.
+        const locked = office.status === "LOCKED", sill = 0.45 + OFFICE_GLASS.from, head = 0.45 + TOWER.ceiling - OFFICE_GLASS.head;
         const slab = new THREE.Mesh(roundedSlab(W + 0.8, D + 0.8, OFFICE_R + 0.4, 0.45), m.slab); group.add(slab);
         group.add(new THREE.Mesh(roundedSlab(W, D, OFFICE_R, sill - 0.45, 0.45), sides(spandrel)));
         group.add(new THREE.Mesh(roundedSlab(W, D, OFFICE_R, H - head, head), sides(spandrel)));

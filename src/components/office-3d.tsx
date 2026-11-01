@@ -16,7 +16,7 @@ import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
 import Link from "next/link";
 import { Building, LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
 import { SELLS_NEAR_HIGH } from "@/core/range";
-import { ELEVATOR, officeById, TOWER, wallSegments } from "@/core/building";
+import { ELEVATOR, OFFICE_GLASS, officeById, TOWER, wallSegments } from "@/core/building";
 import { buildSurroundings, SHAFT } from "./building/tower";
 
 /** This office's floor in the ATLAS tower. */
@@ -1252,11 +1252,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), matte(c, 0.5)); fruit.position.set(22.45 + (i % 2) * 0.06, 1.26, 10.5 + i * 0.09); scene.add(fruit);
     });
 
-    // Windows in the outside walls (owner, 01/11/2026: the office is a floor of the ATLAS tower, so its
-    // walls get the tower's windows, with the façade's bay, sill and head from core/building.ts). The
-    // wall stays solid only right behind what hangs on it or tall furniture against it, like piers
-    // between windows; the rest is glass. Glass and frames are children of the wall, so they drop
-    // with it in the cutaway.
+    // Glass outside walls (owner, 01/11/2026: the office is a floor of the ATLAS tower, "tem que ter
+    // vidro"): floor-to-ceiling glass in the façade's bays (core/building.ts), on a low kerb and under
+    // a thin head, as the tower's glass floors. The wall stays solid only right behind what hangs on
+    // it or tall furniture against it; the rest is glass. Glass and frames are children of the wall,
+    // so they drop with it in the cutaway.
     {
       const blockers = scene.children.filter((o) => o !== surroundings && o !== inside && o !== floor && !walls.some((w) => w.mesh === o))
         .map((o) => new THREE.Box3().setFromObject(o)).filter((b) => !b.isEmpty() && b.max.y > 1.5);
@@ -1278,12 +1278,12 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         for (const b of blockers) { const a = along(b); if (a.gap < 0.9 && a.hi - a.lo < 6 && a.hi > -len / 2 && a.lo < len / 2) blocked.push([a.lo, a.hi]); }
         const solid: THREE.BufferGeometry[] = [], panes: THREE.BufferGeometry[] = [], frames: THREE.BufferGeometry[] = [];
         const part = (list: THREE.BufferGeometry[], bw: number, bh: number, d: number, x: number, y: number) => list.push(new THREE.BoxGeometry(bw, bh, d).translate(x, y, 0));
-        const glassH = TOWER.head - TOWER.sill, glassY = (TOWER.sill + TOWER.head) / 2;
+        const kerb = OFFICE_GLASS.from, head = h - OFFICE_GLASS.head, glassH = head - kerb, glassY = (kerb + head) / 2;
         for (const piece of wallSegments(len, blocked)) {
           const bw = piece.to - piece.from, cx = (piece.from + piece.to) / 2;
           if (!piece.glass) { part(solid, bw, h, 0.18, cx, h / 2); continue; }
-          part(solid, bw, TOWER.sill, 0.18, cx, TOWER.sill / 2);
-          part(solid, bw, h - TOWER.head, 0.18, cx, (TOWER.head + h) / 2);
+          part(solid, bw, kerb, 0.18, cx, kerb / 2);
+          part(solid, bw, h - head, 0.18, cx, (head + h) / 2);
           part(panes, bw - 0.1, glassH, 0.04, cx, glassY);
           for (const edge of [piece.from + 0.04, piece.to - 0.04]) part(frames, 0.08, glassH, 0.2, edge, glassY);
         }

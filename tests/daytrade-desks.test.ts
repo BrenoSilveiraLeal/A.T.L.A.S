@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { DESKS, deskState, INITIAL_STATUS, ORDER_STATES } from "@/core/daytrade/desks";
+import { DESKS, deskState, INITIAL_STATUS, ORDER_STATES, SECTORS } from "@/core/daytrade/desks";
 
 describe("DASH office", () => {
-  it("has one desk per role the owner asked for", () => {
-    expect(DESKS.map((d) => d.id)).toEqual(["feed", "price", "news", "strategy", "risk", "supervisor"]);
+  it("has the sectors the owner asked for, each with someone in it", () => {
+    expect(SECTORS.map((s) => s.id)).toEqual(["chefia", "supervisao", "dados", "noticias", "estrategia", "risco", "execucao", "registro"]);
+    for (const s of SECTORS) expect(DESKS.some((d) => d.sector === s.id)).toBe(true);
+    expect(DESKS.find((d) => d.id === "chief")?.sector).toBe("chefia");
+    expect(DESKS.find((d) => d.id === "supervisor")?.sector).toBe("supervisao");
+    expect(new Set(DESKS.map((d) => d.id)).size).toBe(DESKS.length);
     expect(new Set(DESKS.map((d) => d.person.name)).size).toBe(DESKS.length);
   });
 

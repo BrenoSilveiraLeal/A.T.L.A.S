@@ -6,7 +6,8 @@ import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRe
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { LocateFixed, PersonStanding } from "lucide-react";
 import { ELEVATOR, officeById, TOWER, windowBays } from "@/core/building";
-import { DESKS, deskState, MARKET_LABEL, DATA_LABEL, type DashStatus } from "@/core/daytrade/desks";
+import { DESKS, deskState, MARKET_LABEL, DATA_LABEL, SECTORS, sectorOf, type DashStatus } from "@/core/daytrade/desks";
+import { DASH_FLOOR, deskAt, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "./dash-layout";
 import { Mass } from "@/components/building/city";
 import { buildSurroundings, SHAFT } from "@/components/building/tower";
 
@@ -80,9 +81,8 @@ export function Dash3D({ status }: { status: DashStatus }) {
     const add = (o: THREE.Object3D) => { o.traverse((c) => { if (c instanceof THREE.Mesh && !(c.material as THREE.Material).transparent) { c.castShadow = true; c.receiveShadow = true; } }); scene.add(o); return o; };
     const white = matte("#f4f6f8", 0.5), metal = new THREE.MeshStandardMaterial({ color: 0x2b2e34, roughness: 0.35, metalness: 0.6 });
 
-    // Floor: dark trading floor with a warm rug under the horseshoe.
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), matte("#2f3540", 0.75)); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-    const rug = new THREE.Mesh(new THREE.CircleGeometry(1, 64), matte("#6b4f2f", 0.95)); rug.rotation.x = -Math.PI / 2; rug.scale.set(17, 12, 1); rug.position.set(0, 0.01, 1); rug.receiveShadow = true; scene.add(rug);
+    // Floor: light polished concrete, as a modern open office.
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), matte(DASH_FLOOR, 0.6)); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 
     // Walls: glass all round with white frames; low at the front so the room is seen from outside.
     const glass = new THREE.MeshPhysicalMaterial({ color: 0xd8f1ff, transparent: true, opacity: 0.2, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
@@ -96,10 +96,11 @@ export function Dash3D({ status }: { status: DashStatus }) {
       if (along === "x") frames.box(0, h, at, length, 0.12, 0.16); else frames.box(at, h, 0, 0.16, 0.12, length);
     };
     wall("x", -D / 2, W, H); wall("z", -W / 2, D, H); wall("z", W / 2, D, H);
-    // Front: low glass, with the elevator where the entrance is.
+    // Front: glass too, floor to ceiling (owner, 01/11/2026: "tem que ter vidro"), with the elevator where the entrance is.
     const frontLeft = W / 2 + (ELEVATOR.x - ELEVATOR.width / 2), frontRight = W / 2 - (ELEVATOR.x + ELEVATOR.width / 2);
-    panes.box(-W / 2 + frontLeft / 2, 0, D / 2, frontLeft, 1.1, 0.05, false); panes.box(W / 2 - frontRight / 2, 0, D / 2, frontRight, 1.1, 0.05, false);
-    frames.box(0, 1.1, D / 2, W, 0.1, 0.16);
+    panes.box(-W / 2 + frontLeft / 2, 0, D / 2, frontLeft, H, 0.05, false); panes.box(W / 2 - frontRight / 2, 0, D / 2, frontRight, H, 0.05, false);
+    for (const b of windowBays(W)) if (b.from < ELEVATOR.x - ELEVATOR.width / 2 || b.from > ELEVATOR.x + ELEVATOR.width / 2) frames.box(b.from, 0, D / 2, 0.12, H, 0.14, false);
+    frames.box(0, H, D / 2, W, 0.12, 0.16);
     scene.add(new THREE.Mesh(panes.geometry(), glass)); add(new THREE.Mesh(frames.geometry(), white));
     {
       const brushed = new THREE.MeshStandardMaterial({ color: 0xc9cdd2, roughness: 0.28, metalness: 0.85 }), x0 = ELEVATOR.x, half = ELEVATOR.width / 2, z = D / 2;
@@ -124,63 +125,159 @@ export function Dash3D({ status }: { status: DashStatus }) {
       g.fillStyle = "#3b4658"; g.font = "26px sans-serif"; g.fillText("Sem dado confiável, a mesa não opera.", 50, 500);
       wallScreen.texture.needsUpdate = true;
     };
-    const wallMesh = new THREE.Mesh(new THREE.PlaneGeometry(14, 4.9), new THREE.MeshBasicMaterial({ map: wallScreen.texture, toneMapped: false }));
-    wallMesh.position.set(0, 2.15, -D / 2 + 0.6); scene.add(wallMesh);
-    add(new THREE.Mesh(new THREE.BoxGeometry(14.4, 5.3, 0.3), metal)).position.set(0, 2.15, -D / 2 + 0.42);
+    // The video wall on the analysis room's glass, facing the trading floor.
+    const wallMesh = new THREE.Mesh(new THREE.PlaneGeometry(VIDEO_WALL.w, VIDEO_WALL.h), new THREE.MeshBasicMaterial({ map: wallScreen.texture, toneMapped: false }));
+    wallMesh.position.set(VIDEO_WALL.x, VIDEO_WALL.y + VIDEO_WALL.h / 2, VIDEO_WALL.z); scene.add(wallMesh);
+    add(new THREE.Mesh(new THREE.BoxGeometry(VIDEO_WALL.w + 0.3, VIDEO_WALL.h + 0.3, 0.15), metal)).position.set(VIDEO_WALL.x, VIDEO_WALL.y + VIDEO_WALL.h / 2, VIDEO_WALL.z - 0.1);
 
-    // Horseshoe of desks facing the wall, one agent each.
-    const people: { group: THREE.Group; head: THREE.Mesh; phase: number }[] = [];
+    // ----- The floor plan (dash-layout.ts, the same the map shows) -----
+    /** What blocks the way in first person: boxes x0, z0, x1, z1. */
+    const obstacles: [number, number, number, number][] = [[-W / 2, -D / 2, ROOMS[ROOMS.length - 1].x1 + 0.2, ROOM_FRONT + 0.15]];
+    const block = (x: number, z: number, w: number, d: number) => obstacles.push([x - w / 2, z - d / 2, x + w / 2, z + d / 2]);
+    const pale = (hex: string, k: number) => new THREE.Color(hex).lerp(new THREE.Color("#ffffff"), k);
+    const wood = matte("#b98a5a", 0.6), deskMat = matte("#f4f1ea", 0.55), chairMat = matte("#22262d", 0.6), screenBack = matte("#1b1e24", 0.4);
+    const brushedSteel = new THREE.MeshStandardMaterial({ color: 0xc9cdd2, roughness: 0.28, metalness: 0.85 });
+
+    // Back rooms behind glass: white partitions, a colour wall at the back of each, a glass front with a door, the name on the glass.
+    {
+      const partitions = new Mass(), fronts = new Mass(), mullions = new Mass(), depth = ROOM_FRONT + D / 2;
+      for (const r of ROOMS) {
+        if (r.x0 > -W / 2) partitions.box(r.x0, 0, -D / 2 + depth / 2, 0.14, H, depth, false);
+        const accent = new THREE.Mesh(new THREE.BoxGeometry(r.x1 - r.x0 - 0.3, H, 0.06), matte(pale(r.color, 0.15), 0.85));
+        accent.position.set((r.x0 + r.x1) / 2, H / 2, -D / 2 + 0.1); add(accent);
+        for (const [a, b] of [[r.x0 + 0.08, r.door - 0.7], [r.door + 0.7, r.x1 - 0.08]]) fronts.box((a + b) / 2, 0, ROOM_FRONT, b - a, H, 0.05, false);
+        for (const x of [r.x0 + 0.07, r.door - 0.7, r.door + 0.7, r.x1 - 0.07]) mullions.box(x, 0, ROOM_FRONT, 0.08, H, 0.1, false);
+        const name = screen(512, 96); name.g.fillStyle = r.color; name.g.font = "bold 46px sans-serif"; name.g.textBaseline = "middle"; name.g.fillText(r.name, 18, 50); name.texture.needsUpdate = true;
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.49), new THREE.MeshBasicMaterial({ map: name.texture, transparent: true, toneMapped: false }));
+        sign.position.set(r.door - 0.7 - 1.4, 2.5, ROOM_FRONT + 0.04); scene.add(sign);
+      }
+      partitions.box(ROOMS[ROOMS.length - 1].x1, 0, -D / 2 + depth / 2, 0.14, H, depth, false);
+      mullions.box((ROOMS[0].x0 + ROOMS[ROOMS.length - 1].x1) / 2, H - 0.06, ROOM_FRONT, ROOMS[ROOMS.length - 1].x1 - ROOMS[0].x0, 0.08, 0.1);
+      add(new THREE.Mesh(partitions.geometry(), white)); scene.add(new THREE.Mesh(fronts.geometry(), glass)); add(new THREE.Mesh(mullions.geometry(), metal));
+      // Analysis room chairs round the committee table.
+      for (const x of [-8.7, -6.9, -5.1, -3.3]) for (const [z, f] of [[-10.95, 1], [-8.05, -1]] as const) {
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.1, 0.55), chairMat); seat.position.set(x, 0.48, z); add(seat);
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.6, 0.07), chairMat); back.position.set(x, 0.82, z - f * 0.27); add(back);
+      }
+    }
+
+    // Sector islands: a rug in the sector's colour and a hanging sign with its name.
+    for (const island of ISLANDS) {
+      const sector = SECTORS.find((s) => s.id === island.sector)!;
+      const rug = new THREE.Mesh(new THREE.BoxGeometry(island.w, 0.02, 3.9), matte(pale(sector.color, 0.45), 0.95));
+      rug.position.set(island.x, 0.011, island.z + 0.3); rug.receiveShadow = true; scene.add(rug);
+      const text = screen(512, 112);
+      text.g.fillStyle = sector.color; text.g.fillRect(0, 0, 512, 112); text.g.fillStyle = "#0f1626"; text.g.font = "bold 46px sans-serif"; text.g.textAlign = "center"; text.g.textBaseline = "middle";
+      text.g.fillText(sector.name, 256, 58); text.texture.needsUpdate = true;
+      for (const turn of [0, Math.PI]) {
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.52), new THREE.MeshBasicMaterial({ map: text.texture, toneMapped: false }));
+        sign.position.set(island.x, 2.85, island.z - 0.35 + (turn ? -0.02 : 0.02)); sign.rotation.y = turn; scene.add(sign);
+      }
+      for (const dx of [-1, 1]) { const wire = new THREE.Mesh(new THREE.BoxGeometry(0.01, H - 3.1, 0.01), metal); wire.position.set(island.x + dx * 1.1, 3.1 + (H - 3.1) / 2, island.z - 0.35); scene.add(wire); }
+    }
+
+    // Desks: one per agent (the supervisor's is a standing desk), two monitors showing the desk's own work.
+    const people: { group: THREE.Group; head: THREE.Mesh; phase: number; walker?: boolean }[] = [];
     const monitors: { draw: (s: DashStatus) => void }[] = [];
-    const deskMat = matte("#e9e4dc", 0.6), chairMat = matte("#22262d", 0.6), screenBack = matte("#1b1e24", 0.4);
-    /** What blocks the way in first person: x, z, radius. */
-    const obstacles: [number, number, number][] = [[16, 8.4, 3.2], [16, 5.6, 1.2]];
+    /** A simple figure: shirt, head and hair; legs when standing. */
+    const figure = (desk: (typeof DESKS)[number], standing: boolean) => {
+      const person = new THREE.Group(), lift = standing ? 0.3 : 0;
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.55, 4, 10), matte(desk.person.shirt, 0.7)); body.position.y = 1.0 + lift; person.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), matte(desk.person.skin, 0.6)); head.position.y = 1.6 + lift; person.add(head);
+      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.235, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), matte(desk.person.hair, 0.8)); hair.position.y = 1.62 + lift; person.add(hair);
+      if (standing) { const legs = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.6, 4, 8), matte("#2b3140", 0.85)); legs.position.y = 0.5; person.add(legs); }
+      const tag = document.createElement("div"); tag.className = "dash-desk-tag"; tag.style.setProperty("--desk", sectorOf(desk).color);
+      // Just the name over the head (desks are close together); the role is on the desk's monitors and in the Equipe tab.
+      tag.innerHTML = `<b>${desk.person.name}</b>`; tag.title = desk.role;
+      const label = new CSS2DObject(tag); label.position.set(0, 2.15 + lift, 0); person.add(label);
+      return { person, head };
+    };
     DESKS.forEach((desk, k) => {
-      const supervisor = desk.id === "supervisor";
-      // Five desks on an arc facing the wall screen, the supervisor's behind them in the middle.
-      const angle = Math.PI * (0.12 + (k / 4) * 0.76);
-      const x = supervisor ? 0 : Math.cos(angle) * 14, z = supervisor ? 9 : 4.5 - Math.sin(angle) * 9;
-      obstacles.push([x, z, 2]);
-      const g = new THREE.Group(); g.position.set(x, 0, z); g.lookAt(0, 0, supervisor ? -20 : -6);
-      const top = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 1.4), deskMat); top.position.set(0, 0.76, 0); g.add(top);
-      for (const sx of [-1.5, 1.5]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.76, 1.2), metal); leg.position.set(sx, 0.38, 0); g.add(leg); }
-      // Two or three monitors with what the desk sees.
-      const count = supervisor ? 3 : 2;
-      for (let n = 0; n < count; n++) {
-        const s = screen(512, 300), offset = (n - (count - 1) / 2) * 0.98;
-        const mon = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.54), new THREE.MeshBasicMaterial({ map: s.texture, toneMapped: false }));
-        mon.position.set(offset, 1.25, 0.45); mon.rotation.y = Math.PI; g.add(mon);
-        const back = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.58, 0.04), screenBack); back.position.set(offset, 1.25, 0.48); g.add(back);
-        const stand = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.4, 0.06), metal); stand.position.set(offset, 0.96, 0.5); g.add(stand);
+      const seat = SEATS[desk.id], sector = sectorOf(desk);
+      if (seat.standing) {
+        // The supervisor: on his round of the floor (animated below).
+        const { person, head } = figure(desk, true); person.position.set(PATROL[0][0], 0, PATROL[0][1]); add(person);
+        people.push({ group: person, head, phase: k * 1.7, walker: true });
+        return;
+      }
+      const at = deskAt(desk.id), f = seat.face;
+      const g = new THREE.Group(); g.position.set(at.x, 0, at.z); g.rotation.y = f > 0 ? 0 : Math.PI;
+      // In the group, the agent sits at -z and looks at +z, across the desk to the monitors.
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.06, 0.8), deskMat); top.position.set(0, 0.74, 0); g.add(top);
+      for (const sx of [-0.85, 0.85]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.74, 0.7), metal); leg.position.set(sx, 0.37, 0); g.add(leg); }
+      for (let n = 0; n < 2; n++) {
+        const s = screen(512, 300), offset = (n - 0.5) * 0.66;
+        const mon = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.37), new THREE.MeshBasicMaterial({ map: s.texture, toneMapped: false }));
+        mon.position.set(offset, 1.12, 0.26); mon.rotation.y = Math.PI; g.add(mon);
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.4, 0.03), screenBack); back.position.set(offset, 1.12, 0.28); g.add(back);
+        const stand = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.05), metal); stand.position.set(offset, 0.88, 0.3); g.add(stand);
         monitors.push({ draw: (st) => {
           const c = s.g; c.fillStyle = "#070b12"; c.fillRect(0, 0, 512, 300);
-          c.fillStyle = desk.person.shirt; c.fillRect(0, 0, 512, 46); c.fillStyle = "#06090f"; c.font = "bold 26px sans-serif"; c.textBaseline = "middle"; c.fillText(desk.role.toUpperCase(), 16, 24);
+          c.fillStyle = sector.color; c.fillRect(0, 0, 512, 46); c.fillStyle = "#06090f"; c.font = "bold 24px sans-serif"; c.textBaseline = "middle"; c.fillText(desk.role.toUpperCase(), 16, 24);
           c.strokeStyle = "#2a3446"; c.lineWidth = 2; for (let y = 90; y < 280; y += 45) { c.beginPath(); c.moveTo(16, y); c.lineTo(496, y); c.stroke(); }
           c.fillStyle = "#8fa0b8"; c.font = "bold 30px sans-serif"; c.textAlign = "center";
-          c.fillText(deskState(st) === "IDLE" ? "SEM DADOS" : "OBSERVANDO", 256, n === 0 ? 150 : 170);
-          c.font = "20px sans-serif"; c.fillStyle = "#5c6b82"; c.fillText(st.mode === "SIMULATED" ? "modo simulado · nada é enviado" : "", 256, 220); c.textAlign = "left";
+          c.fillText(deskState(st) === "IDLE" ? (n === 0 ? "SEM DADOS" : "AGUARDANDO") : "OBSERVANDO", 256, 150);
+          c.font = "20px sans-serif"; c.fillStyle = "#5c6b82"; c.fillText(n === 0 ? "função ainda não implementada" : st.mode === "SIMULATED" ? "modo simulado · nada é enviado" : "", 256, 210); c.textAlign = "left";
           s.texture.needsUpdate = true;
         } });
       }
-      // Chair and the agent sitting at it.
-      const chair = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.7), chairMat); chair.position.set(0, 0.5, -0.9); g.add(chair);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.8, 0.1), chairMat); back.position.set(0, 0.95, -1.25); g.add(back);
-      const person = new THREE.Group(); person.position.set(0, 0, -0.85);
-      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.55, 4, 10), matte(desk.person.shirt, 0.7)); body.position.y = 1.0; person.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), matte(desk.person.skin, 0.6)); head.position.y = 1.6; person.add(head);
-      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.235, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), matte(desk.person.hair, 0.8)); hair.position.y = 1.62; person.add(hair);
-      g.add(person); people.push({ group: person, head, phase: k * 1.7 });
-      // Label: who and which desk.
-      const tag = document.createElement("div"); tag.className = "dash-desk-tag"; tag.style.setProperty("--desk", desk.person.shirt);
-      tag.innerHTML = `<b>${desk.person.name}</b><span>${desk.role}</span>`;
-      const label = new CSS2DObject(tag); label.position.set(0, 2.3, -0.85); g.add(label);
+      const chair = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), chairMat); chair.position.set(0, 0.48, -0.95); g.add(chair);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.08), chairMat); back.position.set(0, 0.88, -1.27); g.add(back);
+      const { person, head } = figure(desk, false); person.position.set(0, 0, -0.95); g.add(person);
+      people.push({ group: person, head, phase: k * 1.7 });
       add(g);
+      block(at.x, at.z - f * 0.45, 1.9, 1.9);
     });
 
-    // Lounge, plants and a board with the rules.
-    const sofa = new Mass(); sofa.box(16, 0, 8, 6, 0.5, 2); sofa.box(16, 0.5, 8.8, 6, 0.6, 0.4); add(new THREE.Mesh(sofa.geometry(), matte("#3d5a80", 0.9)));
-    const table = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.08, 24), deskMat); table.position.set(16, 0.45, 5.6); add(table);
-    for (const [px, pz] of [[-22, -12], [22, -12], [-22, 12], [22, 12], [-8, -12], [8, -12]]) {
-      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.3, 0.6, 16), white); pot.position.set(px, 0.3, pz); add(pot); obstacles.push([px, pz, 1]);
+    // Furniture: the analysis room's table and screens, the break area (kitchen, island, foosball,
+    // lounge), the green divider, the reception and the DASH wall (dash-layout.ts).
+    const roomScreens: { draw: (s: DashStatus) => void }[] = [];
+    for (const b of FURNITURE) {
+      const y = b.y ?? 0;
+      if (b.kind === "glow") {
+        const s = screen(768, Math.round((768 * b.h) / b.w));
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(b.w, b.h), new THREE.MeshBasicMaterial({ map: s.texture, toneMapped: false }));
+        plane.position.set(b.x, y + b.h / 2, b.z + 0.05); scene.add(plane);
+        add(new THREE.Mesh(new THREE.BoxGeometry(b.w + 0.12, b.h + 0.12, 0.06), metal)).position.set(b.x, y + b.h / 2, b.z);
+        roomScreens.push({ draw: (st) => {
+          const c = s.g, w = s.g.canvas.width, h = s.g.canvas.height; c.fillStyle = "#070b12"; c.fillRect(0, 0, w, h);
+          c.fillStyle = b.color; c.fillRect(0, 0, w, 60); c.fillStyle = "#06090f"; c.font = "bold 30px sans-serif"; c.textBaseline = "middle";
+          const lines = b.label === "analise" ? ["SALA DE ANÁLISE", "Propostas em análise: 0", "Aprovação: risco e chefe; qualquer dúvida é não."]
+            : b.label === "chefia" ? ["CHEFIA", `Sessão: ${st.market === "OPEN" ? "aberta" : "não iniciada"}`, "Plano do dia: aguardando feed."]
+            : ["REGISTRO E TRIBUTOS", "Operações registradas: 0", "IR de day trade: —"];
+          c.fillText(lines[0], 20, 32); c.fillStyle = "#c9d6e2"; c.font = "26px sans-serif";
+          lines.slice(1).forEach((t, i) => c.fillText(t, 20, 110 + i * 48));
+          s.texture.needsUpdate = true;
+        } });
+        continue;
+      }
+      if (b.kind === "fabric" && b.w === b.d && b.h <= 0.6) {
+        // A bean bag.
+        const bag = new THREE.Mesh(new THREE.SphereGeometry(0.7, 18, 12), matte(b.color, 0.95)); bag.scale.set(b.w / 1.4, b.h / 0.9, b.d / 1.4); bag.position.set(b.x, b.h / 2, b.z); add(bag);
+        block(b.x, b.z, b.w, b.d); continue;
+      }
+      const material = b.kind === "wood" ? wood : b.kind === "steel" ? brushedSteel : b.kind === "plant" ? matte("#4f9a45", 0.85) : matte(b.color, b.kind === "fabric" ? 0.95 : 0.6);
+      add(new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), material)).position.set(b.x, y + b.h / 2, b.z);
+      if (y < 1 && b.h + y > 0.3) block(b.x, b.z, b.w, b.d);
+    }
+    for (const r of RUGS) { const rug = new THREE.Mesh(new THREE.BoxGeometry(r.w, r.h, r.d), matte(r.color, 1)); rug.position.set(r.x, 0.012, r.z); rug.receiveShadow = true; scene.add(rug); }
+    {
+      // Foosball rods and players, stools round the kitchen island, the coffee table's top, the DASH name.
+      for (let n = 0; n < 8; n++) {
+        const x = 16.5 - 0.6 + n * (1.2 / 7), rod = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.3, 6), brushedSteel);
+        rod.rotation.x = Math.PI / 2; rod.position.set(x, 0.98, -3.6); scene.add(rod);
+        for (const dz of n % 2 ? [-0.18, 0.18] : [0]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.06), matte(n < 4 ? "#ef476f" : "#118ab2", 0.6)); p.position.set(x, 0.92, -3.6 + dz); scene.add(p); }
+      }
+      for (const [x, z] of [[15.9, -8.2], [17.5, -8.2], [19.1, -8.2], [15.9, -10.6], [17.5, -10.6], [19.1, -10.6]]) {
+        const stool = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.75, 14), matte("#2b2e34", 0.5)); stool.position.set(x, 0.375, z); add(stool);
+      }
+      const dash = screen(512, 256); dash.g.fillStyle = "#0f1626"; dash.g.font = "800 150px sans-serif"; dash.g.textAlign = "center"; dash.g.textBaseline = "middle"; dash.g.fillText("DASH", 256, 112);
+      dash.g.font = "bold 26px sans-serif"; dash.g.fillText("Day-trading Analysis & Strategy Hub", 256, 214); dash.texture.needsUpdate = true;
+      const logo = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.2), new THREE.MeshBasicMaterial({ map: dash.texture, transparent: true }));
+      logo.position.set(-23.6, 1.7, 6.5); logo.rotation.y = Math.PI / 2; scene.add(logo);
+    }
+    for (const [px, pz] of PLANTS) {
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.3, 0.6, 16), white); pot.position.set(px, 0.3, pz); add(pot); block(px, pz, 1, 1);
       const leaves = new THREE.Mesh(new THREE.SphereGeometry(0.8, 14, 10), matte("#4f9a45", 0.85)); leaves.position.set(px, 1.2, pz); add(leaves);
     }
     const rules = screen(800, 520); {
@@ -189,9 +286,23 @@ export function Dash3D({ status }: { status: DashStatus }) {
       ["1. Sem dado confiável, não operar", "2. Toda ordem passa pelo risco", "3. Stop confirmado na corretora", "4. Não operar também é resultado", "5. IA não decide ordens"].forEach((t, i) => g.fillText(t, 40, 110 + i * 76));
       rules.texture.needsUpdate = true;
     }
-    const board = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.08), new THREE.MeshBasicMaterial({ map: rules.texture })); board.position.set(-W / 2 + 0.2, 1.8, -4); board.rotation.y = Math.PI / 2; scene.add(board);
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.08), new THREE.MeshBasicMaterial({ map: rules.texture })); board.position.set(-W / 2 + 0.2, 1.8, -1.6); board.rotation.y = Math.PI / 2; scene.add(board);
 
-    const sync = (s: DashStatus) => { drawWall(s); monitors.forEach((m) => m.draw(s)); };
+    // The supervisor's round: along PATROL, a short stop at each corner to check the islands.
+    const patrol = { leg: 0, t: 0, wait: 0 };
+    const walkRound = (dt: number) => {
+      const walker = people.find((p) => p.walker);
+      if (!walker) return;
+      const g = walker.group;
+      if (patrol.wait > 0) { patrol.wait -= dt; return; }
+      const [ax, az] = PATROL[patrol.leg], [bx, bz] = PATROL[(patrol.leg + 1) % PATROL.length], len = Math.hypot(bx - ax, bz - az);
+      patrol.t += (1.1 * dt) / Math.max(0.01, len);
+      if (patrol.t >= 1) { patrol.t = 0; patrol.leg = (patrol.leg + 1) % PATROL.length; patrol.wait = 2.2; }
+      g.position.set(ax + (bx - ax) * patrol.t, Math.abs(Math.sin(patrol.t * len * 3)) * 0.03, az + (bz - az) * patrol.t);
+      g.rotation.y = Math.atan2(bx - ax, bz - az);
+    };
+
+    const sync = (s: DashStatus) => { drawWall(s); monitors.forEach((m) => m.draw(s)); roomScreens.forEach((m) => m.draw(s)); };
     sync(initial.current);
 
     // First person (as in the dividends office): from the elevator, W A S D or the arrows to walk,
@@ -228,9 +339,12 @@ export function Dash3D({ status }: { status: DashStatus }) {
         const p = camera.position;
         p.x += ((-sin * ahead + cos * aside) / len) * speed; p.z += ((-cos * ahead - sin * aside) / len) * speed;
         p.x = Math.max(-W / 2 + 0.6, Math.min(W / 2 - 0.6, p.x)); p.z = Math.max(-D / 2 + 1.2, Math.min(D / 2 - 0.6, p.z));
-        for (const [ox, oz, r] of obstacles) {
-          const dx = p.x - ox, dz = p.z - oz, dist = Math.hypot(dx, dz);
-          if (dist < r && dist > 0.001) { p.x = ox + (dx / dist) * r; p.z = oz + (dz / dist) * r; }
+        // Out of any piece of furniture (with a body's width round it), by the shortest way.
+        const R = 0.35;
+        for (const [x0, z0, x1, z1] of obstacles) {
+          if (p.x <= x0 - R || p.x >= x1 + R || p.z <= z0 - R || p.z >= z1 + R) continue;
+          const out = [[p.x - (x0 - R), 0], [(x1 + R) - p.x, 1], [p.z - (z0 - R), 2], [(z1 + R) - p.z, 3]].sort((a, b) => a[0] - b[0])[0][1];
+          if (out === 0) p.x = x0 - R; else if (out === 1) p.x = x1 + R; else if (out === 2) p.z = z0 - R; else p.z = z1 + R;
         }
       }
       camera.rotation.set(walk.pitch, walk.yaw, 0, "YXZ");
@@ -253,7 +367,8 @@ export function Dash3D({ status }: { status: DashStatus }) {
       }
       if (!reduced) {
         surroundings.userData.update?.(dt);
-        for (const p of people) { p.head.rotation.y = Math.sin(t * 0.4 + p.phase) * 0.35; p.group.position.y = Math.sin(t * 1.3 + p.phase) * 0.01; }
+        for (const p of people) { p.head.rotation.y = Math.sin(t * 0.4 + p.phase) * 0.35; if (!p.walker) p.group.position.y = Math.sin(t * 1.3 + p.phase) * 0.01; }
+        walkRound(dt);
       }
       if (walk.on) step(dt); else controls.update();
       renderer.render(scene, camera); labels.render(scene, camera);

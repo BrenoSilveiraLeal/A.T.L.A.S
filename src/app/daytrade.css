@@ -18,6 +18,9 @@
 .dash-main .page-heading { margin-bottom: 0; }
 .dash-frame .dash3d { border-color: rgba(227, 194, 141, 0.35); }
 .dash-frame .dash3d-canvas { max-height: 78vh; }
+.dash-sector { border-top: 3px solid var(--desk); }
+.dash-sector h2 { color: var(--desk); margin-bottom: 4px; }
+.dash-sector .dash-note { margin: 0 0 12px; }
 .dash-rules { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; line-height: 1.5; }
 @media (max-width: 900px) { .dash-frame .office-tabs { overflow-x: auto; justify-content: flex-start; } }
 .dash-mode { padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; letter-spacing: 0.1em; }

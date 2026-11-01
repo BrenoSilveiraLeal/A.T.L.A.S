@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Building, Building2, LayoutGrid, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 import { officeById } from "@/core/building";
-import { DATA_LABEL, DESKS, deskState, INITIAL_STATUS, MARKET_LABEL, ORDER_STATES, type DashStatus } from "@/core/daytrade/desks";
+import { DATA_LABEL, DESKS, deskState, INITIAL_STATUS, MARKET_LABEL, ORDER_STATES, SECTORS, type DashStatus } from "@/core/daytrade/desks";
 
 const Dash3D = dynamic(() => import("./dash-3d").then((m) => m.Dash3D), {
   ssr: false, loading: () => <div className="dash3d dash3d-loading" role="status">Montando a sala do DASH…</div>,
@@ -13,7 +13,7 @@ const Dash3D = dynamic(() => import("./dash-3d").then((m) => m.Dash3D), {
 const TABS = [
   { id: "office", label: "Escritório", icon: Building2, note: "A mesa de day trade e o que cada agente está fazendo." },
   { id: "panel", label: "Painel", icon: LayoutGrid, note: "Sessão, corretora, ordens, saldo, resultado e custos." },
-  { id: "desks", label: "Mesas", icon: Users, note: "Quem faz o quê na mesa do DASH." },
+  { id: "desks", label: "Equipe", icon: Users, note: "Os setores do DASH, quem trabalha em cada um e o que cada um faz (funções a implementar)." },
   { id: "risk", label: "Risco", icon: ShieldCheck, note: "Os limites e as regras que valem para toda ordem." },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
@@ -59,19 +59,20 @@ export function DashView() {
       </ul>
     </article>
   );
-  const desks = (
-    <article className="dash-card wide">
-      <h2>Mesas</h2>
+  const desks = SECTORS.map((sector) => (
+    <article key={sector.id} className="dash-card dash-sector" style={{ "--desk": sector.color } as React.CSSProperties}>
+      <h2>{sector.name}</h2>
+      <p className="dash-note">{sector.purpose}</p>
       <ul className="dash-desks">
-        {DESKS.map((d) => (
-          <li key={d.id} style={{ "--desk": d.person.shirt } as React.CSSProperties}>
+        {DESKS.filter((d) => d.sector === sector.id).map((d) => (
+          <li key={d.id}>
             <b>{d.person.name}</b><span><strong>{d.role}</strong><small>{d.job}</small></span>
             <em>{idle ? "Parada · sem feed" : "Observando"}</em>
           </li>
         ))}
       </ul>
     </article>
-  );
+  ));
   const risk = (
     <article className="dash-card">
       <h2>Risco</h2>
