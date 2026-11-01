@@ -4,22 +4,27 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { ELEVATOR, floorLevel, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
-import { buildCity, facadeTexture, Mass, SHAFT, SKY, TOWER_STYLE } from "./city";
+import { floorLevel, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
+import { buildCity, Mass, SKY } from "./city";
+import { crownTop, elevatorTube, floorShell, lobby, officeTerrace, towerMaterials } from "./tower";
 
 /**
- * The ATLAS tower in its city (owner, 01/11/2026: "a página inicial mostra um prédio comercial
- * grande... três andares interativos no meio"). Drag turns the camera around the tower, the wheel
- * zooms; the three office floors are glass, labelled and selectable. Selecting one works like a
- * life-sim level view (owner: "igual àquela DLC de Vida na Cidade, que escolhe o andar"): the floors
- * above it disappear and its walls drop, so its interior shows from above. Plain geometry only.
+ * The ATLAS headquarters in its city (owner, 01/11/2026: "a página inicial mostra um prédio
+ * comercial grande... três andares interativos no meio"; the whole tower is ATLAS's, modelled in
+ * tower.ts). Drag turns the camera around the tower, the wheel zooms; the three office floors are
+ * glass, labelled and clickable. Choosing one works like a life-sim's city map (owner: "igual àquela
+ * DLC de Vida na Cidade"): the camera flies to the floor, the floors above disappear and its walls
+ * drop, then the office opens on its own page. Plain geometry only.
  */
 export interface BuildingApi { reset: () => void }
 
 const DEFAULT_TARGET = floorLevel(9) + 1.7;
 
-export function Building3D({ selected, onSelect, onEnter, onFail, apiRef }: {
+export function Building3D({ selected, highlight = null, onSelect, onEnter, onFail, apiRef }: {
+  /** The floor being entered (camera flies there, level view). */
   selected: number | null;
+  /** A floor to glow, such as the office used last. */
+  highlight?: number | null;
   onSelect: (floor: number | null) => void;
   onEnter: (floor: number) => void;
   onFail: () => void;
@@ -27,8 +32,10 @@ export function Building3D({ selected, onSelect, onEnter, onFail, apiRef }: {
 }) {
   const host = useRef<HTMLDivElement>(null);
   const sync = useRef<(selected: number | null) => void>(() => undefined);
+  const glow = useRef(highlight);
   const handlers = useRef({ onSelect, onEnter, onFail });
   useEffect(() => { handlers.current = { onSelect, onEnter, onFail }; }, [onSelect, onEnter, onFail]);
+  useEffect(() => { glow.current = highlight; }, [highlight]);
 
   useEffect(() => {
     const el = host.current;
@@ -78,32 +85,13 @@ export function Building3D({ selected, onSelect, onEnter, onFail, apiRef }: {
 
     scene.add(buildCity({ mobile }));
 
-    // ----- The tower -----
+    // ----- The tower: the ATLAS headquarters from tower.ts, the same one the office scene stands in -----
+    const m = towerMaterials();
     const matte = (color: THREE.ColorRepresentation, roughness = 0.8) => new THREE.MeshStandardMaterial({ color, roughness });
-    const concrete = matte("#d6d1c7"), dark = matte("#2b2e34", 0.4), metal = new THREE.MeshStandardMaterial({ color: 0x2b2e34, roughness: 0.35, metalness: 0.6 });
-    const facade = new THREE.MeshStandardMaterial({ map: facadeTexture(TOWER_STYLE, 3), roughness: 0.3, metalness: 0.2 });
-    const shadowed = <T extends THREE.Object3D>(o: T) => { o.traverse((c) => { if (c instanceof THREE.Mesh) { c.castShadow = true; c.receiveShadow = true; } }); return o; };
+    const shadowed = <T extends THREE.Object3D>(o: T) => { o.traverse((c) => { if (c instanceof THREE.Mesh && !(c.material as THREE.Material).transparent) { c.castShadow = true; c.receiveShadow = true; } }); return o; };
     const W = TOWER.width, D = TOWER.depth, H = TOWER.storey;
-
-    // Lobby with the ATLAS sign over the entrance.
-    const lobby = new THREE.Group();
-    const lobbyGlass = new THREE.Mesh(new THREE.BoxGeometry(W, TOWER.lobby, D), new THREE.MeshStandardMaterial({ color: 0x31475a, roughness: 0.15, metalness: 0.5 }));
-    lobbyGlass.position.y = TOWER.lobby / 2; lobby.add(lobbyGlass);
-    const canopy = new THREE.Mesh(new THREE.BoxGeometry(16, 0.5, 6), dark); canopy.position.set(0, 4.4, D / 2 + 3); lobby.add(canopy);
-    const sign = (text: string, w: number, h: number) => {
-      const canvas = document.createElement("canvas"); canvas.width = 1024; canvas.height = Math.round(1024 * h / w);
-      const g = canvas.getContext("2d")!;
-      g.fillStyle = "#14181c"; g.fillRect(0, 0, canvas.width, canvas.height);
-      g.fillStyle = "#f4efe4"; g.font = `700 ${Math.round(canvas.height * 0.62)}px Manrope Variable, sans-serif`;
-      g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, canvas.width / 2, canvas.height * 0.54);
-      const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-      return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
-    };
-    const entrance = sign("ATLAS", 9, 1.6); entrance.position.set(0, 5.5, D / 2 + 6.02); lobby.add(entrance);
-    const shaftCladding = SHAFT();
-    const lobbyShaft = new THREE.Mesh(new THREE.BoxGeometry(ELEVATOR.width + 0.4, TOWER.lobby, ELEVATOR.depth), shaftCladding);
-    lobbyShaft.position.set(ELEVATOR.x, TOWER.lobby / 2, D / 2 + ELEVATOR.depth / 2); lobby.add(lobbyShaft);
-    scene.add(shadowed(lobby));
+    scene.add(shadowed(lobby(m)));
+    const lift = elevatorTube(m); scene.add(lift.group);
 
     interface Floor { number: number; group: THREE.Group; cut: number; walls?: THREE.Mesh[]; office: Office | null; band?: THREE.MeshStandardMaterial; glass?: THREE.MeshPhysicalMaterial; tag?: CSS2DObject; hit?: THREE.Mesh; leader?: THREE.Line; ceiling?: THREE.Mesh }
     const middle = OFFICES[Math.floor(OFFICES.length / 2)].floor;
@@ -157,35 +145,30 @@ export function Building3D({ selected, onSelect, onEnter, onFail, apiRef }: {
     for (let number = 1; number <= TOWER.floors; number++) {
       const group = new THREE.Group(), office = OFFICES.find((o) => o.floor === number) ?? null;
       group.position.y = floorLevel(number);
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(W + 0.8, 0.42, D + 0.8), concrete); slab.position.y = 0.21; group.add(slab);
-      // The elevator shaft on the front of the tower (its doors open into each floor where the office's entrance was).
-      const shaft = new THREE.Mesh(new THREE.BoxGeometry(ELEVATOR.width + 0.4, H, ELEVATOR.depth), shaftCladding);
-      shaft.position.set(ELEVATOR.x, H / 2, D / 2 + ELEVATOR.depth / 2); group.add(shaft);
       const floor: Floor = { number, group, cut: 0, office };
-      if (!office) {
-        // Each floor shows its own row of the façade pattern (lit and dark windows vary floor to floor).
-        const body = new Mass(-(number - 1) * H);
-        body.box(0, 0.42, 0, W, H - 0.42, D, false, number * 0.37);
-        group.add(new THREE.Mesh(body.geometry(), facade));
-      } else {
+      if (!office) group.add(floorShell(number, m));
+      else {
+        // Office floor: slab, columns and fins, the terrace with planters, and a glass front showing the office.
+        group.add(floorShell(number, m, false));
+        const terrace = officeTerrace(m); terrace.position.y = 0.45; group.add(terrace);
         const inner = new THREE.Group(); inner.position.y = 0.42; group.add(inner);
         interior(office, inner);
-        const glass = new THREE.MeshPhysicalMaterial({ color: office.status === "LOCKED" ? 0xe4edf5 : 0xcfe6f2, transparent: true,
+        const glass = new THREE.MeshPhysicalMaterial({ color: office.status === "LOCKED" ? 0xe4f3ec : 0xd8f1ff, transparent: true,
           opacity: office.status === "LOCKED" ? 0.82 : 0.24, roughness: office.status === "LOCKED" ? 0.6 : 0.05, side: THREE.DoubleSide, depthWrite: false });
         const panes = new Mass(); panes.box(0, 0, 0, W, TOWER.ceiling, D, false);
         const frame = new Mass(); mullions(frame);
-        floor.walls = [new THREE.Mesh(panes.geometry(), glass), new THREE.Mesh(frame.geometry(), metal)];
+        floor.walls = [new THREE.Mesh(panes.geometry(), glass), new THREE.Mesh(frame.geometry(), m.white)];
         inner.add(...floor.walls);
-        // Ceiling: removed while the floor is selected, so its interior shows from above.
-        const ceiling = new THREE.Mesh(new THREE.BoxGeometry(W, 0.3, D), concrete); ceiling.position.y = TOWER.ceiling + 0.15; inner.add(ceiling);
+        // Ceiling: removed while the floor is shown, so its interior shows from above.
+        const ceiling = new THREE.Mesh(new THREE.BoxGeometry(W, 0.3, D), m.slab); ceiling.position.y = TOWER.ceiling + 0.15; inner.add(ceiling);
         floor.ceiling = ceiling;
-        // Coloured band at the slab edge: the office's colour, brighter when hovered or selected.
+        // Coloured band at the slab edge: the office's colour, brighter when hovered or chosen.
         const band = new THREE.MeshStandardMaterial({ color: office.color, emissive: new THREE.Color(office.color), emissiveIntensity: 0.25, roughness: 0.5 });
-        const strip = new Mass();
-        strip.box(0, 0, D / 2 + 0.42, W + 0.9, 0.3, 0.06, false); strip.box(0, 0, -D / 2 - 0.42, W + 0.9, 0.3, 0.06, false);
-        strip.box(W / 2 + 0.42, 0, 0, 0.06, 0.3, D + 0.9, false); strip.box(-W / 2 - 0.42, 0, 0, 0.06, 0.3, D + 0.9, false);
-        const bandMesh = new THREE.Mesh(strip.geometry(), band); bandMesh.position.y = 0.06; group.add(bandMesh);
-        const hit = new THREE.Mesh(new THREE.BoxGeometry(W + 1, H, D + 1), new THREE.MeshBasicMaterial({ visible: false }));
+        const strip = new Mass(), hw = W / 2 + 3.05, hd = D / 2 + 3.05;
+        strip.box(0, 0, hd, hw * 2, 0.3, 0.08, false); strip.box(0, 0, -hd, hw * 2, 0.3, 0.08, false);
+        strip.box(hw, 0, 0, 0.08, 0.3, hd * 2, false); strip.box(-hw, 0, 0, 0.08, 0.3, hd * 2, false);
+        const bandMesh = new THREE.Mesh(strip.geometry(), band); bandMesh.position.y = 0.12; group.add(bandMesh);
+        const hit = new THREE.Mesh(new THREE.BoxGeometry(W + 6, H, D + 6), new THREE.MeshBasicMaterial({ visible: false }));
         hit.position.y = H / 2; hit.userData.floor = number; group.add(hit);
         // Readable plate (HTML), kept beside the tower on the side the camera looks from.
         const tag = document.createElement("button");
@@ -195,7 +178,6 @@ export function Building3D({ selected, onSelect, onEnter, onFail, apiRef }: {
         tag.setAttribute("aria-label", `Andar ${number}: ${office.name}, ${STATUS_LABEL[office.status]}`);
         tag.addEventListener("pointerdown", (e) => e.stopPropagation());
         tag.addEventListener("click", () => handlers.current.onSelect(number));
-        tag.addEventListener("dblclick", () => handlers.current.onEnter(number));
         const label = new CSS2DObject(tag); label.center.set(1, 0.5); scene.add(label);
         // Plates are spread apart vertically (floors are only 3.8 m apart); a line ties each to its floor.
         const leader = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: office.color }));
@@ -205,19 +187,10 @@ export function Building3D({ selected, onSelect, onEnter, onFail, apiRef }: {
       scene.add(shadowed(group));
       floors.push(floor);
     }
-    // Roof: parapet, machinery, antenna and the ATLAS name.
-    const roof = new THREE.Group(); roof.position.y = floorLevel(TOWER.floors + 1);
-    const roofSlab = new THREE.Mesh(new THREE.BoxGeometry(W + 0.8, 0.5, D + 0.8), concrete); roofSlab.position.y = 0.25; roof.add(roofSlab);
-    const parapet = new Mass();
-    parapet.box(0, 0.5, D / 2 + 0.3, W + 0.8, 1.1, 0.2); parapet.box(0, 0.5, -D / 2 - 0.3, W + 0.8, 1.1, 0.2);
-    parapet.box(W / 2 + 0.3, 0.5, 0, 0.2, 1.1, D + 0.8); parapet.box(-W / 2 - 0.3, 0.5, 0, 0.2, 1.1, D + 0.8);
-    parapet.box(-12, 0.5, -4, 14, 3, 9); parapet.box(10, 0.5, 3, 8, 2.2, 6);
-    // Elevator machine room on top of the shaft.
-    parapet.box(ELEVATOR.x, 0, D / 2 + ELEVATOR.depth / 2, ELEVATOR.width + 0.4, 3.2, ELEVATOR.depth);
-    roof.add(new THREE.Mesh(parapet.geometry(), matte("#b9b3a8")));
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 14, 8), metal); mast.position.set(-12, 10.5, -4); roof.add(mast);
-    const roofSign = sign("ATLAS", 22, 4); roofSign.position.set(0, 3.6, D / 2 + 0.45); roof.add(roofSign);
+    // Crown roof: the logo on all four sides, a rooftop garden and the spire.
+    const roof = crownTop(m); roof.position.y = floorLevel(TOWER.floors + 1);
     scene.add(shadowed(roof));
+    void matte;
 
     // ----- Interaction -----
     let current: number | null = null, hovered: number | null = null;
@@ -288,7 +261,7 @@ export function Building3D({ selected, onSelect, onEnter, onFail, apiRef }: {
       // About 52 px between plates whatever the zoom.
       const spacing = (52 * 2 * camera.position.distanceTo(controls.target) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(1, el.clientHeight);
       // Plates on the left of the tower, unless they would run off the left edge: then on the right.
-      const probe = new THREE.Vector3(-side.x * 31, floorLevel(middle), -side.z * 31).project(camera);
+      const probe = new THREE.Vector3(-side.x * 36, floorLevel(middle), -side.z * 36).project(camera);
       const flip = ((probe.x + 1) / 2) * el.clientWidth < 230 ? -1 : 1;
       side.multiplyScalar(flip);
       for (const f of floors) {
@@ -300,17 +273,19 @@ export function Building3D({ selected, onSelect, onEnter, onFail, apiRef }: {
         if (f.tag) {
           f.tag.center.set(flip > 0 ? 1 : 0, 0.5);
           const y = floorLevel(f.number) + 1.9;
-          f.tag.position.set(-side.x * 31 + toCamera.x * 6, floorLevel(middle) + 1.9 + (f.number - middle) * spacing, -side.z * 31 + toCamera.z * 6);
+          f.tag.position.set(-side.x * 36 + toCamera.x * 6, floorLevel(middle) + 1.9 + (f.number - middle) * spacing, -side.z * 36 + toCamera.z * 6);
           const ends = f.leader!.geometry.attributes.position as THREE.BufferAttribute;
-          ends.setXYZ(0, -side.x * 24.6 + toCamera.x * 14.6, y, -side.z * 24.6 + toCamera.z * 14.6);
+          ends.setXYZ(0, -side.x * 27 + toCamera.x * 17, y, -side.z * 27 + toCamera.z * 17);
           ends.setXYZ(1, f.tag.position.x, f.tag.position.y, f.tag.position.z); ends.needsUpdate = true;
-          const on = f.number === current, over = f.number === hovered;
+          const on = f.number === current, over = f.number === hovered || f.number === glow.current;
           f.band!.emissiveIntensity = on ? 1.4 : over ? 0.9 : 0.25;
           if (f.office?.status !== "LOCKED") f.glass!.opacity = on ? 0.1 : 0.24;
           f.tag.element.classList.toggle("hovered", over);
         }
       }
       roof.visible = current === null;
+      // The panoramic elevator's cab travels up and down the tower.
+      if (!reduced) lift.cab.position.y = lift.from + 1.5 + (lift.to - lift.from - 3) * (0.5 - 0.5 * Math.cos(clock.elapsedTime * 0.12));
       renderer.render(scene, camera); labels.render(scene, camera);
     };
     const start = () => { if (!running) { running = true; clock.getDelta(); frame = requestAnimationFrame(tick); } };

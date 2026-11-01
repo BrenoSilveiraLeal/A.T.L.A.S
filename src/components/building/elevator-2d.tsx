@@ -1,9 +1,9 @@
 "use client";
-import { OFFICES, officeOnFloor, STATUS_LABEL, TENANTS, TOWER } from "@/core/building";
+import { OFFICES, officeOnFloor, STATUS_LABEL, TOWER } from "@/core/building";
 
 /**
- * The tower drawn flat, in section (phones, or when 3D is not available): every floor is a row and
- * the three office floors are clickable.
+ * The ATLAS tower drawn flat, in section (phones, or when 3D is not available): every floor is a
+ * row and the three office floors are clickable.
  */
 export function Elevator2D({ selected, onSelect, onEnter }: { selected: number | null; onSelect: (floor: number) => void; onEnter: (floor: number) => void }) {
   const row = 26, top = 40, width = 320, x = 60, w = 200;
@@ -19,7 +19,6 @@ export function Elevator2D({ selected, onSelect, onEnter }: { selected: number |
           <g key={floor} aria-hidden="true">
             <rect x={x} y={y(floor)} width={w} height={row - 3} className="e2d-floor" />
             <text x={x - 10} y={y(floor) + row / 2 + 2} textAnchor="end" className="e2d-number">{floor}</text>
-            <text x={x + 10} y={y(floor) + row / 2 + 2} className="e2d-tenant">{TENANTS[floor] ?? ""}</text>
           </g>
         );
         return (
@@ -35,7 +34,7 @@ export function Elevator2D({ selected, onSelect, onEnter }: { selected: number |
         );
       })}
       <rect x={x} y={y(0)} width={w} height={row * 1.6} className="e2d-lobby" />
-      <text x={x + w / 2} y={y(0) + row} textAnchor="middle" className="e2d-tenant">Térreo · recepção</text>
+      <text x={x + w / 2} y={y(0) + row} textAnchor="middle" className="e2d-tenant">Recepção ATLAS</text>
       <line x1={0} x2={width + 60} y1={y(0) + row * 1.6} y2={y(0) + row * 1.6} className="e2d-street" />
       <text x={width + 50} y={height - 6} textAnchor="end" className="e2d-hint">{OFFICES.length} escritórios ATLAS</text>
     </svg>

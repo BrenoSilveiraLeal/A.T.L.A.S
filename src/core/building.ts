@@ -58,14 +58,6 @@ export const OFFICES: readonly Office[] = [
 
 export const STATUS_LABEL: Record<OfficeStatus, string> = { ACTIVE: "Ativo", BUILDING: "Em construção", LOCKED: "Bloqueado" };
 
-/** The other floors: made-up tenants that only decorate the tower. */
-export const TENANTS: Record<number, string> = {
-  1: "Café e conveniência", 2: "Coworking Horizonte", 3: "Clínica Vida Plena", 4: "Estúdio Traço Design",
-  5: "Escola de Idiomas Ponte", 6: "Arquitetos Associados", 7: "Agência Maré", 11: "Advocacia Nunes & Prado",
-  12: "Startup Rota Verde", 13: "Contabilidade Prisma", 14: "Consultoria Norte", 15: "Laboratório de Games",
-  16: "Editora Página Viva", 17: "Sala de eventos", 18: "Terraço e restaurante",
-};
-
 export const officeOnFloor = (floor: number) => OFFICES.find((o) => o.floor === floor) ?? null;
 export const officeById = (id: string) => OFFICES.find((o) => o.id === id) ?? null;
 

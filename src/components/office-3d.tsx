@@ -17,7 +17,7 @@ import Link from "next/link";
 import { Building, LocateFixed, PersonStanding, Volume2, VolumeX } from "lucide-react";
 import { SELLS_NEAR_HIGH } from "@/core/range";
 import { ELEVATOR, officeById, TOWER, wallSegments } from "@/core/building";
-import { buildSurroundings, SHAFT } from "./building/city";
+import { buildSurroundings, SHAFT } from "./building/tower";
 
 /** This office's floor in the ATLAS tower. */
 const FLOOR = officeById("dividendos")!.floor;

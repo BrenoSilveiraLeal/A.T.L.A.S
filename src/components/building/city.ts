@@ -1,11 +1,11 @@
 import * as THREE from "three";
-import { ELEVATOR, floorLevel, TOWER } from "@/core/building";
+import { TOWER } from "@/core/building";
 
 /**
- * The city around the ATLAS tower, shared by the building view and the office scene (owner,
- * 01/11/2026: the office now sits on a floor of a tower in a city; the city must be the same seen
- * from the street and from the office windows). Made of plain geometry merged into a handful of
- * meshes, with façades drawn on canvas: no downloaded models or textures.
+ * The city around the ATLAS tower (the tower itself is in tower.ts), shared by the building view and
+ * the office scene (owner, 01/11/2026: the office now sits on a floor of a tower in a city; the city
+ * must be the same seen from the street and from the office windows). Made of plain geometry merged
+ * into a handful of meshes, with façades drawn on canvas: no downloaded models or textures.
  */
 /**
  * Look (owner, 01/11/2026: "é pra ter uma pegada mais The Sims 4"): a sunny, saturated toy-city
@@ -39,8 +39,6 @@ export const STREET_STYLES: readonly FacadeStyle[] = [
   { wall: "#b3a5dd", band: "#988ac4" }, { wall: "#f3e7cf", band: "#ddcdab" }, { wall: "#cf7458", band: "#b35d43" },
   { wall: "#7fb0e0", band: "#5f93c6", curtain: true }, { wall: "#9ad19a", band: "#7dba7d" },
 ];
-/** The ATLAS tower: blue glass with white mullions and spandrels. */
-export const TOWER_STYLE: FacadeStyle = { wall: "#f4f6f8", band: "#dfe5ea", curtain: true };
 
 /** A façade texture: window bays of the tower's size with white frames, sky-blue glass and a few lit or curtained rooms. */
 export function facadeTexture(style: FacadeStyle, seed: number) {
@@ -123,8 +121,6 @@ export class Mass {
 }
 
 const plain = (color: THREE.ColorRepresentation, roughness = 0.85) => new THREE.MeshStandardMaterial({ color, roughness });
-/** Cladding of the elevator shaft, the same seen from the street and from the office. */
-export const SHAFT = () => new THREE.MeshStandardMaterial({ color: 0x46505a, roughness: 0.55, metalness: 0.25 });
 const mesh = (mass: Mass, material: THREE.Material, shadows = false) => {
   const m = new THREE.Mesh(mass.geometry(), material);
   m.receiveShadow = true; m.castShadow = shadows;
@@ -242,41 +238,4 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   });
   city.add(bodies, cabins);
   return city;
-}
-
-/**
- * Around one office floor (the office scene): sky, the floor's slab with a glass-railed terrace,
- * the tower below down to the street and the city. The office floor stays at y = 0.
- */
-export function buildSurroundings(scene: THREE.Scene, { floor, mobile = false }: { floor: number; mobile?: boolean }) {
-  scene.background = new THREE.Color(SKY);
-  scene.fog = new THREE.Fog(SKY, 320, 1100);
-  const street = -floorLevel(floor), group = new THREE.Group();
-
-  // The floor slab runs out past the walls as a terrace with a glass railing (the entrance door opens onto it).
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(TOWER.width + 6, 0.45, TOWER.depth + 6), plain("#c9c4ba"));
-  slab.position.y = -0.24; slab.receiveShadow = true; group.add(slab);
-  const railGlass = new THREE.MeshPhysicalMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.22, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
-  const rails = new Mass(), posts = new Mass();
-  const hw = TOWER.width / 2 + 2.9, hd = TOWER.depth / 2 + 2.9;
-  rails.box(0, 0, hd, hw * 2, 1.05, 0.04, false); rails.box(0, 0, -hd, hw * 2, 1.05, 0.04, false);
-  rails.box(hw, 0, 0, 0.04, 1.05, hd * 2, false); rails.box(-hw, 0, 0, 0.04, 1.05, hd * 2, false);
-  posts.box(0, 1.05, hd, hw * 2, 0.06, 0.08); posts.box(0, 1.05, -hd, hw * 2, 0.06, 0.08);
-  posts.box(hw, 1.05, 0, 0.08, 0.06, hd * 2); posts.box(-hw, 1.05, 0, 0.08, 0.06, hd * 2);
-  group.add(new THREE.Mesh(rails.geometry(), railGlass), mesh(posts, new THREE.MeshStandardMaterial({ color: 0x2b2e34, roughness: 0.35, metalness: 0.6 })));
-
-  // The tower below, floor after floor down to the lobby.
-  const below = new Mass(street + TOWER.lobby);
-  below.box(0, street + TOWER.lobby, 0, TOWER.width + 0.4, -street - TOWER.lobby - 0.47, TOWER.depth + 0.4, false);
-  group.add(mesh(below, new THREE.MeshStandardMaterial({ map: facadeTexture(TOWER_STYLE, 3), roughness: 0.3, metalness: 0.2 })));
-  const lobby = new THREE.Mesh(new THREE.BoxGeometry(TOWER.width + 0.4, TOWER.lobby, TOWER.depth + 0.4), new THREE.MeshStandardMaterial({ color: 0x2c3a46, roughness: 0.2, metalness: 0.4 }));
-  lobby.position.y = street + TOWER.lobby / 2; group.add(lobby);
-  // The elevator shaft up the front of the tower, from the street to this floor.
-  const shaft = new THREE.Mesh(new THREE.BoxGeometry(ELEVATOR.width + 0.4, -street - 0.45, ELEVATOR.depth), SHAFT());
-  shaft.position.set(ELEVATOR.x, street / 2 - 0.225, TOWER.depth / 2 + ELEVATOR.depth / 2); shaft.receiveShadow = true; group.add(shaft);
-
-  const city = buildCity({ mobile });
-  city.position.y = street; group.add(city);
-  scene.add(group);
-  return group;
 }
