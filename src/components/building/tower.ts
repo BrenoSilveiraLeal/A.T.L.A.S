@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { ELEVATOR, floorLevel, TOWER } from "@/core/building";
-import { buildCity, facadeTexture, Mass, SKY, type FacadeStyle } from "./city";
+import { buildCity, facadeMaterial, glows, Mass, SKY, type FacadeStyle } from "./city";
 
 /**
  * The ATLAS headquarters (owner, 01/11/2026: "personalizar o prédio para ser do A.T.L.A.S e deixar
@@ -36,15 +36,15 @@ export type TowerMaterials = ReturnType<typeof towerMaterials>;
 export function towerMaterials() {
   const matte = (color: THREE.ColorRepresentation, roughness = 0.8) => new THREE.MeshStandardMaterial({ color, roughness });
   return {
-    glass: new THREE.MeshStandardMaterial({ map: facadeTexture(TOWER_STYLE, 3), roughness: 0.25, metalness: 0.15 }),
-    crown: new THREE.MeshStandardMaterial({ map: facadeTexture(CROWN_STYLE, 5), roughness: 0.25, metalness: 0.15 }),
-    stone: new THREE.MeshStandardMaterial({ map: facadeTexture(PODIUM_STYLE, 4), roughness: 0.75 }),
+    glass: facadeMaterial(TOWER_STYLE, 3, { roughness: 0.25, metalness: 0.15 }),
+    crown: facadeMaterial(CROWN_STYLE, 5, { roughness: 0.25, metalness: 0.15 }),
+    stone: facadeMaterial(PODIUM_STYLE, 4),
     slab: matte("#fbf8f2", 0.6), white: matte("#ffffff", 0.5), green: matte(ATLAS_GREEN, 0.5), wood: matte("#c98d5a", 0.7),
     lawn: matte("#7cc35a", 1), deck: matte("#d9a36e", 0.75), leaf: matte("#5fb847", 0.85), trunk: matte("#8a5a3a"),
     rail: new THREE.MeshPhysicalMaterial({ color: 0xd8f1ff, transparent: true, opacity: 0.3, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false }),
     tube: SHAFT(),
-    cab: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff1cf, emissiveIntensity: 0.5, roughness: 0.4 }),
-    lobby: new THREE.MeshStandardMaterial({ color: 0xbfe4f5, emissive: 0xffe2a8, emissiveIntensity: 0.25, roughness: 0.15, metalness: 0.3 }),
+    cab: glows(new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff1cf, roughness: 0.4 }), 0.5, 1.6),
+    lobby: glows(new THREE.MeshStandardMaterial({ color: 0xbfe4f5, emissive: 0xffe2a8, roughness: 0.15, metalness: 0.3 }), 0.25, 1.4),
   };
 }
 
@@ -244,6 +244,8 @@ export function buildSurroundings(scene: THREE.Scene, { floor, mobile = false }:
   const city = buildCity({ mobile });
   below.add(city);
   group.add(below);
+  // The cars down in the street keep driving (the office scene calls this every frame).
+  group.userData.update = city.userData.update;
   scene.add(group);
   return group;
 }

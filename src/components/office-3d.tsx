@@ -1743,6 +1743,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
       lastFrameAt = now;
       const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+      if (!reduced) surroundings.userData.update?.(dt);
       for (const r of people.values()) {
         if (r.path.length) {
           walk(r, r.path, reduced ? 40 : 2.4, dt);

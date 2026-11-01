@@ -5,7 +5,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { floorLevel, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
-import { buildCity, Mass, SKY } from "./city";
+import { buildCity, Mass, setNight, SKY } from "./city";
 import { crownTop, elevatorTube, floorShell, lobby, officeTerrace, towerMaterials } from "./tower";
 
 /**
@@ -20,11 +20,15 @@ export interface BuildingApi { reset: () => void }
 
 const DEFAULT_TARGET = floorLevel(9) + 1.7;
 
-export function Building3D({ selected, highlight = null, onSelect, onEnter, onFail, apiRef }: {
+export function Building3D({ selected, highlight = null, night = false, intro = true, onSelect, onEnter, onFail, apiRef }: {
   /** The floor being entered (camera flies there, level view). */
   selected: number | null;
   /** A floor to glow, such as the office used last. */
   highlight?: number | null;
+  /** Night: dark sky, lit windows, street lamps and headlights. */
+  night?: boolean;
+  /** Opening shot: the camera comes down through the clouds to the tower. */
+  intro?: boolean;
   onSelect: (floor: number | null) => void;
   onEnter: (floor: number) => void;
   onFail: () => void;
@@ -33,9 +37,12 @@ export function Building3D({ selected, highlight = null, onSelect, onEnter, onFa
   const host = useRef<HTMLDivElement>(null);
   const sync = useRef<(selected: number | null) => void>(() => undefined);
   const glow = useRef(highlight);
+  const dark = useRef(night);
+  const opening = useRef(intro);
   const handlers = useRef({ onSelect, onEnter, onFail });
   useEffect(() => { handlers.current = { onSelect, onEnter, onFail }; }, [onSelect, onEnter, onFail]);
   useEffect(() => { glow.current = highlight; }, [highlight]);
+  useEffect(() => { dark.current = night; }, [night]);
 
   useEffect(() => {
     const el = host.current;
@@ -61,8 +68,8 @@ export function Building3D({ selected, highlight = null, onSelect, onEnter, onFa
     scene.fog = new THREE.Fog(SKY, 420, 1200);
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    // Warm, sunny light with soft shadows: the toy-city look of a life simulator.
-    scene.add(new THREE.HemisphereLight(0xe3f3ff, 0xa89a7c, 1.25));
+    // Warm, sunny light with soft shadows: the toy-city look of a life simulator (moonlight at night).
+    const sky = new THREE.HemisphereLight(0xe3f3ff, 0xa89a7c, 1.25); scene.add(sky);
     const sun = new THREE.DirectionalLight(0xfff0d2, 2.2);
     sun.position.set(-90, 160, 110); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -82,8 +89,30 @@ export function Building3D({ selected, highlight = null, onSelect, onEnter, onFa
       camera.position.setFromSpherical(new THREE.Spherical(el.clientWidth / Math.max(1, el.clientHeight) < 1 ? 290 : 195, 1.12, 0.62)).add(controls.target);
     };
     home();
+    const homePosition = camera.position.clone();
 
-    scene.add(buildCity({ mobile }));
+    const city = buildCity({ mobile });
+    scene.add(city);
+
+    // Opening shot: from above the clouds down to the tower (skipped with reduced motion).
+    const clouds = new THREE.Group();
+    let introAt = opening.current && !reduced ? 0 : -1;
+    const INTRO = 3.6, introFrom = new THREE.Vector3().setFromSpherical(new THREE.Spherical(560, 0.2, 0.62)).add(controls.target);
+    if (introAt === 0) {
+      const puff = document.createElement("canvas"); puff.width = puff.height = 128;
+      const pg = puff.getContext("2d")!, grad = pg.createRadialGradient(64, 64, 4, 64, 64, 62);
+      grad.addColorStop(0, "rgba(255,255,255,0.95)"); grad.addColorStop(0.5, "rgba(255,255,255,0.55)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+      pg.fillStyle = grad; pg.fillRect(0, 0, 128, 128);
+      const puffTexture = new THREE.CanvasTexture(puff), cloudRandom = Math.random;
+      for (let k = 0; k < (mobile ? 40 : 80); k++) {
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTexture, transparent: true, depthWrite: false, fog: false, opacity: 0.9 }));
+        const a = cloudRandom() * Math.PI * 2, r = cloudRandom() * 320;
+        s.position.set(Math.cos(a) * r, 230 + cloudRandom() * 120, Math.sin(a) * r); s.scale.setScalar(90 + cloudRandom() * 120);
+        clouds.add(s);
+      }
+      scene.add(clouds);
+      camera.position.copy(introFrom); controls.enabled = false;
+    }
 
     // ----- The tower: the ATLAS headquarters from tower.ts, the same one the office scene stands in -----
     const m = towerMaterials();
@@ -233,6 +262,19 @@ export function Building3D({ selected, highlight = null, onSelect, onEnter, onFa
       goal.active = true;
     };
     if (apiRef) apiRef.current = { reset: () => { goal.active = false; home(); } };
+    const DAY_SKY = new THREE.Color(SKY), NIGHT_SKY = new THREE.Color(0x141c33), SUN_DAY = new THREE.Color(0xfff0d2), SUN_NIGHT = new THREE.Color(0x9fb4ff);
+    let nightAmount = dark.current ? 1 : 0;
+    const applyNight = () => {
+      (scene.background as THREE.Color).lerpColors(DAY_SKY, NIGHT_SKY, nightAmount);
+      scene.fog!.color.copy(scene.background as THREE.Color);
+      sky.intensity = 1.25 - 0.95 * nightAmount; sun.intensity = 2.2 - 1.85 * nightAmount;
+      sun.color.lerpColors(SUN_DAY, SUN_NIGHT, nightAmount);
+      renderer.toneMappingExposure = 1.08 - 0.12 * nightAmount;
+      // The reflected environment lights everything too: dim it at night.
+      scene.environmentIntensity = 1 - 0.85 * nightAmount;
+      setNight(scene, nightAmount);
+    };
+    applyNight();
 
     const resize = () => {
       const w = el.clientWidth, h = el.clientHeight;
@@ -247,6 +289,26 @@ export function Building3D({ selected, highlight = null, onSelect, onEnter, onFa
       if (!running) return;
       frame = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.1), ease = reduced ? 1 : Math.min(1, dt * 4);
+      if (introAt >= 0) {
+        // Down through the clouds; they thin out as the camera passes them.
+        introAt += dt;
+        const k = Math.min(1, introAt / INTRO), smooth = k * k * (3 - 2 * k);
+        camera.position.lerpVectors(introFrom, homePosition, smooth);
+        camera.lookAt(controls.target);
+        for (const c of clouds.children) ((c as THREE.Sprite).material.opacity = 0.9 * Math.max(0, 1 - Math.max(0, k - 0.35) / 0.4));
+        if (k >= 1) {
+          introAt = -1; controls.enabled = true; scene.remove(clouds);
+          clouds.traverse((c) => { if (c instanceof THREE.Sprite) { c.material.map?.dispose(); c.material.dispose(); } });
+        }
+      }
+      // Day and night: sky, fog, light and every glow (windows, lamps, headlights, lobby) follow.
+      const target = dark.current ? 1 : 0;
+      if (nightAmount !== target) {
+        nightAmount += (target - nightAmount) * (reduced ? 1 : Math.min(1, dt * 2.5));
+        if (Math.abs(nightAmount - target) < 0.002) nightAmount = target;
+        applyNight();
+      }
+      if (!reduced) city.userData.update?.(dt);
       if (goal.active) {
         controls.target.lerp(goal.target, ease);
         const offset = camera.position.clone().sub(controls.target);

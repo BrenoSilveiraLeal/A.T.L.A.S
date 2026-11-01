@@ -40,13 +40,17 @@ export const STREET_STYLES: readonly FacadeStyle[] = [
   { wall: "#7fb0e0", band: "#5f93c6", curtain: true }, { wall: "#9ad19a", band: "#7dba7d" },
 ];
 
-/** A façade texture: window bays of the tower's size with white frames, sky-blue glass and a few lit or curtained rooms. */
-export function facadeTexture(style: FacadeStyle, seed: number) {
+/**
+ * A façade: window bays of the tower's size with white frames, sky-blue glass and a few lit or
+ * curtained rooms (`map`), plus the same rooms' lights for the night (`lights`, an emissive map).
+ */
+export function facadeMaps(style: FacadeStyle, seed: number) {
   const size = 512, cell = size / TILE, random = seeded(seed);
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const g = canvas.getContext("2d")!;
+  const canvas = document.createElement("canvas"), night = document.createElement("canvas");
+  canvas.width = canvas.height = night.width = night.height = size;
+  const g = canvas.getContext("2d")!, n = night.getContext("2d")!;
   g.fillStyle = style.wall; g.fillRect(0, 0, size, size);
+  n.fillStyle = "#000000"; n.fillRect(0, 0, size, size);
   const CURTAINS = ["#f6d6a8", "#f3b6b0", "#bfe3d0", "#fff3d6"];
   for (let row = 0; row < TILE; row++) for (let col = 0; col < TILE; col++) {
     const x = col * cell, y = row * cell;
@@ -61,16 +65,49 @@ export function facadeTexture(style: FacadeStyle, seed: number) {
     const roll = random();
     if (roll < 0.22) { g.fillStyle = "#ffe9b8"; g.fillRect(wx, wy, ww, wh); }
     else if (roll < 0.4) { g.fillStyle = CURTAINS[Math.floor(random() * CURTAINS.length)]; g.fillRect(wx, wy, ww * 0.28, wh); g.fillRect(wx + ww * 0.72, wy, ww * 0.28, wh); }
+    // At night about half the rooms have the light on.
+    if (roll < 0.5) { n.fillStyle = roll < 0.22 ? "#ffd98a" : "#f5c46a"; n.fillRect(wx, wy, ww, wh); }
     // Sky glint and the middle mullion.
     g.fillStyle = "rgba(255,255,255,0.45)"; g.beginPath(); g.moveTo(wx, wy + wh * 0.35); g.lineTo(wx + ww * 0.35, wy); g.lineTo(wx + ww * 0.5, wy); g.lineTo(wx, wy + wh * 0.5); g.fill();
     g.fillStyle = "#ffffff"; g.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
     if (!style.curtain) { g.fillStyle = style.band; g.fillRect(wx - 5, wy + wh + 3, ww + 10, 4); }
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.anisotropy = 4;
-  return texture;
+  const texture = (c: HTMLCanvasElement) => {
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+    return t;
+  };
+  return { map: texture(canvas), lights: texture(night) };
+}
+
+/**
+ * Marks a material's glow for day and night: `setNight` moves `emissiveIntensity` between the two
+ * (window lights, street lamps, the lobby).
+ */
+export function glows<T extends THREE.MeshStandardMaterial>(material: T, day: number, night: number): T {
+  material.userData.glow = { day, night };
+  material.emissiveIntensity = day;
+  return material;
+}
+
+/** A façade material that lights its rooms at night. */
+export function facadeMaterial(style: FacadeStyle, seed: number, options: THREE.MeshStandardMaterialParameters = {}) {
+  const { map, lights } = facadeMaps(style, seed);
+  return glows(new THREE.MeshStandardMaterial({ map, emissiveMap: lights, emissive: 0xffffff, roughness: style.curtain ? 0.3 : 0.75, ...options }), 0, 1.1);
+}
+
+/** Day (0) to night (1): every marked glow under `root` follows. */
+export function setNight(root: THREE.Object3D, amount: number) {
+  const seen = new Set<THREE.Material>();
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      const glow = m.userData.glow as { day: number; night: number } | undefined;
+      if (!glow || seen.has(m)) continue;
+      seen.add(m);
+      (m as THREE.MeshStandardMaterial).emissiveIntensity = glow.day + (glow.night - glow.day) * amount;
+    }
+  });
 }
 
 /**
@@ -201,7 +238,7 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
 
   city.add(mesh(plinths, plain("#e8dfcc")), mesh(plaza, plain("#f1e8d6")), mesh(lawns, plain("#7cc35a", 1)), mesh(marks, plain("#f2c94c", 0.6)));
   city.add(mesh(roofs, plain("#c3c7cc")), mesh(terracotta, plain("#d0714f", 0.7)));
-  facades.forEach((mass, n) => { if (!mass.empty) city.add(mesh(mass, new THREE.MeshStandardMaterial({ map: facadeTexture(STREET_STYLES[n], seed + n), roughness: STREET_STYLES[n].curtain ? 0.35 : 0.75 }))); });
+  facades.forEach((mass, n) => { if (!mass.empty) city.add(mesh(mass, facadeMaterial(STREET_STYLES[n], seed + n))); });
 
   // Round trees, bushes and street lamps: one draw call each kind.
   const tone = new THREE.Color(), dummy = new THREE.Object3D();
@@ -219,23 +256,50 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     shrubs.setColorAt(n, tone.set(FLOWERS[Math.floor(random() * FLOWERS.length)]));
   });
   const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.1, 0.12, 5, 6), plain("#3f4a56", 0.5), lamps.length);
-  const bulbs = new THREE.InstancedMesh(new THREE.SphereGeometry(0.45, 10, 8), new THREE.MeshStandardMaterial({ color: 0xfff6dc, emissive: 0xffe9b0, emissiveIntensity: 0.5 }), lamps.length);
+  const bulbs = new THREE.InstancedMesh(new THREE.SphereGeometry(0.45, 10, 8), glows(new THREE.MeshStandardMaterial({ color: 0xfff6dc, emissive: 0xffe9b0 }), 0.4, 3), lamps.length);
   lamps.forEach(([x, z], n) => {
     dummy.scale.setScalar(1); dummy.position.set(x, 2.8, z); dummy.updateMatrix(); poles.setMatrixAt(n, dummy.matrix);
     dummy.position.set(x, 5.4, z); dummy.updateMatrix(); bulbs.setMatrixAt(n, dummy.matrix);
   });
   city.add(trunks, crowns, shrubs, poles, bulbs);
 
-  // Toy-like cars: a body and a lighter cabin.
+  // Rolling green hills around the city, fading into the distance.
+  const hillSpots = mobile ? 16 : 28;
+  const hills = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 20, 12), plain("#8cc673", 1), hillSpots);
+  for (let n = 0; n < hillSpots; n++) {
+    const angle = (n / hillSpots) * Math.PI * 2 + random() * 0.2, r = 560 + random() * 260, w = 90 + random() * 90;
+    dummy.position.set(Math.cos(angle) * r, -12, Math.sin(angle) * r); dummy.rotation.set(0, random() * Math.PI, 0);
+    dummy.scale.set(w, 30 + random() * 50, w * (0.6 + random() * 0.5)); dummy.updateMatrix(); hills.setMatrixAt(n, dummy.matrix);
+    hills.setColorAt(n, tone.setHSL(0.27 + random() * 0.06, 0.38, 0.5 + random() * 0.08));
+  }
+  city.add(hills);
+
+  // Toy-like cars driving on their side of the street, with headlights that glow at night.
   const CAR_COLORS = [0xf25f5c, 0x2f80ed, 0xf2c94c, 0x27ae60, 0xffffff, 0x9b51e0, 0x56ccf2, 0xf2994a];
-  const bodies = new THREE.InstancedMesh(new THREE.BoxGeometry(2, 1, 4.4), plain("#ffffff", 0.35), cars.length);
-  const cabins = new THREE.InstancedMesh(new THREE.BoxGeometry(1.7, 0.8, 2.2), plain("#dff2ff", 0.2), cars.length);
-  cars.forEach(([x, z, turn], n) => {
-    dummy.scale.setScalar(1); dummy.rotation.set(0, turn, 0);
-    dummy.position.set(x, 0.6, z); dummy.updateMatrix(); bodies.setMatrixAt(n, dummy.matrix);
-    dummy.position.set(x, 1.45, z); dummy.updateMatrix(); cabins.setMatrixAt(n, dummy.matrix);
-    bodies.setColorAt(n, tone.set(CAR_COLORS[n % CAR_COLORS.length]));
+  const traffic = cars.map(([x, z, turn]) => {
+    const alongZ = turn === 0, across = alongZ ? x : z, line = Math.round(across / PITCH - 0.5) * PITCH + PITCH / 2;
+    return { x, z, alongZ, dir: across - line > 0 ? 1 : -1, speed: 7 + random() * 6 };
   });
-  city.add(bodies, cabins);
+  const bodies = new THREE.InstancedMesh(new THREE.BoxGeometry(2, 1, 4.4), plain("#ffffff", 0.35), traffic.length);
+  const cabins = new THREE.InstancedMesh(new THREE.BoxGeometry(1.7, 0.8, 2.2), plain("#dff2ff", 0.2), traffic.length);
+  const beams = new THREE.InstancedMesh(new THREE.BoxGeometry(1.6, 0.3, 0.1), glows(new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c4 }), 0.2, 3), traffic.length);
+  traffic.forEach((_, n) => bodies.setColorAt(n, tone.set(CAR_COLORS[n % CAR_COLORS.length])));
+  const place = () => traffic.forEach((c, n) => {
+    dummy.scale.setScalar(1); dummy.rotation.set(0, c.alongZ ? (c.dir > 0 ? 0 : Math.PI) : (c.dir > 0 ? Math.PI / 2 : -Math.PI / 2), 0);
+    dummy.position.set(c.x, 0.6, c.z); dummy.updateMatrix(); bodies.setMatrixAt(n, dummy.matrix);
+    dummy.position.set(c.x, 1.45, c.z); dummy.updateMatrix(); cabins.setMatrixAt(n, dummy.matrix);
+    dummy.position.set(c.x + (c.alongZ ? 0 : c.dir * 2.22), 0.75, c.z + (c.alongZ ? c.dir * 2.22 : 0)); dummy.updateMatrix(); beams.setMatrixAt(n, dummy.matrix);
+  });
+  place();
+  city.add(bodies, cabins, beams);
+  /** Moves the cars; the caller runs it every frame (they wrap around at the edge of the city). */
+  city.userData.update = (dt: number) => {
+    for (const c of traffic) {
+      if (c.alongZ) { c.z += c.dir * c.speed * dt; if (c.z > span) c.z -= span * 2; if (c.z < -span) c.z += span * 2; }
+      else { c.x += c.dir * c.speed * dt; if (c.x > span) c.x -= span * 2; if (c.x < -span) c.x += span * 2; }
+    }
+    place();
+    bodies.instanceMatrix.needsUpdate = cabins.instanceMatrix.needsUpdate = beams.instanceMatrix.needsUpdate = true;
+  };
   return city;
 }

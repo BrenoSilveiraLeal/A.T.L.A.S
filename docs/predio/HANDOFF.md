@@ -5,6 +5,7 @@ Atualizado em 01/11/2026. Mudança só visual e de navegação. Agentes, regras,
 ## Como funciona
 
 - `/` e o login abrem o **mapa** (`/predio`): a sede ATLAS numa cidade, no estilo de um simulador de vida (pegada The Sims 4, tudo modelado em código, sem assets de terceiros).
+- Apresentação no estilo de vitrine de empreendimento: abertura descendo pelas nuvens ("ATLAS apresenta"), botão **Dia/Noite** (à noite as janelas, postes, faróis e o lobby acendem; padrão pela hora local, escolha salva em `atlas-building-night`), carros andando, morros ao redor, cartões de vidro escuro sobre a cena.
 - O prédio inteiro é do ATLAS. O painel lista só os escritórios: **8 Escritório de Dividendos** (nome provisório), **9 DASH**, **10 COIN**.
 - Clicar num escritório aberto faz a câmera voar até o andar (os de cima somem, as paredes baixam) e **abre a página do escritório** (`/app`), separada do mapa. DASH e COIN só mostram um aviso (em construção / bloqueado).
 - Dentro do escritório, **"Trocar de escritório"** volta ao mapa, que destaca o último escritório usado.
