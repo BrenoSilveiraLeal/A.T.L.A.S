@@ -213,7 +213,7 @@ export function buildSurroundings(scene: THREE.Scene, { floor, mobile = false }:
   // Same city, same tower and the same day or night as on the map.
   const night = prefersNight(), sky = night ? NIGHT_SKY : SKY;
   scene.background = new THREE.Color(sky);
-  scene.fog = new THREE.Fog(sky, 600, 2800);
+  scene.fog = new THREE.Fog(sky, 1200, 5000);
   const m = towerMaterials(), street = -floorLevel(floor), group = new THREE.Group(), below = new THREE.Group();
   group.add(officeSlab(m));
   below.position.y = street;

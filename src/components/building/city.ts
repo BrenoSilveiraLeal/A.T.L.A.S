@@ -267,8 +267,6 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const reach = Math.ceil(size * 1.18);
   // Layers kept clearly apart so nothing flickers: grass below, then asphalt, then the paint on it.
   const GROUND = -0.15, ROAD_TOP = 0.05;
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), plain("#86bf6a", 1));
-  ground.rotation.x = -Math.PI / 2; ground.position.y = GROUND; ground.receiveShadow = true; city.add(ground);
   /** Blocks inside the city's irregular edge (the centre block, the ATLAS plaza, always is). */
   const inside = (i: number, j: number) => Math.abs(i) <= reach && Math.abs(j) <= reach && (i === 0 && j === 0 || Math.hypot(i, j) <= edgeAt(Math.atan2(j, i)) + 0.2);
   /** Distance from the centre to the city's edge in a direction, in metres. */
@@ -485,18 +483,71 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const lake = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2).scale(82, 1, 55).translate(lakeAt.x, GROUND + 0.18, lakeAt.y),
     glows(new THREE.MeshStandardMaterial({ color: 0x5cc4ea, emissive: 0x1e6f9a, roughness: 0.12, metalness: 0.2 }), 0.08, 0.25));
   city.add(shore, lake);
+  // Hills rise from the middle of the city to mountains on the horizon (owner, 01/11/2026: "prédios
+  // nos morros, como uma cidade grande, ruas que sobem os morros, mas mostrando grande parte dos
+  // morros"). Neighbourhoods climb the slopes and thin out with height, so most of each hill is green.
+  const HILLS_FROM = mobile ? 650 : 1000;
+  const ridge = (x: number, z: number) => 0.55 + 0.25 * Math.sin(x * 0.0042 + 1.3) * Math.cos(z * 0.0037 - 0.4) + 0.2 * Math.sin((x + z) * 0.0091 + 2.2);
+  const heightAt = (x: number, z: number) => {
+    const r = Math.hypot(x, z), k = Math.min(1, Math.max(0, (r - HILLS_FROM) / 900));
+    if (k <= 0) return 0;
+    return k * k * (3 - 2 * k) * (50 + 320 * ridge(x, z) * Math.min(1, r / (FAR + 400)));
+  };
+  const settled = (x: number, z: number) => { const h = heightAt(x, z); return h < 4 || 0.5 + 0.5 * Math.sin(x * 0.013 + Math.cos(z * 0.011) * 2.5) > h / 230; };
+  {
+    // Terrain: one mesh, flat under the city, rising into the hills; greener higher up.
+    const SIZE = 10000, SEGS = mobile ? 220 : 380;
+    const terrain = new THREE.PlaneGeometry(SIZE, SIZE, SEGS, SEGS).rotateX(-Math.PI / 2);
+    const pos = terrain.attributes.position as THREE.BufferAttribute, colors: number[] = [], c = new THREE.Color();
+    for (let n = 0; n < pos.count; n++) {
+      const x = pos.getX(n), z = pos.getZ(n), h = heightAt(x, z);
+      pos.setY(n, GROUND + h);
+      c.setHSL(0.27 + Math.sin(x * 0.01) * 0.015, 0.42 - Math.min(0.12, h / 2500), 0.48 + Math.min(0.1, h / 1500) - (h > 4 && settled(x, z) ? 0.04 : 0));
+      colors.push(c.r, c.g, c.b);
+    }
+    terrain.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    terrain.computeVertexNormals();
+    const land = new THREE.Mesh(terrain, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
+    land.receiveShadow = true; city.add(land);
+  }
+  /** Streets that climb the hills: ribbons along the grid lines, following the ground, where people live. */
+  const climbing: number[] = [], climbIdx: number[] = [];
+  const ribbon = (points: [number, number, number][], alongZ: boolean) => {
+    if (points.length < 2) return;
+    const base = climbing.length / 3;
+    for (const [x, y, z] of points) {
+      if (alongZ) climbing.push(x - 4, y, z, x + 4, y, z); else climbing.push(x, y, z - 4, x, y, z + 4);
+    }
+    for (let k = 0; k < points.length - 1; k++) { const a = base + k * 2; climbIdx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  };
   const farGreen = new Mass();
   const farReach = Math.ceil(FAR / PITCH);
   for (let gi = -farReach; gi <= farReach; gi++) for (let gj = -farReach; gj <= farReach; gj++) {
     const cx = gi * PITCH, cz = gj * PITCH, r = Math.hypot(cx, cz);
     if (r > FAR || inside(gi, gj) || r < edgeMetres(Math.atan2(cz, cx)) - PITCH * 0.3) continue;
+    const hb = heightAt(cx, cz);
+    if (hb > 3) {
+      // On the slopes: a hillside neighbourhood of small colourful houses, or woods.
+      if (!settled(cx, cz)) {
+        for (let k = 0; k < 3; k++) { const x = cx + (random() - 0.5) * 70, z = cz + (random() - 0.5) * 70; trees.push([x, z, 1.4 + random() * 0.8, GROUND + heightAt(x, z) - 0.3]); }
+        continue;
+      }
+      for (let k = 0; k < 5; k++) {
+        const x = cx + (random() - 0.5) * 56, z = cz + (random() - 0.5) * 56, ground = GROUND + heightAt(x, z);
+        const w = 8 + random() * 7, d = 7 + random() * 6, h = 6 + random() * (random() < 0.15 ? 22 : 9);
+        const style = random() < 0.15 ? TOWER_STYLES[Math.floor(random() * TOWER_STYLES.length)] : LOW_STYLES[Math.floor(random() * LOW_STYLES.length)];
+        facades[style].box(x, ground - 5, z, w, h + 5, d, false, random());
+        (STREET_STYLES[style].curtain ? roofs : terracotta).box(x, ground + h, z, w + 0.8, 0.6, d + 0.8);
+      }
+      continue;
+    }
     const nearLake = Math.hypot((cx - lakeAt.x) / 100, (cz - lakeAt.y) / 72) < 1;
     pave(cx, cz, PITCH, PITCH);
     plinths.box(cx, 0, cz, BLOCK, 0.3, BLOCK);
     if (nearLake || random() < 0.12) {
       // A park block (around the lake, and here and there): lawn and a few round trees.
       farGreen.box(cx, 0.3, cz, BLOCK - 4, 0.1, BLOCK - 4);
-      if (!nearLake && r < FAR * 0.6) for (let k = 0; k < 6; k++) trees.push([cx + (random() - 0.5) * (BLOCK - 12), cz + (random() - 0.5) * (BLOCK - 12), 1 + random() * 0.6, 0.4]);
+      if (!nearLake) for (let k = 0; k < 6; k++) trees.push([cx + (random() - 0.5) * (BLOCK - 12), cz + (random() - 0.5) * (BLOCK - 12), 1 + random() * 0.6, 0.4]);
       continue;
     }
     // Heights fall off with distance; a few taller towers break the skyline.
@@ -510,6 +561,23 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       facades[style].box(x, 0.3, z, w - 2, h, d - 2, false, random());
       (STREET_STYLES[style].curtain || random() < 0.5 ? roofs : terracotta).box(x, h + 0.3, z, w - 1.2, 0.6, d - 1.2);
     }
+  }
+  // Streets up the hills, on every grid line, in stretches where there are houses.
+  for (let k = -farReach; k <= farReach + 1; k++) for (const alongZ of [true, false]) {
+    const line = (k - 0.5) * PITCH;
+    let run: [number, number, number][] = [];
+    for (let p = -FAR; p <= FAR; p += 10) {
+      const x = alongZ ? line : p, z = alongZ ? p : line, h = heightAt(x, z);
+      if (h > 2 && Math.hypot(x, z) < FAR && settled(x, z)) run.push([x, GROUND + h + 0.35, z]);
+      else { ribbon(run, alongZ); run = []; }
+    }
+    ribbon(run, alongZ);
+  }
+  if (climbIdx.length) {
+    const roads = new THREE.BufferGeometry();
+    roads.setAttribute("position", new THREE.Float32BufferAttribute(climbing, 3)); roads.setIndex(climbIdx); roads.computeVertexNormals();
+    const hillRoads = new THREE.Mesh(roads, new THREE.MeshStandardMaterial({ color: 0x5a6170, roughness: 0.95, side: THREE.DoubleSide }));
+    hillRoads.receiveShadow = true; city.add(hillRoads);
   }
   city.add(mesh(farGreen, plain("#7cc35a", 1)));
   city.add(mesh(asphalt, plain("#4c5463", 0.95)));
@@ -563,16 +631,6 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   });
   city.add(trunks, crowns, shrubs, poles, bulbs);
 
-  // Rolling green hills around the city, fading into the distance.
-  const hillSpots = mobile ? 22 : 40;
-  const hills = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 20, 12), plain("#8cc673", 1), hillSpots);
-  for (let n = 0; n < hillSpots; n++) {
-    const angle = (n / hillSpots) * Math.PI * 2 + random() * 0.2, r = FAR + 150 + random() * 350, w = 260 + random() * 260;
-    dummy.position.set(Math.cos(angle) * r, -12, Math.sin(angle) * r); dummy.rotation.set(0, random() * Math.PI, 0);
-    dummy.scale.set(w, 90 + random() * 160, w * (0.6 + random() * 0.5)); dummy.updateMatrix(); hills.setMatrixAt(n, dummy.matrix);
-    hills.setColorAt(n, tone.setHSL(0.27 + random() * 0.06, 0.38, 0.5 + random() * 0.08));
-  }
-  city.add(hills);
 
   // Toy-like cars driving on their side of the street, with headlights that glow at night.
   const CAR_COLORS = [0xf25f5c, 0x2f80ed, 0xf2c94c, 0x27ae60, 0xffffff, 0x9b51e0, 0x56ccf2, 0xf2994a];

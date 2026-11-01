@@ -621,7 +621,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     // Sky, the tower below this floor and the city around it (sets the background and the fog).
     const surroundings = buildSurroundings(scene, { floor: FLOOR, mobile });
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 3200);
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 6000);
     const home = new THREE.Vector3(0, 33, 33);
     camera.position.copy(home);
     const controls = new OrbitControls(camera, labels.domElement);

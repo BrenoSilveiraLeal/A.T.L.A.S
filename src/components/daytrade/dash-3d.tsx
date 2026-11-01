@@ -58,7 +58,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
     scene.add(sun);
     if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; }
 
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 3200);
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 6000);
     const home = new THREE.Vector3(0, 30, 34);
     const controls = new OrbitControls(camera, labels.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 12; controls.maxDistance = 70;
