@@ -6,6 +6,7 @@ import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRe
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { LocateFixed, PersonStanding } from "lucide-react";
 import { ELEVATOR, officeById, TOWER, windowBays } from "@/core/building";
+import { tradingDay } from "@/core/b3-calendar";
 import { DESKS, deskState, MARKET_LABEL, DATA_LABEL, SECTORS, sectorOf, type DashStatus } from "@/core/daytrade/desks";
 import { lookFor, type PersonLook } from "@/core/people";
 import { makePerson, posterTexture, S, SEAT_Y, type Person } from "@/components/office-3d";
@@ -364,6 +365,15 @@ export function Dash3D({ status }: { status: DashStatus }) {
       pose(walker.person, "walk", t, walker.phase);
     };
 
+    // Weekends and B3 holidays (owner, 02/11/2026: "sábados, domingos e feriados, quando a bolsa está
+    // fechada, eles também não ficam no escritório"): nobody comes in; checked again every 30 s.
+    let open = true, openCheck = 30;
+    const staffed = (on: boolean) => {
+      open = on;
+      for (const p of people) p.person.group.traverse((o) => { if (o === p.person.group || o instanceof CSS2DObject) o.visible = on; });
+    };
+    staffed(tradingDay(new Date()));
+
     const sync = (s: DashStatus) => { drawWall(s); monitors.forEach((m) => m.draw(s)); roomScreens.forEach((m) => m.draw(s)); };
     sync(initial.current);
 
@@ -427,10 +437,11 @@ export function Dash3D({ status }: { status: DashStatus }) {
         camera.position.lerpVectors(entry.from, goal, smooth);
         if (k >= 1) { entry.at = -1; controls.maxDistance = 70; controls.enabled = true; }
       }
+      openCheck -= dt;
+      if (openCheck <= 0) { openCheck = 30; const on = tradingDay(new Date()); if (on !== open) staffed(on); }
       if (!reduced) {
         surroundings.userData.update?.(dt);
-        for (const p of people) if (!p.walker) pose(p.person, "type", t, p.phase);
-        walkRound(dt, t);
+        if (open) { for (const p of people) if (!p.walker) pose(p.person, "type", t, p.phase); walkRound(dt, t); }
       }
       if (walk.on) step(dt); else controls.update();
       renderer.render(scene, camera); labels.render(scene, camera);

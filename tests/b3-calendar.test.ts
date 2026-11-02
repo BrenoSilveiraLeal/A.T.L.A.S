@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { b3Session } from "@/core/b3-calendar";
+import { b3Session, tradingDay } from "@/core/b3-calendar";
 
 // São Paulo is UTC-3 all year (no daylight saving since 2019).
 const at = (local: string) => new Date(`${local}-03:00`);
@@ -18,6 +18,14 @@ describe("B3 session guard", () => {
     expect(b3Session(at("2026-11-20T12:00:00")).reason).toContain("Consciência Negra");
     expect(b3Session(at("2026-02-16T12:00:00")).status).toBe("CLOSED");
     expect(b3Session(at("2026-07-09T12:00:00")).status).toBe("OPEN"); // São Paulo municipal holiday, B3 opens
+  });
+
+  it("tells trading days from weekends and holidays, whatever the hour", () => {
+    expect(tradingDay(at("2026-10-22T03:00:00"))).toBe(true);
+    expect(tradingDay(at("2026-10-24T12:00:00"))).toBe(false); // Saturday
+    expect(tradingDay(at("2026-10-25T12:00:00"))).toBe(false); // Sunday
+    expect(tradingDay(at("2026-11-02T12:00:00"))).toBe(false); // Finados
+    expect(tradingDay(at("2026-07-09T12:00:00"))).toBe(true);
   });
 
   it("respects the Ash Wednesday late open", () => {

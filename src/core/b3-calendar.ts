@@ -56,6 +56,15 @@ export function saoPauloClock(at: Date) {
   return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}`, weekday: p.weekday, year: Number(p.year) };
 }
 
+/**
+ * A B3 trading day in São Paulo: a weekday that is not a listed holiday (years not listed count
+ * weekdays only). For the offices' people, who stay home when the exchange is closed; never for orders.
+ */
+export function tradingDay(at: Date) {
+  const clock = saoPauloClock(at);
+  return clock.weekday !== "Sat" && clock.weekday !== "Sun" && !B3_CALENDAR[clock.year]?.closed[clock.date];
+}
+
 export function b3Session(at: Date): { status: SessionStatus; reason: string; date: string; provisional: boolean } {
   if (Number.isNaN(at.getTime())) return { status: "UNKNOWN", reason: "Horário inválido.", date: "", provisional: false };
   const clock = saoPauloClock(at);

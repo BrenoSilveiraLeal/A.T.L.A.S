@@ -5,6 +5,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { floorLevel, OFFICE_GLASS, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
+import { tradingDay } from "@/core/b3-calendar";
 import { DESKS, SECTORS } from "@/core/daytrade/desks";
 import { DASH_FLOOR, deskAt, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "@/components/daytrade/dash-layout";
 import { buildCity, glows, Mass, roundedSlab, setNight, SKY } from "./city";
@@ -169,8 +170,10 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         if (!seated) { dummy.position.set(x, 0.45, z); dummy.updateMatrix(); legs.setMatrixAt(n++, dummy.matrix); }
       });
       legs.count = standing;
-      g.add(torso, heads, legs);
+      const folks = new THREE.Group(); folks.userData.people = true; folks.add(torso, heads, legs); g.add(folks);
     };
+    /** The offices' insides, which go dark and empty when B3 is closed (staffed below). */
+    const interiors: THREE.Group[] = [];
 
     /** The office behind the glass, in the plan and colours of its own scene (office-3d / dash-3d). */
     const interior = (office: Office, g: THREE.Group) => {
@@ -308,7 +311,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         floor.walls = [pane, new THREE.Mesh(frame.geometry(), m.white)];
         group.add(...floor.walls);
         const inner = new THREE.Group(); inner.position.y = 0.45; group.add(inner);
-        interior(office, inner);
+        interior(office, inner); interiors.push(inner);
         // Coloured line along the slab edge: the office's colour, brighter when hovered or chosen.
         const band = new THREE.MeshStandardMaterial({ color: office.color, emissive: new THREE.Color(office.color), emissiveIntensity: 0.25, roughness: 0.5 });
         group.add(new THREE.Mesh(roundedSlab(W + 0.96, D + 0.96, OFFICE_R + 0.48, 0.14, 0.16), band));
@@ -389,6 +392,23 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       scene.environmentIntensity = 0.35 - 0.2 * nightAmount;
       setNight(scene, nightAmount);
     };
+    // Weekends and B3 holidays (owner, 02/11/2026: "sábados, domingos e feriados, quando a bolsa está
+    // fechada, eles também não ficam no escritório"): nobody in the offices and their lights off, as
+    // inside each office's own scene.
+    let staffedNow: boolean | null = null, staffedCheck = 0;
+    const staffed = (on: boolean) => {
+      staffedNow = on;
+      for (const inner of interiors) inner.traverse((o) => {
+        if (o.userData.people) o.visible = on;
+        if (!(o instanceof THREE.Mesh)) return;
+        for (const mat of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (!mat.userData.glow) continue;
+          mat.userData.lit ??= mat.userData.glow;
+          mat.userData.glow = on ? mat.userData.lit : { day: 0, night: 0 };
+        }
+      });
+    };
+    staffed(tradingDay(new Date()));
     applyNight();
 
     const resize = () => {
@@ -423,6 +443,8 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         if (Math.abs(nightAmount - target) < 0.002) nightAmount = target;
         applyNight();
       }
+      staffedCheck -= dt;
+      if (staffedCheck <= 0) { staffedCheck = 30; const on = tradingDay(new Date()); if (on !== staffedNow) { staffed(on); applyNight(); } }
       if (!reduced) city.userData.update?.(dt);
       if (goal.active) {
         // Entering an office: a slower, deeper move that ends level with its floor, close to the glass.

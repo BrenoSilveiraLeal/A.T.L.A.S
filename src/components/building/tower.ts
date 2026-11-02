@@ -158,7 +158,9 @@ export function lobby(m: TowerMaterials) {
   g.add(new THREE.Mesh(canopy.geometry(), m.white), new THREE.Mesh(posts.geometry(), m.green), new THREE.Mesh(planters.geometry(), m.stone));
   bushes(g, m, flowers);
   addPalms(g, [[-20, 0.3, pd / 2 + 4, 0.95], [20, 0.3, pd / 2 + 4, 0.95], [-26, 0.3, pd / 2 + 2, 0.85], [26, 0.3, pd / 2 + 2, 0.85]]);
-  const sign = logoSign(18, 4); sign.position.set(0, floorLevel(1) + 3.6, pd / 2 + 0.06); g.add(sign);
+  // The big sign on a white board standing proud of the slab edges (they used to run across it).
+  const board = new THREE.Mesh(new THREE.BoxGeometry(19.2, 4.8, 0.25), m.white); board.position.set(0, floorLevel(1) + 3.6, pd / 2 + 0.55); g.add(board);
+  const sign = logoSign(18, 4); sign.position.set(0, floorLevel(1) + 3.6, pd / 2 + 0.69); g.add(sign);
   const small = logoSign(7, 1.55); small.position.set(0, 5.15, pd / 2 + 7.01); g.add(small);
   for (const x of [-23, 23]) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 10, 8), m.white); pole.position.set(x, 5.3, pd / 2 + 7); g.add(pole);
