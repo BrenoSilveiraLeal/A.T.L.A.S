@@ -414,8 +414,9 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const woods = (x: number, z: number) => Math.sin(x * 0.009 + 2) * Math.cos(z * 0.0083 - 1) + 0.3 * Math.sin(z * 0.021 + x * 0.004);
 
   const plinths = new Mass(), lawns = new Mass(), plaza = new Mass(), marks = new Mass(), zebra = new Mass(), roofs = new Mass(), terracotta = new Mass(), terraces = new Mass();
-  const signalPoles = new Mass(), signalRed = new Mass(), signalAmber = new Mass(), signalGreen = new Mass(), signalOff = new Mass();
-  const pools = new Mass(), decks = new Mass(), dirt = new Mass(), courts = new Mass(), courtLines = new Mass(), cranes = new Mass(), benches = new Mass(), shelters = new Mass(), stopGlass = new Mass();
+  /** Traffic lights: poles and heads; the lamps of each street direction (red, amber, green); the crossings that have them ("k,m"). */
+  const signalPoles = new Mass(), signalLamps = { Z: [new Mass(), new Mass(), new Mass()], X: [new Mass(), new Mass(), new Mass()] }, signals = new Set<string>();
+  const pools = new Mass(), decks = new Mass(), courts = new Mass(), courtLines = new Mass(), benches = new Mass(), shelters = new Mass(), stopGlass = new Mass();
   const facades = STREET_STYLES.map(() => new Mass()), rounds: THREE.BufferGeometry[][] = STREET_STYLES.map(() => []);
   const boards: THREE.BufferGeometry[][] = [[], [], [], []], discs: THREE.BufferGeometry[] = [], tanks: THREE.BufferGeometry[] = [], fountains: THREE.BufferGeometry[] = [];
   /** Trees and bushes: x, z, scale and the height they stand on. */
@@ -424,6 +425,8 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const cars: [number, number, number, number, number][] = [];
   /** Parked cars along the kerb: x, z, heading. */
   const parked: [number, number, number][] = [];
+  /** Pedestrians: the centre of the block whose sidewalk they walk round. */
+  const strollers: [number, number][] = [];
   const palms: [number, number, number, number][] = [], beacons: [number, number, number][] = [];
   const treeRow = (x0: number, z0: number, x1: number, z1: number, step: number) => {
     const n = Math.floor(Math.hypot(x1 - x0, z1 - z0) / step);
@@ -444,8 +447,10 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const rooftop = (x: number, y: number, z: number, w: number, d: number, tall = false) => {
     roofs.box(x, y, z, w + 0.8, 0.6, d + 0.8);
     const kind = random(), top = y + 0.6;
-    if (kind < 0.3 && w > 14) { decks.box(x, top, z, w - 2, 0.12, d - 2); pools.box(x, top + 0.12, z, (w - 2) * 0.55, 0.08, (d - 2) * 0.45); palms.push([x + w * 0.35, top, z + d * 0.32, 0.55], [x - w * 0.35, top, z - d * 0.32, 0.5]); }
-    else if (kind < 0.6) { lawns.box(x, top, z, w - 3, 0.15, d - 3); palms.push([x, top, z, 0.6]); bushes.push([x + w * 0.3, z + d * 0.3, 0.7, top], [x - w * 0.3, z - d * 0.25, 0.6, top]); }
+    // No trees on roofs (owner, 01/11/2026: "tem prédios com árvore em cima, tire a árvore"): pool decks
+    // and roof gardens with low planting only.
+    if (kind < 0.3 && w > 14) { decks.box(x, top, z, w - 2, 0.12, d - 2); pools.box(x, top + 0.12, z, (w - 2) * 0.55, 0.08, (d - 2) * 0.45); }
+    else if (kind < 0.6) { lawns.box(x, top, z, w - 3, 0.15, d - 3); bushes.push([x + w * 0.3, z + d * 0.3, 0.5, top], [x - w * 0.3, z - d * 0.25, 0.45, top]); }
     else roofClutter(x, top, z, w, d, tall);
   };
   /** An LED panel on the face of a tower that looks at +z or -z. */
@@ -500,22 +505,29 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     }
     // The block's ground, in cells: a riverside garden (lawn and trees) wherever it is clear of the
     // avenue, so no bare patch is left between the avenue and the buildings.
+    // Its buildings: on the lots clear of the avenue, facing the water; where none fits, one smaller
+    // building on the corner furthest from the river (owner, 01/11/2026: "tá faltando um prédio aqui").
+    const quarters = [[-14, -14], [14, -14], [-14, 14], [14, 14]].map(([dx, dz]) => ({ x: cx + dx, z: cz + dz, d: riverDist(cx + dx, cz + dz) }));
+    const lots = quarters.filter((q) => q.d >= AVENUE + 21).map((q) => ({ ...q, size: 22 }));
+    if (!lots.length) {
+      const far = quarters.reduce((a, b) => (b.d > a.d ? b : a));
+      if (far.d >= AVENUE + 13) lots.push({ ...far, size: 14 });
+    }
     const cell = BLOCK / 4;
     for (const a of [-1.5, -0.5, 0.5, 1.5]) for (const b of [-1.5, -0.5, 0.5, 1.5]) {
       const x = cx + a * cell, z = cz + b * cell;
       if (riverDist(x, z) < AVENUE + cell * 0.72) continue;
       lawns.box(x, GROUND - 0.3, z, cell + 0.02, 0.62, cell + 0.02);
+      // Trees and benches only where no building goes up (its quarter of the block stays a garden).
+      if (lots.some((l) => l.x === cx + Math.sign(a) * 14 && l.z === cz + Math.sign(b) * 14)) continue;
       if (random() < 0.5) trees.push([x + (random() - 0.5) * 6, z + (random() - 0.5) * 6, 1 + random() * 0.6, 0.32]);
       else if (random() < 0.4) benches.box(x, 0.32, z, 2.4, 0.5, 0.6);
     }
-    // Buildings on the lots clear of the avenue, facing the water.
-    for (const [dx, dz] of [[-14, -14], [14, -14], [-14, 14], [14, 14]]) {
-      const x = cx + dx, z = cz + dz;
-      if (riverDist(x, z) < AVENUE + 21) continue;
-      plinths.box(x, GROUND - 0.3, z, 26, 0.75, 26);
+    for (const { x, z, size } of lots) {
+      plinths.box(x, GROUND - 0.3, z, size + 4, 0.75, size + 4);
       const tall = random() < 0.55, h = Math.round(tall ? 22 + random() * (detailed ? 40 : 26) : 9 + random() * 12), style = pickStyle(tall);
-      facades[style].box(x, 0.3, z, 22, h, 22, false, random());
-      if (detailed) rooftop(x, h + 0.3, z, 22, 22, tall); else roofs.box(x, h + 0.3, z, 22.8, 0.6, 22.8);
+      facades[style].box(x, 0.3, z, size, h, size, false, random());
+      if (detailed) rooftop(x, h + 0.3, z, size, size, tall); else roofs.box(x, h + 0.3, z, size + 0.8, 0.6, size + 0.8);
     }
   };
   /**
@@ -573,8 +585,11 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     if (!center && riverBlock(cx, cz)) { riverBlockContent(cx, cz, true); continue; }
     if (!center && hillBlock(i, j)) { paveBlock(cx, cz); hillBlockContent(cx, cz, true); continue; }
     paveBlock(cx, cz);
-    const roll = random(), park = !center && roll < 0.12, site = !center && !park && roll < 0.16;
+    // No building sites (owner, 01/11/2026: "não quero prédios em construção"): every lot is finished.
+    const roll = random(), park = !center && roll < 0.06;
     (center ? plaza : plinths).box(cx, 0, cz, BLOCK, 0.3, BLOCK);
+    // People walking round the block on its sidewalk (owner, 01/11/2026: "pedestres andando na calçada").
+    for (let k = 0; k < (mobile ? 1 : 3); k++) strollers.push([cx, cz]);
     treeRow(cx - edge, cz + edge, cx + edge, cz + edge, 11); treeRow(cx - edge, cz - edge, cx + edge, cz - edge, 11);
     treeRow(cx - edge, cz - edge + 8, cx - edge, cz + edge - 8, 11); treeRow(cx + edge, cz - edge + 8, cx + edge, cz + edge - 8, 11);
     if (!center) kerb(cx, cz);
@@ -602,17 +617,6 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       for (let k = 0; k < 6; k++) palms.push([cx + (random() - 0.5) * (BLOCK - 14), 0.35, cz + (random() - 0.5) * (BLOCK - 14), 0.9 + random() * 0.3]);
       for (let k = 0; k < 20; k++) bushes.push([cx + (random() - 0.5) * (BLOCK - 12), cz + (random() - 0.5) * (BLOCK - 12), 0.5 + random() * 0.6, 0.35]);
       for (let k = 0; k < 4; k++) benches.box(cx + (random() - 0.5) * 30, 0.35, cz + (random() - 0.5) * 30, 2.4, 0.5, 0.6);
-      continue;
-    }
-    if (site) {
-      // Construction site: bare ground, a concrete frame going up and a yellow tower crane.
-      dirt.box(cx, 0.3, cz, BLOCK - 6, 0.08, BLOCK - 6);
-      const floors = 3 + Math.floor(random() * 5);
-      for (let f = 0; f <= floors; f++) roofs.box(cx, 0.4 + f * 3.6, cz, 30, 0.35, 24);
-      for (const x of [-14, -7, 0, 7, 14]) for (const z of [-11, 0, 11]) roofs.box(cx + x, 0.4, cz + z, 0.6, floors * 3.6, 0.6);
-      const mast = 22 + floors * 3.6;
-      cranes.box(cx + 18, 0.4, cz - 16, 1.4, mast, 1.4); cranes.box(cx + 8, mast, cz - 16, 30, 1, 1); cranes.box(cx + 18, mast + 1, cz - 16, 0.6, 3, 0.6);
-      cranes.box(cx - 4, mast - 3, cz - 16, 0.3, 3, 0.3);
       continue;
     }
     // Downtown: modern towers (on podiums, round, stepped, twins) and colourful low-rise blocks.
@@ -646,7 +650,7 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       const r = 12 + random() * 3;
       rounds[style].push(cylinder(cx, base, cz, r, tall, 0, shift));
       discs.push(new THREE.CylinderGeometry(r + 0.6, r + 0.6, 0.6, 28).translate(cx, base + tall + 0.3, cz));
-      if (random() < 0.5) { pools.box(cx, base + tall + 0.65, cz, r, 0.08, r * 0.5); palms.push([cx + r * 0.55, base + tall + 0.6, cz, 0.5]); }
+      if (random() < 0.5) pools.box(cx, base + tall + 0.65, cz, r, 0.08, r * 0.5);
       else { beacons.push([cx, base + tall + 9, cz]); roofs.box(cx, base + tall + 0.6, cz, 0.3, 8.5, 0.3); }
     } else if (shape < 0.5) {
       // Stepped tower: three set-backs.
@@ -710,8 +714,11 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   for (let k = -reach; k <= reach + 1; k++) for (let m = -reach; m <= reach + 1; m++) {
     const line = (k - 0.5) * PITCH, cross = (m - 0.5) * PITCH;
     if (!onStreet(k, true, cross) || !onStreet(m, false, line)) continue; // no crossing here
-    // Traffic lights on two opposite corners (owner, 01/11/2026: "não tem semáforos"): a pole on the
-    // sidewalk, an arm over the street, the three-light head; green for one street, red for the other.
+    // Traffic lights on two opposite corners (owner, 01/11/2026: "não tem semáforos"; "os carros têm
+    // que respeitar os sinais"): a pole on the sidewalk, an arm over the street, the three-light head.
+    // The head whose arm crosses the street along z governs that street's cars ("Z"), the other the
+    // street along x ("X"); they change in turn (see `signalState`) and the cars stop at red.
+    signals.add(`${k},${m}`);
     for (const [sx, sz, alongX] of [[1, 1, true], [-1, -1, false]] as const) {
       const px = line + sx * 10.4, pz = cross + sz * 10.4;
       if (riverDist(px, pz) < AVENUE + 3) continue;
@@ -719,10 +726,8 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       const hx = alongX ? px - sx * 4 : px, hz = alongX ? pz : pz - sz * 4;
       if (alongX) signalPoles.box((px + hx) / 2, 5.3, pz, 4, 0.14, 0.14); else signalPoles.box(px, 5.3, (pz + hz) / 2, 0.14, 0.14, 4);
       signalPoles.box(hx, 4.1, hz, 0.4, 1.15, 0.4);
-      for (const [n, mass] of [[0, signalRed], [1, signalAmber], [2, signalGreen]] as const) {
-        const lit = alongX ? n === 2 : n === 0; // green on one street, red on the other
-        (lit ? mass : signalOff).box(hx, 4.2 + (2 - n) * 0.34, hz, 0.42, 0.24, 0.42);
-      }
+      const lamps3 = signalLamps[alongX ? "Z" : "X"];
+      for (let n = 0; n < 3; n++) lamps3[n].box(hx, 4.2 + (2 - n) * 0.34, hz, 0.42, 0.24, 0.42);
     }
     // A crosswalk on each of the four arms of the crossing at (line, cross), none by the river.
     for (const s of [-13, 13]) {
@@ -748,14 +753,19 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     for (const [start, end] of crossings(k, alongZ)) {
       const mid = (start + end) / 2, len = end - start + 1;
       bridges.push(alongZ ? [line - 7.6, start, line + 7.6, end] : [start, line - 7.6, end, line + 7.6]);
+      // The stretch over the water itself: sidewalks, parapets and lamps stay there, so they never
+      // stand across the riverside avenue (owner, 01/11/2026: "essa ponte tá tapando as ruas").
+      let ws = end, we = start;
+      for (let u = start; u <= end; u += 0.5) if (riverDist(alongZ ? line : u, alongZ ? u : line) < RIVER + 0.5) { ws = Math.min(ws, u); we = Math.max(we, u); }
+      const span = Math.max(4, we - ws + 3), smid = (ws + we) / 2;
       put(asphalt, mid, 0, -0.45, len, 10, DECK + 0.45);
       for (let u = start + 3; u < end - 3; u += 9) put(marks, u, 0, DECK, 4.5, 0.3, 0.05);
       for (const s of [-1, 1]) {
-        put(concrete, mid, s * 6, -0.45, len, 2, DECK + 0.6);                    // sidewalk
-        put(shelters, mid, s * 7.15, DECK + 0.15, len, 0.3, 0.85);              // parapet
-        put(shelters, mid, s * 7.15, DECK + 1.0, len, 0.42, 0.08);              // its rail
+        put(concrete, smid, s * 6, -0.45, span, 2, DECK + 0.6);                  // sidewalk
+        put(shelters, smid, s * 7.15, DECK + 0.15, span, 0.3, 0.85);            // parapet
+        put(shelters, smid, s * 7.15, DECK + 1.0, span, 0.42, 0.08);            // its rail
         put(concrete, mid, s * 7.2, -1.35, len, 0.5, 0.95);                     // edge beam
-        for (let u = start + 6; u < end - 4; u += 16) { const v = s * 7.15; lamps.push(alongZ ? [line + v, u] : [u, line + v]); }
+        for (let u = ws + 2; u < we - 1; u += 16) { const v = s * 7.15; lamps.push(alongZ ? [line + v, u] : [u, line + v]); }
         // An arch under each side, springing low at the quays and meeting the deck in the middle.
         const a0 = start + (QUAY - RIVER) * 1.3, a1 = end - (QUAY - RIVER) * 1.3, n = 16;
         for (let i = 0; i < n; i++) {
@@ -984,14 +994,19 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   city.add(mesh(farGreen, plain("#7cc35a", 1)));
   city.add(mesh(asphalt, plain("#4c5463", 0.95)));
 
-  city.add(mesh(terraces, plain("#c9bfae", 0.9)), mesh(signalPoles, plain("#2f3640", 0.5)), mesh(signalOff, plain("#1b1e24", 0.4)));
-  // The lit lamps glow, brighter at night.
-  for (const [mass, color] of [[signalRed, 0xff3b30], [signalAmber, 0xffb020], [signalGreen, 0x34c759]] as const)
-    if (!mass.empty) city.add(new THREE.Mesh(mass.geometry(), glows(new THREE.MeshStandardMaterial({ color, emissive: color, roughness: 0.4 }), 0.8, 2.5)));
+  city.add(mesh(terraces, plain("#c9bfae", 0.9)), mesh(signalPoles, plain("#2f3640", 0.5)));
+  // The lamps: one material per street direction and colour, switched on and off by `signalState`.
+  const LAMP_COLORS = [0xff3b30, 0xffb020, 0x34c759];
+  const lampMaterials = { Z: [] as THREE.MeshStandardMaterial[], X: [] as THREE.MeshStandardMaterial[] };
+  for (const group of ["Z", "X"] as const) signalLamps[group].forEach((mass, n) => {
+    const material = new THREE.MeshStandardMaterial({ color: 0x1b1e24, emissive: LAMP_COLORS[n], emissiveIntensity: 0, roughness: 0.4 });
+    lampMaterials[group].push(material);
+    if (!mass.empty) city.add(new THREE.Mesh(mass.geometry(), material));
+  });
   city.add(mesh(plinths, plain("#d9dde2")), mesh(plaza, plain("#eef0f2")), mesh(lawns, plain("#7cc35a", 1)), mesh(marks, plain("#f2c94c", 0.6)), mesh(zebra, plain("#f4f6f8", 0.6)));
   city.add(mesh(roofs, plain("#e9edf1", 0.7)), mesh(terracotta, plain("#d0714f", 0.7)), mesh(decks, plain("#d9a36e", 0.75)));
-  // Details: building sites with cranes, courts, fountains, bus stops and benches, roof tanks, antenna lights.
-  city.add(mesh(dirt, plain("#b48a5e", 1)), mesh(courts, plain("#3f9a5a", 0.9)), mesh(courtLines, plain("#ffffff", 0.6)), mesh(cranes, plain("#f2c94c", 0.5), true));
+  // Details: courts, fountains, bus stops and benches, roof tanks, antenna lights.
+  city.add(mesh(courts, plain("#3f9a5a", 0.9)), mesh(courtLines, plain("#ffffff", 0.6)));
   city.add(mesh(benches, plain("#c98d5a", 0.7)), mesh(shelters, plain("#f4f6f8", 0.4)));
   if (!stopGlass.empty) city.add(new THREE.Mesh(stopGlass.geometry(), new THREE.MeshPhysicalMaterial({ color: 0xd8f1ff, transparent: true, opacity: 0.35, roughness: 0.05, depthWrite: false })));
   if (tanks.length) city.add(new THREE.Mesh(mergeGeometries(tanks)!, plain("#c7ccd3", 0.5)));
@@ -1012,6 +1027,14 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     const texture = billboardTexture(k);
     city.add(new THREE.Mesh(mergeGeometries(list)!, glows(new THREE.MeshStandardMaterial({ map: texture, emissiveMap: texture, emissive: 0xffffff, roughness: 0.4 }), 0.35, 1.3)));
   });
+  // Nothing green stands in the water, on the quays or on the riverside avenue, nor in the lake
+  // (owner, 01/11/2026: "tem árvores dentro do rio"); street lamps stay where they light a bridge.
+  const dryGround = (x: number, z: number) => riverDist(x, z) > AVENUE + 1 && lakeDist(x, z) > 1.4;
+  const keepDry = <T,>(list: T[], at: (item: T) => [number, number], allowBridge = false) => {
+    const kept = list.filter((item) => { const [x, z] = at(item); return dryGround(x, z) || (allowBridge && nearDeck(x, z, 0)); });
+    list.splice(0, list.length, ...kept);
+  };
+  keepDry(trees, ([x, z]) => [x, z]); keepDry(bushes, ([x, z]) => [x, z]); keepDry(palms, ([x, , z]) => [x, z]); keepDry(lamps, ([x, z]) => [x, z], true);
   addPalms(city, palms);
 
   // Round trees, bushes and street lamps: one draw call each kind.
@@ -1065,12 +1088,91 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     still.setColorAt(n, tone.set(CAR_COLORS[(n * 3) % CAR_COLORS.length]));
   });
   city.add(still, tops);
-  /** Moves the cars; the caller runs it every frame (each loops along its own street, inside the city). */
+  // Pedestrians: shirt and head, walking round their block on the sidewalk (just inside the trees and
+  // lamps at the kerb), each at their own pace and way round, bobbing a little as they walk.
+  const SHIRTS = [0xe8543a, 0x2f6fd6, 0xf2a541, 0x22a06b, 0x7c4dcc, 0x1fa3b8, 0xffffff, 0x2b2f3a, 0xf28fb1];
+  const SKINS = [0xf1c9a5, 0xd9a47c, 0xa86b47, 0x7a4a2e, 0xe8b896];
+  const RING = BLOCK / 2 - 0.8, PERIMETER = RING * 8;
+  const walkers = strollers.map(([cx, cz]) => ({ cx, cz, t: random() * PERIMETER, speed: (1.1 + random() * 0.6) * (random() < 0.5 ? 1 : -1), phase: random() * 6 }));
+  const torsos = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.26, 0.75, 3, 8), plain("#ffffff", 0.8), Math.max(1, walkers.length));
+  const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.2, 10, 8), plain("#ffffff", 0.6), Math.max(1, walkers.length));
+  torsos.count = heads.count = walkers.length;
+  walkers.forEach((_, n) => { torsos.setColorAt(n, tone.set(SHIRTS[n % SHIRTS.length])); heads.setColorAt(n, tone.set(SKINS[(n * 7) % SKINS.length])); });
+  let clock = 0;
+  const walk = () => walkers.forEach((w, n) => {
+    // Position along the square ring round the block (t in metres from the south-west corner).
+    const t = ((w.t % PERIMETER) + PERIMETER) % PERIMETER, side = Math.floor(t / (RING * 2)), along = (t % (RING * 2)) - RING;
+    const [x, z, heading] = side === 0 ? [w.cx + along, w.cz - RING, Math.PI / 2] : side === 1 ? [w.cx + RING, w.cz + along, 0]
+      : side === 2 ? [w.cx - along, w.cz + RING, -Math.PI / 2] : [w.cx - RING, w.cz - along, Math.PI];
+    const bob = Math.abs(Math.sin(clock * 6 + w.phase)) * 0.06;
+    dummy.scale.setScalar(1); dummy.rotation.set(0, heading + (w.speed < 0 ? Math.PI : 0), 0);
+    dummy.position.set(x, 0.3 + 0.9 + bob, z); dummy.updateMatrix(); torsos.setMatrixAt(n, dummy.matrix);
+    dummy.position.set(x, 0.3 + 1.82 + bob, z); dummy.updateMatrix(); heads.setMatrixAt(n, dummy.matrix);
+  });
+  walk();
+  if (walkers.length) city.add(torsos, heads);
+
+  /**
+   * The lights' cycle (24 s): streets along z green 10 s, amber 2 s; then the streets along x green
+   * 10 s, amber 2 s. The other direction is red meanwhile.
+   */
+  const CYCLE = 24;
+  const signalState = (group: "Z" | "X", t: number): 0 | 1 | 2 => {
+    const s = (t % CYCLE) - (group === "Z" ? 0 : 12), local = s < 0 ? s + CYCLE : s;
+    return local < 10 ? 2 : local < 12 ? 1 : 0; // 0 red, 1 amber, 2 green
+  };
+  const showSignals = (t: number) => {
+    for (const group of ["Z", "X"] as const) {
+      const lit = signalState(group, t);
+      lampMaterials[group].forEach((m, n) => { const on = n === lit; m.color.set(on ? LAMP_COLORS[n] : 0x1b1e24); m.emissiveIntensity = on ? 1.8 : 0; });
+    }
+  };
+  showSignals(0);
+  // Cars by lane (street, side and direction), so each keeps its distance from the one ahead.
+  const lanes = new Map<string, typeof traffic>();
+  for (const c of traffic) {
+    const key = `${c.alongZ}|${Math.round((c.alongZ ? c.x : c.z) * 10)}|${c.dir}`;
+    if (!lanes.has(key)) lanes.set(key, []);
+    lanes.get(key)!.push(c);
+  }
+  // Metres to the car ahead; the stop line, from the crossing's centre: behind the crosswalk (13 ± 1.6)
+  // with the car's half length (2.2) and a margin, so a car waiting at red never stands on the stripes.
+  const GAP = 7, STOP = 17.6;
+
+  /** Moves the cars and the pedestrians; the caller runs it every frame (each loops along its own street or block). */
   city.userData.update = (dt: number) => {
-    for (const c of traffic) {
-      const length = c.to - c.from;
-      if (c.alongZ) { c.z += c.dir * c.speed * dt; if (c.z > c.to) c.z -= length; if (c.z < c.from) c.z += length; }
-      else { c.x += c.dir * c.speed * dt; if (c.x > c.to) c.x -= length; if (c.x < c.from) c.x += length; }
+    clock += dt;
+    showSignals(clock);
+    for (const w of walkers) w.t += w.speed * dt;
+    walk();
+    torsos.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = true;
+    for (const lane of lanes.values()) {
+      const first = lane[0], dir = first.dir, alongZ = first.alongZ;
+      // The street this lane is on (its grid line index) and the light that governs it.
+      const across = alongZ ? first.x : first.z, k = Math.round((Math.round(across / PITCH - 0.5) * PITCH + PITCH / 2) / PITCH + 0.5);
+      const green = signalState(alongZ ? "Z" : "X", clock) === 2;
+      lane.sort((a, b) => ((alongZ ? b.z : b.x) - (alongZ ? a.z : a.x)) * dir); // the car furthest ahead first
+      let ahead: number | null = null;
+      for (const c of lane) {
+        const p = alongZ ? c.z : c.x;
+        let next = p + dir * c.speed * dt;
+        // A red or amber light ahead: stop at its line (a crossing within reach, with lights).
+        if (!green) {
+          const m0 = Math.round(p / PITCH + 0.5);
+          for (const m of [m0 - 1, m0, m0 + 1]) {
+            const stop = (m - 0.5) * PITCH - dir * STOP;
+            if ((stop - p) * dir >= -0.01 && (stop - next) * dir < 0 && signals.has(alongZ ? `${k},${m}` : `${m},${k}`)) next = stop;
+          }
+        }
+        // Keep the distance to the car ahead; never back up.
+        if (ahead !== null && (ahead - next) * dir < GAP) next = ahead - dir * GAP;
+        if ((next - p) * dir < 0) next = p;
+        ahead = next;
+        // Loop round its stretch of street.
+        const length = c.to - c.from;
+        if (next > c.to) next -= length; if (next < c.from) next += length;
+        if (alongZ) c.z = next; else c.x = next;
+      }
     }
     place();
     bodies.instanceMatrix.needsUpdate = cabins.instanceMatrix.needsUpdate = beams.instanceMatrix.needsUpdate = true;

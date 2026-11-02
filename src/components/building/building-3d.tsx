@@ -22,7 +22,9 @@ export interface BuildingApi { reset: () => void }
 
 const DEFAULT_TARGET = floorLevel(9) + 1.7;
 
-export function Building3D({ selected, highlight = null, night = false, intro = true, onSelect, onEnter, onFail, apiRef }: {
+export function Building3D({ selected, highlight = null, night = false, intro = true, tags = true, onSelect, onEnter, onFail, apiRef }: {
+  /** The floor plates beside the tower (hidden with the offices list). */
+  tags?: boolean;
   /** The floor being entered (camera flies there, level view). */
   selected: number | null;
   /** A floor to glow, such as the office used last. */
@@ -45,6 +47,8 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
   useEffect(() => { handlers.current = { onSelect, onEnter, onFail }; }, [onSelect, onEnter, onFail]);
   useEffect(() => { glow.current = highlight; }, [highlight]);
   useEffect(() => { dark.current = night; }, [night]);
+  const tagsOn = useRef(tags);
+  useEffect(() => { tagsOn.current = tags; }, [tags]);
 
   useEffect(() => {
     const el = host.current;
@@ -451,6 +455,8 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
           const on = f.number === current, over = f.number === hovered || f.number === glow.current;
           f.band!.emissiveIntensity = on ? 1.4 : over ? 0.9 : 0.25;
           f.tag.element.classList.toggle("hovered", over);
+          // Hidden with the offices list (the map's "i").
+          f.tag.visible = f.leader!.visible = tagsOn.current;
         }
       }
       // The panoramic elevator's cab travels up and down the tower.

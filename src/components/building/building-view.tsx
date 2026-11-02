@@ -75,7 +75,7 @@ export function BuildingView() {
     <div className={`building ${night ? "is-night" : ""}`}>
       <div className="building-stage">
         {flat ? <div className="building-flat" aria-hidden="true" />
-          : <Building3D selected={entering} highlight={last} night={night} intro={intro} onSelect={go} onEnter={go} onFail={() => setFailed(true)} apiRef={api} />}
+          : <Building3D selected={entering} highlight={last} night={night} intro={intro} tags={showList} onSelect={go} onEnter={go} onFail={() => setFailed(true)} apiRef={api} />}
 
         {entering !== null && !flat && <div className="building-fade" aria-hidden="true" />}
         {intro && !flat && <div className="building-intro" aria-hidden="true">

@@ -34,20 +34,20 @@
 .building-about p { margin: 0; color: var(--g-muted); font-size: 13px; line-height: 1.6; }
 
 /* The offices, floating on the right. */
-.building-offices { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); width: min(370px, calc(100% - 44px)); padding: 18px 14px 14px; }
+.building-offices { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); width: min(410px, calc(100% - 44px)); padding: 18px 14px 14px; }
 .building-offices h1 { margin: 0 6px 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--g-muted); }
 .building-offices ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .office-row { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 12px; width: 100%; min-height: 66px; padding: 10px 12px 10px 10px; border-radius: 14px;
   text-align: left; color: var(--g-text); background: rgba(255, 255, 255, 0.05); border: 1px solid transparent; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; }
 .office-row b { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--office); color: #13263d; font-size: 16px; font-weight: 800; }
 .office-row span { display: grid; gap: 2px; min-width: 0; }
-.office-row small.office-row-en { color: #dfe7f5; font-weight: 700; letter-spacing: 0.01em; -webkit-line-clamp: 1; }
+.office-row small.office-row-en { color: #dfe7f5; font-weight: 700; letter-spacing: 0.01em; }
 .office-row .office-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .building-offices[hidden] { display: none; }
 .building-tools .round.active { background: #5fbf8f; color: #0d2a1b; }
 .office-row strong { font-size: 14px; font-weight: 750; color: #fff; }
-/* The subtitle in two lines at most. */
-.office-row small { font-size: 11px; line-height: 1.35; color: var(--g-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* Each line of the description on one line (owner, 01/11/2026), cut with "…" only if it cannot fit. */
+.office-row small { font-size: 11px; line-height: 1.35; color: var(--g-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .office-row em { display: inline-flex; align-items: center; gap: 4px; font-style: normal; font-size: 11px; font-weight: 700; color: var(--g-muted); white-space: nowrap; }
 .office-row.status-active em { color: #7fe0ad; }
 .office-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); border-color: var(--office); }
