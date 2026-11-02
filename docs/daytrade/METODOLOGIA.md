@@ -25,6 +25,8 @@ Artigos sobre ORB encontraram resultados diferentes em mercados e períodos dife
 - Para 02/11/2026 o contrato selecionado é WINZ26 (dezembro/2026), derivado da regra oficial de vencimento em meses pares e código de dezembro “Z”. O vencimento continua sujeito à atualização do símbolo antes da rolagem.
 - A B3 informa que a margem de day trade é definida pela corretora; corretagem/emolumentos dependem da conta e volume. Estes dados permanecem sem valor configurado até confirmação na Genial/nota de corretagem.
 - Candles do DASH vêm de negócios ProfitDLL observados localmente. Não há histórico anterior à instalação do coletor neste projeto.
+- O gateway aciona a mesa de estratégia ao receber candles fechados. A tabela `dt_strategy_observations` guarda no máximo um resultado por contrato, versão e minuto, com entrada/stop apenas quando há observação e os motivos atuais de bloqueio; o histórico pode ser lido em `GET /api/daytrade/observations` com sessão de proprietário AAL2. Essa trilha não abre proposta nem ordem.
+- Os parâmetros financeiros ainda faltantes em `config/daytrade.json` (custos da nota Genial, limites de perda/exposição, margem, horários confirmados) permanecem como travas. Nenhum valor de risco é preenchido por estimativa para habilitar simulação.
 - Estudos de trader, cursos e screenshots promocionais não são usados para popular dados, calibrar parâmetro ou afirmar performance.
 
 ## Referências pesquisadas

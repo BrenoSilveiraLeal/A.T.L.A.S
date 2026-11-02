@@ -4,7 +4,7 @@ import { checkCron, checkOrigin, checkProfitDllGateway, failure, json, readBody 
 import { adminClient } from "@/lib/supabase";
 import { appendJournal, dashConfig, loadDashRecords, loadDashStatus, recordHeartbeat, setHalt } from "@/lib/daytrade/store";
 import { runCycle } from "@/core/daytrade/cycle";
-import { roomLimits } from "@/core/daytrade/config";
+import { readiness, roomLimits } from "@/core/daytrade/config";
 import { DESKS } from "@/core/daytrade/desks";
 import { required } from "@/lib/env";
 import { analyzeOpeningRange, backtestCandidate, type MinuteBar } from "@/core/daytrade/analysis";
@@ -41,6 +41,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ reso
     if (resource === "status") return json(await loadDashStatus(db, user.id));
     if (resource === "config") { const c = dashConfig(); return json({ config: c, limits: roomLimits(c) }); }
     if (resource === "journal") return json({ rows: await loadDashRecords(db, user.id, "dt_journal") });
+    if (resource === "observations") {
+      const { data, error } = await db.from("dt_strategy_observations").select("instrument,strategy_version,bar_at,state,entry,stop,explanation,blocked_reasons,created_at")
+        .eq("owner_id", user.id).order("bar_at", { ascending: false }).limit(100);
+      if (error) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler as observaÃ§Ãµes da estratÃ©gia.");
+      return json({ rows: data ?? [] });
+    }
     if (resource === "ledger") return json({ rows: await loadDashRecords(db, user.id, "dt_ledger") });
     if (resource === "orders") return json({ rows: await loadDashRecords(db, user.id, "dt_orders") });
     throw new ApiError(404, "NOT_FOUND", "Recurso do DASH desconhecido.");
@@ -110,6 +116,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
       if (bars.length) {
         const { error: barError } = await db.from("dt_market_bars").upsert(bars.map((bar) => ({ owner_id: ownerId, instrument: instrument.symbol, provider: body.provider, timeframe: "1m", bucket_at: bar.bucketAt, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, updated_at: new Date().toISOString() })), { onConflict: "owner_id,instrument,timeframe,bucket_at" });
         if (barError) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar os candles.");
+
+        // Process completed minutes only. These idempotent records are research observations;
+        // the ProfitDLL market-data gateway has no order-routing capability.
+        if (body.closedBars.length) {
+          const { data: history, error: historyError } = await db.from("dt_market_bars").select("bucket_at,open,high,low,close,volume")
+            .eq("owner_id", ownerId).eq("instrument", instrument.symbol).eq("timeframe", "1m")
+            .order("bucket_at", { ascending: false }).limit(600);
+          if (historyError) throw new ApiError(500, "DASH_READ_FAILED", "Não foi possível carregar o histórico para análise.");
+          const allBars = (history ?? []).reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) })) as MinuteBar[];
+          const blockedReasons = readiness(config);
+          const observations = [...body.closedBars].sort((a, b) => a.bucketAt.localeCompare(b.bucketAt)).map((closed) => {
+            const prefix = allBars.filter((bar) => Date.parse(bar.bucket_at) <= Date.parse(closed.bucketAt));
+            const analysis = analyzeOpeningRange(prefix, closed.bucketAt);
+            const long = analysis.state === "WATCH_LONG", short = analysis.state === "WATCH_SHORT";
+            return {
+              owner_id: ownerId, instrument: instrument.symbol, strategy_version: "opening-range-vwap-v1",
+              bar_at: closed.bucketAt, state: analysis.state,
+              entry: long || short ? closed.close : null,
+              stop: long ? analysis.metrics.openingLow : short ? analysis.metrics.openingHigh : null,
+              explanation: analysis.explanation, blocked_reasons: blockedReasons,
+            };
+          });
+          const { error: observationError } = await db.from("dt_strategy_observations").upsert(observations, {
+            onConflict: "owner_id,instrument,strategy_version,bar_at", ignoreDuplicates: true,
+          });
+          if (observationError) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar as observações da estratégia.");
+          await recordHeartbeat(db, ownerId, "strategy", "WORKING", `${observations.length} candle(s) fechado(s) analisado(s); observação de pesquisa, sem ordens.`);
+        }
       }
       await recordHeartbeat(db, ownerId, "feed", "WORKING", "Cotação ProfitDLL recebida; somente leitura.");
       return json({ ok: true, instrument: instrument.symbol, receivedAt: body.receivedAt });
