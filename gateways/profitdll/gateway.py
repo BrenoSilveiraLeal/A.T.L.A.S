@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from getpass import getpass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -221,10 +221,26 @@ class ProfitFeed:
 
 def send_snapshot(tick: Tick, endpoint: str, secret: str, bar: dict[str, object], closed_bars: list[dict[str, object]]) -> None:
     received_at = datetime.now(timezone.utc)
+    fresh_closed_bars: list[dict[str, object]] = []
+    for closed in closed_bars:
+        bucket_value = closed.get("bucketAt")
+        if not isinstance(bucket_value, str):
+            continue
+        try:
+            bucket_at = datetime.fromisoformat(bucket_value)
+        except ValueError:
+            continue
+        if bucket_at.tzinfo is None:
+            continue
+        age_ms = (received_at - bucket_at.astimezone(timezone.utc)).total_seconds() * 1000
+        # The API accepts only the current or immediately preceding two minutes. Never let
+        # delayed queue contents reject an otherwise fresh quote; gaps remain visible downstream.
+        if 0 <= age_ms <= 120_000:
+            fresh_closed_bars.append(closed)
     payload = json.dumps({
         "provider": "PROFITDLL_DAYTRADE", "instrument": tick.ticker, "last": tick.price,
         "bid": None, "ask": None, "exchangeAt": tick.exchange_at.isoformat(),
-        "receivedAt": received_at.isoformat(), "sequence": tick.sequence, "bar": bar, "closedBars": closed_bars[-10:],
+        "receivedAt": received_at.isoformat(), "sequence": tick.sequence, "bar": bar, "closedBars": fresh_closed_bars[-10:],
     }, separators=(",", ":")).encode("utf-8")
     request = Request(endpoint, data=payload, method="POST", headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {secret}",
@@ -237,6 +253,8 @@ def send_snapshot(tick: Tick, endpoint: str, secret: str, bar: dict[str, object]
         raise RuntimeError(f"Endpoint recusou cotação: HTTP {error.code}.") from None
     except URLError as error:
         raise RuntimeError(f"Endpoint DASH indisponível ({type(error.reason).__name__}).") from None
+    except TimeoutError:
+        raise RuntimeError("Endpoint DASH excedeu o limite de 4 segundos.") from None
 
 
 def main() -> None:
@@ -252,9 +270,14 @@ def main() -> None:
         feed.wait_ready()
         feed.subscribe()
         print(f"ProfitDLL Market Data conectado; assinatura {ticker}/{exchange}; roteamento desativado.")
-        last_tick_key: tuple[int, datetime] | None = None
+        last_processed_key: tuple[datetime, int] | None = None
         current_bar: dict[str, object] | None = None
+        pending_closed_bars: list[dict[str, object]] = []
+        data_gap_until: datetime | None = None
         last_sent = 0.0
+        last_send_error = ""
+        last_error_reported = 0.0
+        reported_drops = 0
         while True:
             tick = feed.events.get()
             batch = [tick]
@@ -267,25 +290,99 @@ def main() -> None:
             if not feed.is_ready():
                 continue
             batch.sort(key=lambda item: (item.exchange_at, item.sequence))
-            tick = batch[-1]
-            closed_bars: list[dict[str, object]] = []
+            latest_tick: Tick | None = None
             for item in batch:
+                trade_key = (item.exchange_at, item.sequence)
+                if last_processed_key is not None and trade_key <= last_processed_key:
+                    feed.dropped += 1
+                    continue
                 minute = item.exchange_at.replace(second=0, microsecond=0)
-                if current_bar is None or current_bar["bucketAt"] != minute.isoformat():
-                    if current_bar is not None:
-                        closed_bars.append(current_bar)
+                if data_gap_until is not None and minute < data_gap_until:
+                    last_processed_key = trade_key
+                    continue
+                if data_gap_until is not None:
+                    data_gap_until = None
+                if current_bar is None:
                     current_bar = {"bucketAt": minute.isoformat(), "open": item.price, "high": item.price, "low": item.price, "close": item.price, "volume": item.quantity}
                 else:
-                    current_bar["high"] = max(float(current_bar["high"]), item.price)
-                    current_bar["low"] = min(float(current_bar["low"]), item.price)
-                    current_bar["close"] = item.price
-                    current_bar["volume"] = int(current_bar["volume"]) + item.quantity
-            tick_key = (tick.sequence, tick.exchange_at)
-            if tick_key == last_tick_key or time.monotonic() - last_sent < 1.0:
+                    current_minute = datetime.fromisoformat(str(current_bar["bucketAt"]))
+                    if minute < current_minute:
+                        feed.dropped += 1
+                        continue
+                    if minute > current_minute:
+                        pending_closed_bars.append(current_bar)
+                        current_bar = {"bucketAt": minute.isoformat(), "open": item.price, "high": item.price, "low": item.price, "close": item.price, "volume": item.quantity}
+                    else:
+                        current_bar["high"] = max(float(current_bar["high"]), item.price)
+                        current_bar["low"] = min(float(current_bar["low"]), item.price)
+                        current_bar["close"] = item.price
+                        current_bar["volume"] = int(current_bar["volume"]) + item.quantity
+                last_processed_key = trade_key
+                latest_tick = item
+            if feed.dropped > reported_drops:
+                # A dropped native trade can make the whole in-flight minute's OHLCV incomplete.
+                # Remove all unsent bars and wait for the next minute bucket before rebuilding.
+                now_local = datetime.now(LOCAL_TZ)
+                data_gap_until = now_local.replace(second=0, microsecond=0) + timedelta(minutes=1)
+                current_bar = None
+                pending_closed_bars.clear()
+                latest_tick = None
+                print(f"Lacuna detectada: {feed.dropped - reported_drops} negócio(s) descartado(s); descartando candles pendentes até {data_gap_until.isoformat()}.", flush=True)
+                reported_drops = feed.dropped
                 continue
-            send_snapshot(tick, endpoint, secret, current_bar, closed_bars)
-            last_tick_key = tick_key
+            if latest_tick is None or time.monotonic() - last_sent < 1.0:
+                continue
+            tick = latest_tick
+            current_bucket = datetime.fromisoformat(str(current_bar["bucketAt"]))
+            current_age_ms = (datetime.now(timezone.utc) - current_bucket.astimezone(timezone.utc)).total_seconds() * 1000
+            if current_age_ms < 0 or current_age_ms > 120_000:
+                now_local = datetime.now(LOCAL_TZ)
+                data_gap_until = now_local.replace(second=0, microsecond=0) + timedelta(minutes=1)
+                current_bar = None
+                pending_closed_bars.clear()
+                print("Candle corrente vencido; descartando o buffer e aguardando o próximo minuto antes de retomar o envio.", flush=True)
+                continue
+            now_utc = datetime.now(timezone.utc)
+            recent_closed_bars = []
+            stale_count = 0
+            for closed in pending_closed_bars:
+                try:
+                    raw_bucket = datetime.fromisoformat(str(closed["bucketAt"]))
+                    if raw_bucket.tzinfo is None:
+                        raise ValueError("timezone required")
+                    bucket_at = raw_bucket.astimezone(timezone.utc)
+                    age_ms = (now_utc - bucket_at).total_seconds() * 1000
+                except (KeyError, TypeError, ValueError):
+                    stale_count += 1
+                    continue
+                if 0 <= age_ms <= 120_000:
+                    recent_closed_bars.append(closed)
+                else:
+                    stale_count += 1
+            if stale_count:
+                print(f"Aviso: {stale_count} candle(s) antigo(s) ou inválido(s) descartado(s); a continuidade do histórico deve ser reavaliada.", flush=True)
+            drops_at_send = feed.dropped
+            try:
+                send_snapshot(tick, endpoint, secret, current_bar, recent_closed_bars)
+            except RuntimeError as error:
+                now_mono = time.monotonic()
+                message = str(error)
+                if message != last_send_error or now_mono - last_error_reported >= 30:
+                    print(f"Falha ao enviar snapshot; aguardando o próximo tick fresco: {message}", flush=True)
+                    last_send_error, last_error_reported = message, now_mono
+                last_sent = now_mono
+                # Keep recent closed bars for the next fresh snapshot. The API will never receive
+                # an old quote timestamp, and stale bars are filtered above after the outage.
+                continue
+            pending_closed_bars.clear()
+            last_send_error = ""
             last_sent = time.monotonic()
+            if feed.dropped > drops_at_send:
+                now_local = datetime.now(LOCAL_TZ)
+                data_gap_until = now_local.replace(second=0, microsecond=0) + timedelta(minutes=1)
+                current_bar = None
+                print(f"Lacuna detectada durante o envio: {feed.dropped - drops_at_send} negócio(s) descartado(s); aguardando {data_gap_until.isoformat()}.", flush=True)
+            reported_drops = feed.dropped
     except KeyboardInterrupt:
         print("Encerrando coletor somente leitura.")
     finally:

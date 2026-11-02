@@ -43,3 +43,7 @@ The chart history begins when the collector first runs; it does not backfill can
 The DASH also has a separate forward paper simulator. It stays idle until the contract, session, margin, per-side costs and risk limits are verified in `config/daytrade.json`. It simulates next-minute fills in its own `dt_paper_*` tables; it never sends orders through ProfitDLL or changes ATLAS/DAWN positions.
 
 The configured WINZ26 symbol should be rolled before its 16/12/2026 expiry. The B3 WIN schedule is 09:00–18:25 from 03/11/2026; the contract's expiry day closes at 18:00. Check the [B3 circular 055/2026](https://www.b3.com.br/data/files/BE/16/C1/59/2F881A10F75B881AAC094EA8/OC%20055-2026-VNC%20NOVOS%20HORARIOS%20DE%20NEGOCIACAO_PT.pdf).
+
+The collector buffers closed candles across the one-second snapshot throttle and across transient endpoint failures, then retries them only alongside a fresh quote. It rejects out-of-order/duplicate trade events and reports queue drops. Candles older than the API's two-minute intake window are discarded with a warning; downstream paper/backtest continuity checks must continue to treat those intervals as gaps.
+
+On any dropped/duplicate/out-of-order trade or a stale in-memory candle after a long disconnect, the gateway clears unsent bars and waits for the next minute bucket. This intentionally creates a visible data gap instead of persisting a partial OHLCV candle. A transient HTTP failure alone does not clear the buffer; the next current quote may carry recent closed candles if they remain inside the API intake window.
