@@ -83,7 +83,7 @@ export function BuildingView() {
 
         {entering !== null && !flat && <div className="building-fade" aria-hidden="true" />}
         {intro && !flat && <div className="building-intro" aria-hidden="true">
-          <small>ATLAS apresenta</small><strong>A sede</strong><span>Escolha o escritório</span>
+          <strong>A.T.L.A.S</strong><span>Autonomous Trading &amp; Learning Agent System</span>
         </div>}
 
         <header className="building-brand">

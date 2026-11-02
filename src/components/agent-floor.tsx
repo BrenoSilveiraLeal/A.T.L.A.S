@@ -180,7 +180,12 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const tvTick = Math.floor(useNow(15000) / 15000);
   const account = paper.paper_accounts?.[0];
   const cdiPct = useCdi(account?.created_at ? String(account.created_at).slice(0, 10) : null);
-  if (!connected) return null;
+  // Without the database the office still opens, empty, to show its design (owner, 01/11/2026: "faça
+  // ele abrir mesmo que sem o banco conectado, quero ver o design"): no agents, no numbers, nothing invented.
+  if (!connected) return view === "tv" ? null : (
+    <Office3D agents={[]} boss={null} tvHeadline={{ title: "Sem banco de dados conectado: o escritório aparece vazio, só o design.", source: "ATLAS" }}
+      tvLines={[["Resultado real", "—", "#a9b6cc"], ["CDI no período", "—", "#a9b6cc"]]} selected={null} onSelect={() => undefined} buildingLink />
+  );
   if (floor.loading) return <div className="loading-state" role="status">Abrindo o escritório…</div>;
   if (floor.error) return <div className="notice error-text" role="alert">{floor.error}</div>;
   const agents = paper.agents ?? [], vitals = paper.paper_agent_vitals ?? [];

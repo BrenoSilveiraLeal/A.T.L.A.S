@@ -1261,7 +1261,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const blockers = scene.children.filter((o) => o !== surroundings && o !== inside && o !== floor && !walls.some((w) => w.mesh === o))
         .map((o) => new THREE.Box3().setFromObject(o)).filter((b) => !b.isEmpty() && b.max.y > 1.5);
       const corner = new THREE.Vector3();
-      for (const w of walls.filter((x) => x.outer)) {
+      // The back wall stays solid (owner, 01/11/2026: "pode tirar as janelas desta parede, mas sem mudar isso no mapa").
+      for (const w of walls.filter((x) => x.outer && x !== backWall)) {
         const geometry = w.mesh.geometry as THREE.BoxGeometry, { width: len, height: h } = geometry.parameters;
         w.mesh.updateMatrixWorld(true);
         const toWall = w.mesh.matrixWorld.clone().invert();
