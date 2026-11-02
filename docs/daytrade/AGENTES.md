@@ -1,5 +1,33 @@
 # DASH — equipe, setores e funções a implementar
 
+## Pronto no código (02/11/2026)
+
+| Peça | Onde |
+|---|---|
+| Configuração do DASH (instrumentos, sessão, risco, custos, tributos, gateway, estratégia) | `config/daytrade.json`, validada em `src/core/daytrade/config.ts` |
+| O que falta para operar, em lista (`readiness`) | `src/core/daytrade/config.ts`, mostrado em Painel → "O que falta para operar" |
+| Tabelas próprias `dt_*` com RLS (dono com AAL2 lê; backend grava); ledger e diário só de inclusão | `supabase/migrations/20261101120000_daytrade_dash.sql` |
+| Leitura e gravação no banco (estado, parada, sinal de vida, diário) | `src/lib/daytrade/store.ts` |
+| API: `GET status, config, journal, ledger, orders`; `POST halt` (dono); `POST cycle, heartbeat` (agendador, `CRON_SECRET`) | `src/app/api/daytrade/[resource]/route.ts` |
+| Ciclo da mesa: dados → notícias → estratégia → sala de análise → risco → execução, com diário | `src/core/daytrade/cycle.ts` |
+| Contratos de cada mesa, poderes e regras da sala | `src/core/daytrade/agents.ts` |
+| Tela com estado real quando há banco, botão "Parar o DASH" | `src/components/daytrade/dash-view.tsx` |
+| Testes | `tests/daytrade-*.test.ts`, `tests/database.test.ts` (aplica a migration) |
+
+## Falta fora do código
+
+1. **Banco:** aplicar a migration `20261101120000_daytrade_dash.sql` no Supabase (`supabase db push` ou SQL editor).
+2. **`.env`:** preencher `DASH_GATEWAY_URL`, `DASH_GATEWAY_TOKEN` e `DASH_GATEWAY_ACCOUNT_ID`, que é a segunda instância do MT5 (ver `.env.example`).
+3. **`config/daytrade.json`:** preencher cada valor `null` só com fonte oficial (B3, Genial, nota de corretagem) e marcar `verified: true`. São eles:
+   - símbolo do contrato vigente, tick, valor do ponto e margem;
+   - horários da sessão;
+   - perdas máximas e exposição;
+   - custos;
+   - estratégia aprovada.
+4. **Agendador:** chamar `POST /api/daytrade/cycle` durante a sessão, com `Authorization: Bearer CRON_SECRET`. Os workers chamam `POST /api/daytrade/heartbeat`.
+5. **Workers:** no outro computador, trocar cada `notImplemented(...)` de `WORKERS` pela implementação, respeitando o contrato de `DeskContracts`.
+6. **Ponte MT5 Day Trade:** segunda instância, conforme `docs/daytrade/ARQUITETURA.md`. Nenhuma rota envia ordem hoje: o modo `LIVE` é recusado pela configuração e pela tabela, e liberar isso exige uma revisão própria.
+
 Guia para implementar os agentes do DASH em outro computador. O código está em:
 
 - `src/core/daytrade/desks.ts`: setores (`SECTORS`) e agentes (`DESKS`), cada um com setor, papel e o que faz.

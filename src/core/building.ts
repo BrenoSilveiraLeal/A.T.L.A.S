@@ -51,19 +51,23 @@ export interface Office {
 
 /** The three selectable offices, grouped in the middle of the tower. */
 export const OFFICES: readonly Office[] = [
-  { id: "dividendos", name: "Escritório de Dividendos", floor: 8, status: "ACTIVE", href: "/app", color: "#a3cdb5",
+  // Names chosen by the owner, 01/11/2026 (the ids stay as they were).
+  { id: "dividendos", name: "DAWN", fullName: "Dividend Analysis & Wealth Network", tagline: "Rede de Análise de Dividendos e Patrimônio",
+    floor: 8, status: "ACTIVE", href: "/app", color: "#a3cdb5",
     summary: "Ações da B3 para longo prazo e dividendos. A equipe de IAs que já trabalha com a Genial." },
-  // Names chosen by the owner, 01/11/2026. The current office's own name is still to be chosen.
   { id: "dash", name: "DASH", fullName: "Day-trading Analysis & Strategy Hub", tagline: "Núcleo de Análise e Estratégia de Day Trade",
     floor: 9, status: "BUILDING", href: "/daytrade", color: "#e3c28d",
     summary: "Day trade. Aberto em modo simulado, com contas e limites próprios; ainda não envia ordens." },
   { id: "coin", name: "COIN", fullName: "Crypto Operations & Intelligence Network", tagline: "Rede de Inteligência e Operações com Criptoativos",
     floor: 10, status: "LOCKED", href: null, color: "#9db4e8",
-    summary: "Criptoativos. Bloqueado: previsto para uma etapa futura." },
+    summary: "Criptoativos. Em desenvolvimento: abre numa etapa futura." },
 ];
 
-/** BUILDING: still being built, but it opens, in simulated mode (owner, 01/11/2026: "ainda não dá pra entrar no DASH"). */
-export const STATUS_LABEL: Record<OfficeStatus, string> = { ACTIVE: "Ativo", BUILDING: "Simulado · entrar", LOCKED: "Bloqueado" };
+/**
+ * BUILDING: still being built, but it opens, in simulated mode (owner, 01/11/2026: "ainda não dá pra
+ * entrar no DASH"). LOCKED: in development, it does not open yet (owner: "o COIN fica como em desenvolvimento").
+ */
+export const STATUS_LABEL: Record<OfficeStatus, string> = { ACTIVE: "Ativo", BUILDING: "Simulado · entrar", LOCKED: "Em desenvolvimento" };
 
 export const officeOnFloor = (floor: number) => OFFICES.find((o) => o.floor === floor) ?? null;
 export const officeById = (id: string) => OFFICES.find((o) => o.id === id) ?? null;

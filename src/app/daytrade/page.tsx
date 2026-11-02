@@ -13,5 +13,5 @@ export default async function DashPage() {
       throw error;
     }
   }
-  return <DashClient />;
+  return <DashClient connected={configured()} />;
 }

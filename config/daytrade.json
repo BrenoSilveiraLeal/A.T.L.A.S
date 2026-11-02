@@ -1,0 +1,67 @@
+{
+  "$comment": "DASH (day trade) settings. Edit here; the app validates this file (src/core/daytrade/config.ts). Values marked null are not verified yet: fill them only from official B3/Genial sources or the broker note, never from guesses. While anything needed is null, the desks stay idle and nothing trades.",
+  "mode": "SIMULATED",
+  "instruments": [
+    {
+      "id": "WIN",
+      "name": "Mini Índice Bovespa",
+      "enabled": true,
+      "symbol": null,
+      "tickSize": null,
+      "pointValue": null,
+      "marginPerContract": null,
+      "verified": false
+    },
+    {
+      "id": "WDO",
+      "name": "Mini Dólar",
+      "enabled": false,
+      "symbol": null,
+      "tickSize": null,
+      "pointValue": null,
+      "marginPerContract": null,
+      "verified": false
+    }
+  ],
+  "session": {
+    "timezone": "America/Sao_Paulo",
+    "open": null,
+    "lastEntry": null,
+    "flatBy": null,
+    "verified": false
+  },
+  "risk": {
+    "maxContracts": 1,
+    "maxTradesPerDay": 3,
+    "maxOpenPositions": 1,
+    "maxLossPerTrade": null,
+    "maxLossPerDay": null,
+    "maxExposure": null,
+    "stopRequired": true
+  },
+  "costs": {
+    "brokeragePerContract": null,
+    "exchangeFeesPerContract": null,
+    "slippageTicks": 1,
+    "verified": false
+  },
+  "tax": {
+    "dayTradeRate": 0.2,
+    "withholdingRate": 0.01,
+    "darfCode": "6015",
+    "note": "Imposto de day trade: 20% sobre o ganho líquido do mês, IRRF de 1% retido na fonte, DARF código 6015 até o último dia útil do mês seguinte. Conferir com contador; prejuízo de day trade só compensa ganho de day trade."
+  },
+  "data": {
+    "maxDelayMs": 2000,
+    "staleAfterMs": 10000
+  },
+  "gateway": {
+    "providerId": "GENIAL_MT5_DAYTRADE",
+    "note": "Segunda instância do MT5, com porta, perfil, conta, terminal, journal e halt file próprios (docs/daytrade/ARQUITETURA.md). URL, token e conta ficam no .env (DASH_GATEWAY_*), nunca aqui."
+  },
+  "strategy": {
+    "id": null,
+    "version": null,
+    "approved": false
+  }
+}

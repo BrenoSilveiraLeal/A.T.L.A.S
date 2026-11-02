@@ -34,15 +34,20 @@
 .building-about p { margin: 0; color: var(--g-muted); font-size: 13px; line-height: 1.6; }
 
 /* The offices, floating on the right. */
-.building-offices { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); width: min(330px, calc(100% - 44px)); padding: 18px 14px 14px; }
+.building-offices { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); width: min(370px, calc(100% - 44px)); padding: 18px 14px 14px; }
 .building-offices h1 { margin: 0 6px 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--g-muted); }
 .building-offices ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.office-row { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px; width: 100%; min-height: 66px; padding: 10px 12px 10px 10px; border-radius: 14px;
+.office-row { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 12px; width: 100%; min-height: 66px; padding: 10px 12px 10px 10px; border-radius: 14px;
   text-align: left; color: var(--g-text); background: rgba(255, 255, 255, 0.05); border: 1px solid transparent; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; }
 .office-row b { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--office); color: #13263d; font-size: 16px; font-weight: 800; }
 .office-row span { display: grid; gap: 2px; min-width: 0; }
+.office-row small.office-row-en { color: #dfe7f5; font-weight: 700; letter-spacing: 0.01em; -webkit-line-clamp: 1; }
+.office-row .office-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.building-offices[hidden] { display: none; }
+.building-tools .round.active { background: #5fbf8f; color: #0d2a1b; }
 .office-row strong { font-size: 14px; font-weight: 750; color: #fff; }
-.office-row small { font-size: 11px; line-height: 1.35; color: var(--g-muted); }
+/* The subtitle in two lines at most. */
+.office-row small { font-size: 11px; line-height: 1.35; color: var(--g-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .office-row em { display: inline-flex; align-items: center; gap: 4px; font-style: normal; font-size: 11px; font-weight: 700; color: var(--g-muted); white-space: nowrap; }
 .office-row.status-active em { color: #7fe0ad; }
 .office-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); border-color: var(--office); }
@@ -81,26 +86,8 @@
 .building-fade { position: absolute; inset: 0; pointer-events: none; background: #0e1524; opacity: 0; animation: building-fade 1.7s ease-in forwards; }
 @keyframes building-fade { 0%, 55% { opacity: 0; } 100% { opacity: 1; } }
 
-/* Flat section of the tower (phones, or without 3D). */
-.building-flat { position: absolute; inset: 0; display: grid; place-items: center; padding: 76px 16px 220px; overflow: auto;
-  background: linear-gradient(#9fd0f2, #cfe8f7 68%, #7cc35a 68.2%, #6cb14d); }
-.is-night .building-flat { background: linear-gradient(#141c33, #26345a 68%, #2f4a35 68.2%, #24392a); }
-.elevator2d { width: min(100%, 420px); height: auto; max-height: 100%; font-family: inherit; }
-.e2d-floor { fill: #eef3f8; stroke: #c9d8e6; }
-.e2d-roof, .e2d-lobby { fill: #5fbf8f; }
-.e2d-brand { fill: #fff; font-size: 12px; font-weight: 800; letter-spacing: 0.1em; }
-.e2d-number { fill: #1d3557; font-size: 11px; font-weight: 800; }
-.is-night .e2d-number { fill: #dfe7f5; }
-.e2d-tenant { fill: #fff; font-size: 10px; }
-.e2d-office { cursor: pointer; outline: none; }
-.e2d-office rect { fill: color-mix(in srgb, var(--office) 75%, #fff); stroke: #fff; stroke-width: 1.5; }
-.e2d-office .e2d-name { fill: #13263d; font-size: 12px; font-weight: 800; }
-.e2d-office .e2d-status { fill: #13263d; font-size: 9px; font-weight: 700; }
-.e2d-office:hover rect, .e2d-office:focus-visible rect { fill: var(--office); }
-.e2d-office.selected rect { fill: var(--office); stroke: #1d3557; stroke-width: 2.5; }
-.e2d-street { stroke: #5c6472; stroke-width: 4; }
-.e2d-hint { fill: #1d3557; font-size: 10px; font-weight: 600; }
-.is-night .e2d-hint { fill: #dfe7f5; }
+/* Without 3D: a plain backdrop behind the list of offices. */
+.building-flat { position: absolute; inset: 0; background: radial-gradient(1200px 700px at 70% -10%, #1d2b48, #0e1524); }
 
 /* Inside an office: the way back to the map to pick another office. */
 .office3d-map-link { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 800;

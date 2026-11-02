@@ -55,7 +55,7 @@ const FLOOR = officeById("dividendos")!.floor;
 type V2 = [number, number];
 type Pose = "sit" | "stand" | "type" | "talk" | "chat" | "watch" | "cue" | "look" | "phone" | "sitPhone" | "phoneCoffee" | "sitPhoneCoffee";
 interface Slot { pos: V2; face: number; pose: Pose; route: V2[] }
-interface Person {
+export interface Person {
   group: THREE.Group; rig: THREE.Group; head: THREE.Group; hips: THREE.Group[]; knees: THREE.Group[];
   shoulders: THREE.Group[]; elbows: THREE.Group[]; mug: THREE.Group; cue: THREE.Group; phone: THREE.Group;
 }
@@ -69,8 +69,8 @@ type Money = { deposited: number; free: number } | null;
 export type Meeting = { day: string; created_at?: string; lines: { agentId: string; name: string; text: string }[]; summary: string[]; lessons: string[]; suggestions: string[] };
 type RestActivity = "KITCHEN" | "TV" | "MARKET" | "POOL" | "STROLL";
 
-const S = 1.25; // people are drawn a little larger than life so they read well from above
-const SEAT_Y = 0.6;
+export const S = 1.25; // people are drawn a little larger than life so they read well from above
+export const SEAT_Y = 0.6;
 const CORRIDOR_Z = -5;
 const REST_ZONES: OfficeZone[] = ["COFFEE", "POOL", "OUT"];
 /**
@@ -253,7 +253,7 @@ const matte = (c: string | number, rough = 0.75) => new THREE.MeshStandardMateri
  * humanos, mais detalhes": ears, nose, eyes with whites, eyebrows, collar, belt, hands, optional
  * glasses and jacket; a coffee mug, a pool cue and a phone appear in the hands when used.
  */
-function makePerson(look: PersonLook): Person {
+export function makePerson(look: PersonLook): Person {
   const group = new THREE.Group(), rig = new THREE.Group();
   group.add(rig);
   const skin = matte(look.skin, 0.6), hair = matte(look.hair, 0.85), shirt = matte(look.shirt, 0.8), pants = matte(look.pants, 0.85);
@@ -392,7 +392,7 @@ function drawChart(g: CanvasRenderingContext2D, x0: number, y0: number, w: numbe
 
 /** A colourful modern wall mural: overlapping circles, arcs, stripes and dots (deterministic). */
 /** A framed poster with a short phrase about investing (wall decoration). */
-function posterTexture(title: string, subtitle: string, background: string, accent: string) {
+export function posterTexture(title: string, subtitle: string, background: string, accent: string) {
   const t = canvasTexture(512, 640), g = t.g;
   g.fillStyle = background; g.fillRect(0, 0, 512, 640);
   g.fillStyle = accent; g.globalAlpha = 0.85;

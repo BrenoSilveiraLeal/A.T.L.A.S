@@ -2,9 +2,8 @@
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Info, LocateFixed, Lock, Map as MapIcon, Moon, Sun } from "lucide-react";
+import { Hammer, Info, LocateFixed, Moon, Sun } from "lucide-react";
 import { officeOnFloor, OFFICES, parseFloor, STATUS_LABEL } from "@/core/building";
-import { Elevator2D } from "./elevator-2d";
 import type { BuildingApi } from "./building-3d";
 
 /** The office floor entered last; the map highlights it. */
@@ -15,7 +14,8 @@ const FLY_MS = 1700;
 
 // three.js is loaded only in the browser.
 const Building3D = dynamic(() => import("./building-3d").then((m) => m.Building3D), {
-  ssr: false, loading: () => <div className="building3d-canvas building3d-loading" role="status">Preparando a cena…</div>,
+  // No text while loading: the opening title is shown over it (owner, 01/11/2026: text showed behind it).
+  ssr: false, loading: () => <div className="building3d-canvas building3d-loading" role="status" aria-label="Preparando a cena" />,
 });
 
 /**
@@ -40,21 +40,18 @@ export function BuildingView() {
   });
   const [entering, setEntering] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
-  const [about, setAbout] = useState(false);
-  // Phones start with the flat section; the choice is remembered.
-  const [mode, setMode] = useState<"3d" | "2d">(() => {
-    try { const saved = localStorage.getItem("atlas-building-view"); if (saved === "2d" || saved === "3d") return saved; } catch { /* storage blocked */ }
-    return window.matchMedia("(max-width: 768px)").matches ? "2d" : "3d";
-  });
+  const [showList, setShowList] = useState(true);
+  // The flat (2D) section is gone (owner, 01/11/2026: "tira essa tela horrível"): without 3D, the
+  // list of offices is the map.
   const [failed, setFailed] = useState(false);
   const api = useRef<BuildingApi | null>(null);
-  const flat = mode === "2d" || failed;
+  const flat = failed;
 
   const go = useCallback((floor: number | null) => {
     const office = floor !== null ? officeOnFloor(floor) : null;
     if (!office) return;
     if (!office.href) {
-      setNotice(office.status === "LOCKED" ? `${office.name} está bloqueado: previsto para uma etapa futura.` : `${office.name} está em construção e ainda não abre.`);
+      setNotice(office.status === "LOCKED" ? `${office.name} está em desenvolvimento: abre numa etapa futura.` : `${office.name} ainda não abre.`);
       return;
     }
     setNotice("");
@@ -66,7 +63,6 @@ export function BuildingView() {
     window.setTimeout(() => router.push(office.href!), flat || reduced ? 0 : FLY_MS);
   }, [router, flat]);
   const remember = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* storage blocked */ } };
-  const toggleMode = () => setMode((m) => { const next = m === "3d" ? "2d" : "3d"; remember("atlas-building-view", next); return next; });
   const toggleNight = () => setNight((n) => { remember(NIGHT, n ? "0" : "1"); return !n; });
   useEffect(() => {
     if (!notice) return;
@@ -78,12 +74,12 @@ export function BuildingView() {
   return (
     <div className={`building ${night ? "is-night" : ""}`}>
       <div className="building-stage">
-        {flat ? <div className="building-flat"><Elevator2D selected={entering ?? last} onSelect={go} onEnter={go} /></div>
+        {flat ? <div className="building-flat" aria-hidden="true" />
           : <Building3D selected={entering} highlight={last} night={night} intro={intro} onSelect={go} onEnter={go} onFail={() => setFailed(true)} apiRef={api} />}
 
         {entering !== null && !flat && <div className="building-fade" aria-hidden="true" />}
         {intro && !flat && <div className="building-intro" aria-hidden="true">
-          <strong>A.T.L.A.S</strong><span>Autonomous Trading &amp; Learning Agent System</span>
+          <strong>A.T.L.A.S.</strong><span>Autonomous Trading &amp; Learning Agent System</span>
         </div>}
 
         <header className="building-brand">
@@ -95,18 +91,12 @@ export function BuildingView() {
             {night ? <Moon size={15} /> : <Sun size={15} />} {night ? "Noite" : "Dia"}
           </button>}
           {!flat && <button type="button" className="round" onClick={() => api.current?.reset()} aria-label="Centralizar o prédio" title="Centralizar"><LocateFixed size={17} /></button>}
-          {!failed && <button type="button" className="round" onClick={toggleMode} aria-label={flat ? "Ver o prédio em 3D" : "Ver o prédio em corte (2D)"} title={flat ? "Ver em 3D" : "Ver em 2D"}>
-            {flat ? <Box size={17} /> : <MapIcon size={17} />}
-          </button>}
-          <button type="button" className="round" onClick={() => setAbout((a) => !a)} aria-expanded={about} aria-label="Sobre o mapa" title="Sobre"><Info size={17} /></button>
+          {/* Owner, 01/11/2026: the "i" hides and shows the list of offices, to see the city. */}
+          <button type="button" className={`round ${showList ? "" : "active"}`} onClick={() => setShowList((s) => !s)} aria-pressed={!showList}
+            aria-controls="building-offices" aria-label={showList ? "Esconder a lista de escritórios" : "Mostrar a lista de escritórios"} title={showList ? "Esconder escritórios" : "Mostrar escritórios"}><Info size={17} /></button>
         </div>
 
-        {about && <section className="glass-card building-about" role="dialog" aria-label="Sobre o mapa">
-          <h2>Sede ATLAS</h2>
-          <p>Cada andar destacado é um escritório da empresa, com agentes, regras, contas e limites próprios. Clique num escritório para entrar; dentro dele, “Trocar de escritório” volta aqui.</p>
-        </section>}
-
-        <aside className="glass-card building-offices" aria-label="Escritórios ATLAS">
+        <aside id="building-offices" className="glass-card building-offices" aria-label="Escritórios ATLAS" hidden={!showList}>
           <h1>Escritórios</h1>
           <ul>
             {list.map((office) => (
@@ -115,8 +105,14 @@ export function BuildingView() {
                   style={{ "--office": office.color } as React.CSSProperties} onClick={() => go(office.floor)} disabled={entering !== null}
                   aria-label={`${office.name}, andar ${office.floor}, ${STATUS_LABEL[office.status]}${office.href ? ". Entrar" : ""}`}>
                   <b>{office.floor}</b>
-                  <span><strong>{office.name}</strong>{office.tagline && <small>{office.tagline}</small>}</span>
-                  <em>{office.status === "LOCKED" && <Lock size={11} />} {office.floor === last && office.href ? "Último usado" : STATUS_LABEL[office.status]}</em>
+                  {/* Name and status on one line, so the description gets the full width (two lines at most). */}
+                  <span>
+                    <span className="office-row-head"><strong>{office.name}</strong>
+                      <em>{office.status === "LOCKED" && <Hammer size={11} />} {office.floor === last && office.href ? "Último usado" : STATUS_LABEL[office.status]}</em></span>
+                    {/* What the acronym stands for (English), then its Portuguese description. */}
+                    {office.fullName && <small className="office-row-en">{office.fullName}</small>}
+                    {office.tagline && <small>{office.tagline}</small>}
+                  </span>
                 </button>
               </li>
             ))}
@@ -126,7 +122,7 @@ export function BuildingView() {
         <footer className="building-foot">
           {notice ? <p className="building-hint notice" role="status">{notice}</p>
             : entering ? <p className="building-hint" role="status">Entrando em {officeOnFloor(entering)?.name}…</p>
-            : failed ? <p className="building-hint" role="status">O 3D não está disponível neste aparelho; mostrando o prédio em corte.</p>
+            : failed ? <p className="building-hint" role="status">O 3D não está disponível neste aparelho; escolha o escritório na lista.</p>
             : !flat && <p className="building-hint">Arraste para explorar · roda ou pinça para aproximar · clique num escritório para entrar</p>}
           <div className="building-signature" aria-hidden="true"><span className="brand-mark">A</span><strong>ATLAS</strong></div>
         </footer>

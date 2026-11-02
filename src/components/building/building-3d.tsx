@@ -57,7 +57,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, mobile ? 1 : 1.5));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     // Softer than before (owner, 01/11/2026: "de dia fica tudo muito claro e esbranquiçado").
-    renderer.toneMappingExposure = 0.9;
+    renderer.toneMappingExposure = 0.82;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = !mobile;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -72,7 +72,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     // Warm, sunny light with soft shadows: the toy-city look of a life simulator (moonlight at night).
-    const sky = new THREE.HemisphereLight(0xe3f3ff, 0x8a7d62, 0.8); scene.add(sky);
+    const sky = new THREE.HemisphereLight(0xe3f3ff, 0x8a7d62, 0.6); scene.add(sky);
     const sun = new THREE.DirectionalLight(0xfff0d2, 2.0);
     sun.position.set(-90, 160, 110); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -378,11 +378,11 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     const applyNight = () => {
       (scene.background as THREE.Color).lerpColors(DAY_SKY, NIGHT_SKY, nightAmount);
       scene.fog!.color.copy(scene.background as THREE.Color);
-      sky.intensity = 0.8 - 0.5 * nightAmount; sun.intensity = 2.0 - 1.65 * nightAmount;
+      sky.intensity = 0.6 - 0.3 * nightAmount; sun.intensity = 2.0 - 1.65 * nightAmount;
       sun.color.lerpColors(SUN_DAY, SUN_NIGHT, nightAmount);
-      renderer.toneMappingExposure = 0.9 - 0.02 * nightAmount;
+      renderer.toneMappingExposure = 0.82 + 0.06 * nightAmount;
       // The reflected environment lights everything too (it washed the day out): low, lower at night.
-      scene.environmentIntensity = 0.45 - 0.3 * nightAmount;
+      scene.environmentIntensity = 0.35 - 0.2 * nightAmount;
       setNight(scene, nightAmount);
     };
     applyNight();

@@ -7,7 +7,9 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { LocateFixed, PersonStanding } from "lucide-react";
 import { ELEVATOR, officeById, TOWER, windowBays } from "@/core/building";
 import { DESKS, deskState, MARKET_LABEL, DATA_LABEL, SECTORS, sectorOf, type DashStatus } from "@/core/daytrade/desks";
-import { DASH_FLOOR, deskAt, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "./dash-layout";
+import { lookFor, type PersonLook } from "@/core/people";
+import { makePerson, posterTexture, S, SEAT_Y, type Person } from "@/components/office-3d";
+import { DASH_FLOOR, RECEPTION, PARTITIONS, POSTERS, deskAt, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "./dash-layout";
 import { Mass } from "@/components/building/city";
 import { buildSurroundings, SHAFT } from "@/components/building/tower";
 
@@ -177,27 +179,35 @@ export function Dash3D({ status }: { status: DashStatus }) {
     }
 
     // Desks: one per agent (the supervisor's is a standing desk), two monitors showing the desk's own work.
-    const people: { group: THREE.Group; head: THREE.Mesh; phase: number; walker?: boolean }[] = [];
+    // People: the same detailed figures as in the DAWN office (office-3d makePerson), each agent's own
+    // look (shirt, skin, hair), sitting at work, the supervisor walking his round.
+    const people: { person: Person; phase: number; walker?: boolean }[] = [];
     const monitors: { draw: (s: DashStatus) => void }[] = [];
-    /** A simple figure: shirt, head and hair; legs when standing. */
-    const figure = (desk: (typeof DESKS)[number], standing: boolean) => {
-      const person = new THREE.Group(), lift = standing ? 0.3 : 0;
-      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.55, 4, 10), matte(desk.person.shirt, 0.7)); body.position.y = 1.0 + lift; person.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), matte(desk.person.skin, 0.6)); head.position.y = 1.6 + lift; person.add(head);
-      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.235, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), matte(desk.person.hair, 0.8)); hair.position.y = 1.62 + lift; person.add(hair);
-      if (standing) { const legs = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.6, 4, 8), matte("#2b3140", 0.85)); legs.position.y = 0.5; person.add(legs); }
-      const tag = document.createElement("div"); tag.className = "dash-desk-tag"; tag.style.setProperty("--desk", sectorOf(desk).color);
+    const FEMININE = new Set(["Marta", "Nina", "Lia", "Dani", "Bia", "Duda", "Vera", "Paula"]);
+    const figure = (who: { name: string; shirt: string; hair: string; skin: string }, id: string, title: string, color: string, k: number) => {
+      const feminine = FEMININE.has(who.name);
+      const look: PersonLook = { ...lookFor(who.name, id), presentation: feminine ? "feminine" : "masculine", shirt: who.shirt, skin: who.skin, hair: who.hair,
+        hairStyle: (feminine ? ["long", "bun", "ponytail", "curly"] : ["short", "buzz", "curly", "short"])[k % 4] as PersonLook["hairStyle"], glasses: k % 3 === 1 };
+      const person = makePerson(look);
+      const tag = document.createElement("div"); tag.className = "dash-desk-tag"; tag.style.setProperty("--desk", color);
       // Just the name over the head (desks are close together); the role is on the desk's monitors and in the Equipe tab.
-      tag.innerHTML = `<b>${desk.person.name}</b>`; tag.title = desk.role;
-      const label = new CSS2DObject(tag); label.position.set(0, 2.15 + lift, 0); person.add(label);
-      return { person, head };
+      tag.innerHTML = `<b>${who.name}</b>`; tag.title = title;
+      const label = new CSS2DObject(tag); label.position.set(0, 1.95, 0); person.group.add(label);
+      return person;
     };
+    // The receptionist, at the reception desk by the elevator, facing whoever comes in.
+    {
+      const person = figure({ name: "Paula", shirt: "#ffffff", hair: "#3b2a1c", skin: "#d9a47c" }, "reception", "Recepção", "#e3c28d", 2);
+      person.group.position.set(RECEPTION.x, 0, RECEPTION.z); add(person.group);
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), chairMat); seat.position.set(RECEPTION.x, SEAT_Y - 0.05, RECEPTION.z); add(seat);
+      people.push({ person, phase: 9 });
+    }
     DESKS.forEach((desk, k) => {
       const seat = SEATS[desk.id], sector = sectorOf(desk);
       if (seat.standing) {
         // The supervisor: on his round of the floor (animated below).
-        const { person, head } = figure(desk, true); person.position.set(PATROL[0][0], 0, PATROL[0][1]); add(person);
-        people.push({ group: person, head, phase: k * 1.7, walker: true });
+        const person = figure(desk.person, desk.id, desk.role, sector.color, k); person.group.position.set(PATROL[0][0], 0, PATROL[0][1]); add(person.group);
+        people.push({ person, phase: k * 1.7, walker: true });
         return;
       }
       const at = deskAt(desk.id), f = seat.face;
@@ -221,10 +231,10 @@ export function Dash3D({ status }: { status: DashStatus }) {
           s.texture.needsUpdate = true;
         } });
       }
-      const chair = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), chairMat); chair.position.set(0, 0.48, -0.95); g.add(chair);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.08), chairMat); back.position.set(0, 0.88, -1.27); g.add(back);
-      const { person, head } = figure(desk, false); person.position.set(0, 0, -0.95); g.add(person);
-      people.push({ group: person, head, phase: k * 1.7 });
+      const chair = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), chairMat); chair.position.set(0, SEAT_Y - 0.1, -0.95); g.add(chair);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 0.08), chairMat); back.position.set(0, SEAT_Y + 0.35, -1.3); g.add(back);
+      const person = figure(desk.person, desk.id, desk.role, sector.color, k); person.group.position.set(0, 0, -0.95); g.add(person.group);
+      people.push({ person, phase: k * 1.7 });
       add(g);
       block(at.x, at.z - f * 0.45, 1.9, 1.9);
     });
@@ -244,6 +254,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
           c.fillStyle = b.color; c.fillRect(0, 0, w, 60); c.fillStyle = "#06090f"; c.font = "bold 30px sans-serif"; c.textBaseline = "middle";
           const lines = b.label === "analise" ? ["SALA DE ANÁLISE", "Propostas em análise: 0", "Aprovação: risco e chefe; qualquer dúvida é não."]
             : b.label === "chefia" ? ["CHEFIA", `Sessão: ${st.market === "OPEN" ? "aberta" : "não iniciada"}`, "Plano do dia: aguardando feed."]
+            : b.label === "tv" ? ["DASH TV", `Mercado: ${MARKET_LABEL[st.market].toLowerCase()}`, `Dados: ${DATA_LABEL[st.data].toLowerCase()}`]
             : ["REGISTRO E TRIBUTOS", "Operações registradas: 0", "IR de day trade: —"];
           c.fillText(lines[0], 20, 32); c.fillStyle = "#c9d6e2"; c.font = "26px sans-serif";
           lines.slice(1).forEach((t, i) => c.fillText(t, 20, 110 + i * 48));
@@ -259,6 +270,27 @@ export function Dash3D({ status }: { status: DashStatus }) {
       const material = b.kind === "wood" ? wood : b.kind === "steel" ? brushedSteel : b.kind === "plant" ? matte("#4f9a45", 0.85) : matte(b.color, b.kind === "fabric" ? 0.95 : 0.6);
       add(new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), material)).position.set(b.x, y + b.h / 2, b.z);
       if (y < 1 && b.h + y > 0.3) block(b.x, b.z, b.w, b.d);
+      if (b.label === "books") {
+        // Books on the shelves, in many colours.
+        const books = ["#e85d75", "#3d7be0", "#2fae8c", "#f2b134", "#8a5cf6", "#ff7a59", "#1d3557"];
+        for (let shelf = 0; shelf < 3; shelf++) for (let n = 0; n < 9; n++) {
+          if ((n + shelf) % 4 === 3) continue;
+          const book = new THREE.Mesh(new THREE.BoxGeometry(b.w + 0.04, 0.32, 0.12), matte(books[(n * 3 + shelf) % books.length], 0.7));
+          book.position.set(b.x, 0.25 + shelf * 0.42, b.z - b.d / 2 + 0.3 + n * 0.3); scene.add(book);
+        }
+      }
+    }
+    // Each sector apart: low partitions in its colour round its island (dash-layout PARTITIONS).
+    for (const p of PARTITIONS) {
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w, p.h, p.d), matte(pale(p.color, 0.35), 0.7))).position.set(p.x, p.h / 2, p.z);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(p.w + 0.04, 0.05, p.d + 0.04), white); cap.position.set(p.x, p.h + 0.025, p.z); scene.add(cap);
+      block(p.x, p.z, Math.max(p.w, 0.3), Math.max(p.d, 0.3));
+    }
+    // Framed posters on the side walls, as in the DAWN office.
+    for (const [x, y, z, turn, title, subtitle, background, accent] of POSTERS) {
+      const poster = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.62), new THREE.MeshStandardMaterial({ map: posterTexture(title, subtitle, background, accent), roughness: 0.6 }));
+      poster.position.set(x, y, z); poster.rotation.y = turn; scene.add(poster);
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.72, 0.04), matte("#1b1e24", 0.4)); frame.position.set(x - Math.sin(turn) * 0.03, y, z - Math.cos(turn) * 0.03); frame.rotation.y = turn; scene.add(frame);
     }
     for (const r of RUGS) { const rug = new THREE.Mesh(new THREE.BoxGeometry(r.w, r.h, r.d), matte(r.color, 1)); rug.position.set(r.x, 0.012, r.z); rug.receiveShadow = true; scene.add(rug); }
     {
@@ -288,18 +320,46 @@ export function Dash3D({ status }: { status: DashStatus }) {
     }
     const board = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.08), new THREE.MeshBasicMaterial({ map: rules.texture })); board.position.set(-W / 2 + 0.2, 1.8, -1.6); board.rotation.y = Math.PI / 2; scene.add(board);
 
-    // The supervisor's round: along PATROL, a short stop at each corner to check the islands.
+    /** Poses, as in the DAWN office: seated typing (a glance aside now and then), walking, standing to check. */
+    const pose = (p: Person, kind: "type" | "walk" | "stand", t: number, phase: number) => {
+      const swing = reduced ? 0 : Math.sin(t * 7 + phase), seated = kind === "type";
+      p.mug.visible = false; p.cue.visible = false; p.phone.visible = false;
+      p.rig.position.y = seated ? SEAT_Y / S - 0.92 : kind === "walk" ? Math.abs(swing) * 0.02 : 0;
+      p.head.rotation.set(0, 0, 0); p.shoulders.forEach((s) => (s.rotation.z = 0));
+      if (kind === "walk") {
+        p.hips[0].rotation.x = swing * 0.5; p.hips[1].rotation.x = -swing * 0.5;
+        p.knees[0].rotation.x = Math.max(0, -swing) * 0.6; p.knees[1].rotation.x = Math.max(0, swing) * 0.6;
+        p.shoulders[0].rotation.x = -swing * 0.45; p.shoulders[1].rotation.x = swing * 0.45;
+        p.elbows.forEach((e) => (e.rotation.x = -0.25));
+        return;
+      }
+      p.hips.forEach((h) => (h.rotation.x = seated ? -Math.PI / 2 : 0));
+      p.knees.forEach((k) => (k.rotation.x = seated ? Math.PI / 2 : 0));
+      if (seated) {
+        const moment = reduced ? 0.5 : (t / 30 + phase * 0.37) % 1;
+        p.shoulders.forEach((s, i) => (s.rotation.x = -0.75 + (reduced ? 0 : Math.sin(t * 16 + phase + i) * 0.05)));
+        p.elbows.forEach((e) => (e.rotation.x = -0.85));
+        p.head.rotation.x = 0.12;
+        if (moment < 0.12) { p.shoulders.forEach((s) => (s.rotation.x = -0.35)); p.elbows.forEach((e) => (e.rotation.x = -0.6)); p.head.rotation.set(-0.1, Math.sin(t * 0.8 + phase) * 0.35, 0); }
+      } else {
+        // Standing at an island: arms behind the back, looking over the desks.
+        p.shoulders.forEach((s) => (s.rotation.x = 0.35)); p.elbows.forEach((e) => (e.rotation.x = -0.4));
+        p.head.rotation.set(0.15, reduced ? 0 : Math.sin(t * 0.6 + phase) * 0.5, 0);
+      }
+    };
+    // The supervisor's round: along PATROL, a stop at each corner to check the islands.
     const patrol = { leg: 0, t: 0, wait: 0 };
-    const walkRound = (dt: number) => {
+    const walkRound = (dt: number, t: number) => {
       const walker = people.find((p) => p.walker);
       if (!walker) return;
-      const g = walker.group;
-      if (patrol.wait > 0) { patrol.wait -= dt; return; }
+      const g = walker.person.group;
+      if (patrol.wait > 0) { patrol.wait -= dt; pose(walker.person, "stand", t, walker.phase); return; }
       const [ax, az] = PATROL[patrol.leg], [bx, bz] = PATROL[(patrol.leg + 1) % PATROL.length], len = Math.hypot(bx - ax, bz - az);
       patrol.t += (1.1 * dt) / Math.max(0.01, len);
-      if (patrol.t >= 1) { patrol.t = 0; patrol.leg = (patrol.leg + 1) % PATROL.length; patrol.wait = 2.2; }
-      g.position.set(ax + (bx - ax) * patrol.t, Math.abs(Math.sin(patrol.t * len * 3)) * 0.03, az + (bz - az) * patrol.t);
+      if (patrol.t >= 1) { patrol.t = 0; patrol.leg = (patrol.leg + 1) % PATROL.length; patrol.wait = 2.5; }
+      g.position.set(ax + (bx - ax) * patrol.t, 0, az + (bz - az) * patrol.t);
       g.rotation.y = Math.atan2(bx - ax, bz - az);
+      pose(walker.person, "walk", t, walker.phase);
     };
 
     const sync = (s: DashStatus) => { drawWall(s); monitors.forEach((m) => m.draw(s)); roomScreens.forEach((m) => m.draw(s)); };
@@ -367,8 +427,8 @@ export function Dash3D({ status }: { status: DashStatus }) {
       }
       if (!reduced) {
         surroundings.userData.update?.(dt);
-        for (const p of people) { p.head.rotation.y = Math.sin(t * 0.4 + p.phase) * 0.35; if (!p.walker) p.group.position.y = Math.sin(t * 1.3 + p.phase) * 0.01; }
-        walkRound(dt);
+        for (const p of people) if (!p.walker) pose(p.person, "type", t, p.phase);
+        walkRound(dt, t);
       }
       if (walk.on) step(dt); else controls.update();
       renderer.render(scene, camera); labels.render(scene, camera);

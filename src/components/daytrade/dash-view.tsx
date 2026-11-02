@@ -1,8 +1,8 @@
 "use client";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useState } from "react";
-import { Building, Building2, LayoutGrid, ShieldAlert, ShieldCheck, Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Building, Building2, LayoutGrid, OctagonX, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 import { officeById } from "@/core/building";
 import { DATA_LABEL, DESKS, deskState, INITIAL_STATUS, MARKET_LABEL, ORDER_STATES, SECTORS, type DashStatus } from "@/core/daytrade/desks";
 
@@ -26,10 +26,41 @@ type Tab = (typeof TABS)[number]["id"];
  * connected yet — no feed, no broker, no orders — so every panel says exactly that, in simulated mode;
  * no number here is invented. The next steps are in docs/daytrade/ARQUITETURA.md.
  */
-export function DashView() {
+export function DashView({ connected = false }: { connected?: boolean }) {
   const office = officeById("dash")!;
-  const [status] = useState<DashStatus>(INITIAL_STATUS);
+  const [status, setStatus] = useState<DashStatus>(INITIAL_STATUS);
+  const [halted, setHalted] = useState(false);
+  const [missing, setMissing] = useState<string[] | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<Tab>("office");
+  // With the database: the office's state from /api/daytrade/status (dt_* tables), every 30 s.
+  useEffect(() => {
+    if (!connected) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/daytrade/status", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Falha ao ler o DASH.");
+        if (alive) { setStatus(data.status); setHalted(data.halted); setMissing(data.missing); }
+      } catch (error) { if (alive) setMessage(error instanceof Error ? error.message : "Falha ao ler o DASH."); }
+    };
+    void load();
+    const timer = window.setInterval(load, 30000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [connected]);
+  /** The DASH kill switch (only the DASH; the DAWN office is not touched). */
+  async function toggleHalt() {
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/daytrade/halt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ halted: !halted, reason: halted ? null : "Parada manual pelo proprietário" }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Falha ao gravar a parada.");
+      setHalted(data.halted);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Falha ao gravar a parada."); }
+    finally { setBusy(false); }
+  }
   const idle = deskState(status) === "IDLE";
   const current = TABS.find((t) => t.id === tab)!;
 
@@ -111,8 +142,13 @@ export function DashView() {
         </div>
       </header>
       <div className="safety-strip">
-        <div><ShieldCheck size={16} /><span>Modo simulado: o DASH não envia ordens e não usa dinheiro real. Conta e limites separados do escritório de dividendos.</span></div>
+        <div><ShieldCheck size={16} /><span>{halted ? "DASH parado: nenhuma entrada nova." : "Modo simulado: o DASH não envia ordens e não usa dinheiro real. Conta e limites separados do DAWN."}</span></div>
+        <button className="kill-button" onClick={() => void toggleHalt()} disabled={!connected || busy}
+          title={!connected ? "Sem banco conectado: nada roda no DASH." : halted ? "Liberar o DASH" : "Parar o DASH (só o DASH; o DAWN não é afetado)"}>
+          <OctagonX size={15} /> {busy ? "Gravando…" : halted ? "Liberar o DASH" : "Parar o DASH"}
+        </button>
       </div>
+      {message && <div className="notice global-message" role="status">{message}</div>}
 
       <main id="content" className="main-content dash-main">
         <div className="page-heading"><div><h1>{current.label}</h1><p>{current.note}</p></div></div>
@@ -124,13 +160,19 @@ export function DashView() {
         </>}
 
         {tab === "panel" && <section className="dash-grid" aria-label="Painel do DASH">
+          <article className="dash-card wide">
+            <h2>O que falta para operar</h2>
+            {missing === null ? <p className="dash-note">Sem banco conectado: veja config/daytrade.json e docs/daytrade/AGENTES.md.</p>
+              : missing.length === 0 ? <p className="dash-note">Configuração completa; o DASH continua em modo simulado.</p>
+              : <ul className="dash-rules">{missing.map((m) => <li key={m}>{m}</li>)}</ul>}
+          </article>
           {session}
           <article className="dash-card">
             <h2>Corretora e instrumento</h2>
             <dl>
               <div><dt>Corretora</dt><dd>{status.broker ?? "Nenhuma conectada"}</dd></div>
               <div><dt>Instrumento</dt><dd>{status.instrument ?? "—"}</dd></div>
-              <div><dt>Conta</dt><dd>Separada do escritório de dividendos</dd></div>
+              <div><dt>Conta</dt><dd>Separada do DAWN</dd></div>
             </dl>
           </article>
           {signals}

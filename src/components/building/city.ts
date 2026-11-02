@@ -289,6 +289,9 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const RIVER = mobile ? 16 : 22; // half its width
   /** Water level; the quays' outer edge; the riverside avenue's outer edge (distances from the middle). */
   const WATER = -2, QUAY = RIVER + 5, AVENUE = RIVER + 19;
+  /** Heights of the riverside avenue and of the bridge decks, well clear of the streets' asphalt
+   * (ROAD_TOP): surfaces a few cm apart flickered (owner, 01/11/2026: "as pontes estão piscando"). */
+  const AVENUE_TOP = 0.15, DECK = 0.3;
   const flow = lakeAt.clone().normalize(), sLake = lakeAt.length();
   /** How far the river's middle line runs to the side of the line from the mountains to the lake. */
   const bend = (s: number) => {
@@ -345,12 +348,21 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     .map(([x, z, r, h]) => (mobile ? [x * 0.5, z * 0.5, r * 0.55, h * 0.7] : [x, z, r, h]));
   const ridge = (x: number, z: number) => 0.55 + 0.25 * Math.sin(x * 0.0042 + 1.3) * Math.cos(z * 0.0037 - 0.4) + 0.2 * Math.sin((x + z) * 0.0091 + 2.2);
   const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-  /** Ground height, given the distance to the river (`d`) when it is already known. */
+  /**
+   * The city's morros (in metres above the street): they raise blocks into terraces held by stone walls,
+   * higher towards each morro's top, while the streets between stay at street level, flat, with their
+   * lines, crosswalks, lights and cars (owner, 01/11/2026: "ainda tem rua bugada"; streets laid on
+   * the coarse terrain never sat right).
+   */
+  const morroAt = (x: number, z: number) => {
+    let h = 0;
+    for (const [mx, mz, mr, mh] of MORROS) { const t = Math.hypot(x - mx, z - mz) / mr; if (t < 1) h += mh * (1 - t * t) ** 2; }
+    return h * clamp01((riverDist(x, z) - AVENUE - 25) / 120) * clamp01((Math.hypot(x, z) - 70) / 80);
+  };
+  /** Ground height (the mountains round the city), given the distance to the river (`d`) when known. */
   const heightWith = (x: number, z: number, d: number) => {
     const r = Math.hypot(x, z);
     let h = 0;
-    for (const [mx, mz, mr, mh] of MORROS) { const t = Math.hypot(x - mx, z - mz) / mr; if (t < 1) h += mh * (1 - t * t) ** 2; }
-    h *= clamp01((d - AVENUE - 25) / 120) * clamp01((r - 70) / 80);
     const k = clamp01((r - HILLS_FROM) / 900);
     if (k > 0) {
       // Flat around the lake, and a valley floor along the river.
@@ -371,20 +383,29 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     }
     return reliefCache.get(key)!;
   };
-  const hillCache = new Map<string, boolean>();
-  /** A city block on one of the morros: built in steps, with streets climbing round it. */
-  const hillBlock = (i: number, j: number) => {
-    const key = `${i},${j}`;
-    if (!hillCache.has(key)) hillCache.set(key, relief(i * PITCH, j * PITCH) > 0.15);
-    return hillCache.get(key)!;
+  /** A city block on one of the morros: a terrace, raised above the streets round it. */
+  const hillBlock = (i: number, j: number) => !(i === 0 && j === 0) && morroAt(i * PITCH, j * PITCH) > 1.5;
+  /** City blocks: all with their streets round them at street level (on a morro, the block is a terrace). */
+  const flatBlock = (i: number, j: number) => inside(i, j);
+  /** A block out on the hills: the streets beside it climb, full width, as ribbons. */
+  const slopeBlock = (i: number, j: number) => !inside(i, j) && relief(i * PITCH, j * PITCH) > 0.15 && !lakeBlock(i * PITCH, j * PITCH);
+  /**
+   * A flat block's ground: its half of each street round it, except where the block across the street
+   * is on a slope (that street is a climbing ribbon, full width), so no street is ever half paved.
+   */
+  const paveBlock = (cx: number, cz: number) => {
+    const gi = Math.round(cx / PITCH), gj = Math.round(cz / PITCH), half = (PITCH - BLOCK) / 2, inner = PITCH - 2 * half;
+    pave(cx, cz, inner, inner);
+    if (!slopeBlock(gi, gj - 1)) pave(cx, cz - PITCH / 2 + half / 2, PITCH, half);
+    if (!slopeBlock(gi, gj + 1)) pave(cx, cz + PITCH / 2 - half / 2, PITCH, half);
+    if (!slopeBlock(gi - 1, gj)) pave(cx - PITCH / 2 + half / 2, cz, half, inner);
+    if (!slopeBlock(gi + 1, gj)) pave(cx + PITCH / 2 - half / 2, cz, half, inner);
   };
-  /** City blocks with streets round them at street level (the plaza, and every block not on a morro). */
-  const flatBlock = (i: number, j: number) => inside(i, j) && (i === 0 && j === 0 || !hillBlock(i, j));
   /** Blocks with streets round them: the flat city blocks, and the flat outskirts out to FAR. */
   const paved = (gi: number, gj: number) => {
     if (inside(gi, gj)) return flatBlock(gi, gj);
     const cx = gi * PITCH, cz = gj * PITCH, r = Math.hypot(cx, cz);
-    return r <= FAR && r >= edgeMetres(Math.atan2(cz, cx)) - PITCH * 0.3 && relief(cx, cz) <= 0.15 && !lakeBlock(cx, cz);
+    return r <= FAR && relief(cx, cz) <= 0.15 && !lakeBlock(cx, cz);
   };
   const patch = (x: number, z: number) => 0.6 * Math.sin(x * 0.0062 + 1.1) * Math.cos(z * 0.0057 - 0.7) + 0.4 * Math.sin((x - z) * 0.0041 + 0.5);
   /** Built-up ground: the city's own morros, and patches of the mountains' lower slopes. */
@@ -392,7 +413,8 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const settled = (x: number, z: number) => settledAt(x, z, heightAt(x, z));
   const woods = (x: number, z: number) => Math.sin(x * 0.009 + 2) * Math.cos(z * 0.0083 - 1) + 0.3 * Math.sin(z * 0.021 + x * 0.004);
 
-  const plinths = new Mass(), lawns = new Mass(), plaza = new Mass(), marks = new Mass(), zebra = new Mass(), roofs = new Mass(), terracotta = new Mass();
+  const plinths = new Mass(), lawns = new Mass(), plaza = new Mass(), marks = new Mass(), zebra = new Mass(), roofs = new Mass(), terracotta = new Mass(), terraces = new Mass();
+  const signalPoles = new Mass(), signalRed = new Mass(), signalAmber = new Mass(), signalGreen = new Mass(), signalOff = new Mass();
   const pools = new Mass(), decks = new Mass(), dirt = new Mass(), courts = new Mass(), courtLines = new Mass(), cranes = new Mass(), benches = new Mass(), shelters = new Mass(), stopGlass = new Mass();
   const facades = STREET_STYLES.map(() => new Mass()), rounds: THREE.BufferGeometry[][] = STREET_STYLES.map(() => []);
   const boards: THREE.BufferGeometry[][] = [[], [], [], []], discs: THREE.BufferGeometry[] = [], tanks: THREE.BufferGeometry[] = [], fountains: THREE.BufferGeometry[] = [];
@@ -444,8 +466,9 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       stopGlass.box(sx + (alongX ? 0 : Math.sign(cx - x) * -0.8), 0.3, sz + (alongX ? Math.sign(cz - z) * -0.8 : 0), alongX ? 4.8 : 0.05, 2.2, alongX ? 0.05 : 4.8);
       benches.box(sx, 0.3, sz, alongX ? 3 : 0.6, 0.5, alongX ? 0.6 : 3);
     }
-    // Two or three cars parked by the kerb on that side.
-    const lane = BLOCK / 2 + 4.2;
+    // Two or three cars parked right against the kerb on that side (owner, 01/11/2026: further out they
+    // looked stopped in the middle of the street).
+    const lane = BLOCK / 2 + 1.3;
     for (let k = 0; k < 2 + Math.floor(random() * 2); k++) {
       const off = -18 + k * 7 + random() * 3;
       if (side === 0) parked.push([cx + off, cz + lane, Math.PI / 2]); else if (side === 1) parked.push([cx + off, cz - lane, Math.PI / 2]);
@@ -464,7 +487,8 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     for (const [alongZ, at, k] of [[false, cz - PITCH / 2 + half / 2, gj], [false, cz + PITCH / 2 - half / 2, gj + 1], [true, cx - PITCH / 2 + half / 2, gi], [true, cx + PITCH / 2 - half / 2, gi + 1]] as const) {
       let start: number | null = null;
       for (let p = -PITCH / 2; p <= PITCH / 2 + 0.01; p += 2) {
-        const x = alongZ ? at : cx + p, z = alongZ ? cz + p : at, min = onBridge(k, alongZ, alongZ ? z : x, APPROACH) ? QUAY - 1 : AVENUE - 2;
+        // A street ends well under the riverside avenue (which lies above it), so its end never shows ragged.
+        const x = alongZ ? at : cx + p, z = alongZ ? cz + p : at, min = onBridge(k, alongZ, alongZ ? z : x, APPROACH) ? QUAY - 1 : AVENUE - 8;
         const dry = p < PITCH / 2 - 0.01 && riverDist(x, z) > min;
         if (dry && start === null) start = p;
         if (!dry && start !== null) {
@@ -474,7 +498,17 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
         }
       }
     }
-    // Buildings on the lots clear of the avenue; trees on the rest.
+    // The block's ground, in cells: a riverside garden (lawn and trees) wherever it is clear of the
+    // avenue, so no bare patch is left between the avenue and the buildings.
+    const cell = BLOCK / 4;
+    for (const a of [-1.5, -0.5, 0.5, 1.5]) for (const b of [-1.5, -0.5, 0.5, 1.5]) {
+      const x = cx + a * cell, z = cz + b * cell;
+      if (riverDist(x, z) < AVENUE + cell * 0.72) continue;
+      lawns.box(x, GROUND - 0.3, z, cell + 0.02, 0.62, cell + 0.02);
+      if (random() < 0.5) trees.push([x + (random() - 0.5) * 6, z + (random() - 0.5) * 6, 1 + random() * 0.6, 0.32]);
+      else if (random() < 0.4) benches.box(x, 0.32, z, 2.4, 0.5, 0.6);
+    }
+    // Buildings on the lots clear of the avenue, facing the water.
     for (const [dx, dz] of [[-14, -14], [14, -14], [-14, 14], [14, 14]]) {
       const x = cx + dx, z = cz + dz;
       if (riverDist(x, z) < AVENUE + 21) continue;
@@ -483,14 +517,38 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       facades[style].box(x, 0.3, z, 22, h, 22, false, random());
       if (detailed) rooftop(x, h + 0.3, z, 22, 22, tall); else roofs.box(x, h + 0.3, z, 22.8, 0.6, 22.8);
     }
-    for (let k = 0; k < 8; k++) {
-      const x = cx + (random() - 0.5) * (BLOCK - 4), z = cz + (random() - 0.5) * (BLOCK - 4), d = riverDist(x, z);
-      if (d > AVENUE + 3 && d < AVENUE + 21) trees.push([x, z, 1 + random() * 0.6, GROUND - 0.25]);
-    }
   };
-  /** A block on a slope: four buildings stepped into the ground (lower further up), and some trees. */
-  const hillBlockContent = (cx: number, cz: number, detailed: boolean) => {
+  /**
+   * A block on a slope. In the city (`detailed`): a level terrace held by a stone retaining wall,
+   * with its buildings, garden and trees on top, as a hillside city is built (owner, 01/11/2026: "tá
+   * muito feia essa parte do morro"). Out on the hills: four buildings stepped into the ground.
+   */
+  const hillBlockContent = (cx: number, cz: number, detailed: boolean, terrace = detailed) => {
     const hb = heightAt(cx, cz);
+    if (terrace) {
+      // In the city: a level set by the morro, in steps of 1.5 m, at most 12 m above the street. On the
+      // hills: the middle of the slope (lower walls downhill, the slope meeting it uphill).
+      const heights = [-1, 0, 1].flatMap((a) => [-1, 0, 1].map((b) => heightAt(cx + (a * BLOCK) / 2, cz + (b * BLOCK) / 2)));
+      const top = detailed ? 0.3 + Math.min(12, Math.round((morroAt(cx, cz) * 0.4) / 1.5) * 1.5)
+        : GROUND + (Math.max(...heights) + Math.min(...heights)) / 2 + 0.3;
+      terraces.box(cx, GROUND - 2, cz, detailed ? BLOCK : BLOCK + 2, top - GROUND + 2, detailed ? BLOCK : BLOCK + 2);
+      plinths.box(cx, top, cz, BLOCK, 0.12, BLOCK);
+      lawns.box(cx, top + 0.12, cz, BLOCK - 6, 0.06, BLOCK - 6);
+      const lots: [number, number][] = random() < 0.5 ? [[-13, -13], [13, -13], [-13, 13], [13, 13]] : [[-13, 0], [13, 0]];
+      lots.forEach(([dx, dz], n) => {
+        if (n > 0 && random() < 0.12) return; // never an empty terrace
+        const x = cx + dx, z = cz + dz, w = 22, d = lots.length === 2 ? BLOCK - 12 : 22;
+        const tall = random() < 0.35, h = Math.round(tall ? 24 + random() * 30 : 9 + random() * 13), style = pickStyle(tall);
+        facades[style].box(x, top + 0.12, z, w, h, d, false, random());
+        if (detailed) rooftop(x, top + 0.12 + h, z, w, d, tall);
+        else (STREET_STYLES[style].curtain || random() < 0.4 ? roofs : terracotta).box(x, top + 0.12 + h, z, w + 0.6, 0.6, d + 0.6);
+      });
+      // Trees along the terrace's edge.
+      for (let t = -BLOCK / 2 + 3; t <= BLOCK / 2 - 3; t += 11) for (const [x, z] of [[cx + t, cz + BLOCK / 2 - 2.5], [cx + t, cz - BLOCK / 2 + 2.5]]) {
+        if (random() < 0.6) trees.push([x, z, 0.9 + random() * 0.4, top + 0.12]); else bushes.push([x, z, 0.7, top + 0.12]);
+      }
+      return;
+    }
     for (const [dx, dz] of [[-17, -17], [17, -17], [-17, 17], [17, 17]]) {
       if (random() < 0.15 + hb / 400) continue;
       const x = cx + dx, z = cz + dz, w = 17 + random() * 6, d = 17 + random() * 6;
@@ -513,8 +571,8 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     const cx = i * PITCH, cz = j * PITCH, edge = BLOCK / 2 - 2.5;
     const center = i === 0 && j === 0;
     if (!center && riverBlock(cx, cz)) { riverBlockContent(cx, cz, true); continue; }
-    if (!center && hillBlock(i, j)) { hillBlockContent(cx, cz, true); continue; }
-    pave(cx, cz, PITCH, PITCH);
+    if (!center && hillBlock(i, j)) { paveBlock(cx, cz); hillBlockContent(cx, cz, true); continue; }
+    paveBlock(cx, cz);
     const roll = random(), park = !center && roll < 0.12, site = !center && !park && roll < 0.16;
     (center ? plaza : plinths).box(cx, 0, cz, BLOCK, 0.3, BLOCK);
     treeRow(cx - edge, cz + edge, cx + edge, cz + edge, 11); treeRow(cx - edge, cz - edge, cx + edge, cz - edge, 11);
@@ -623,8 +681,9 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     let start: number | null = null;
     for (let p = -(reach + 1) * PITCH; p <= (reach + 1) * PITCH; p += 2) {
       const n = Math.round(p / PITCH), x = alongZ ? line : p, z = alongZ ? p : line;
-      const ok = (alongZ ? flatBlock(k - 1, n) || flatBlock(k, n) : flatBlock(n, k - 1) || flatBlock(n, k))
-        && (riverDist(x, z) > AVENUE || onBridge(k, alongZ, p, APPROACH)) && heightAt(x, z) < 0.3;
+      const [a, b] = alongZ ? [[k - 1, n], [k, n]] : [[n, k - 1], [n, k]];
+      const ok = (flatBlock(a[0], a[1]) || flatBlock(b[0], b[1])) && !slopeBlock(a[0], a[1]) && !slopeBlock(b[0], b[1])
+        && (riverDist(x, z) > AVENUE || onBridge(k, alongZ, p, APPROACH));
       if (ok && start === null) start = p;
       if (!ok && start !== null) { if (p - start > 12) list.push([start, p]); start = null; }
     }
@@ -651,6 +710,20 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   for (let k = -reach; k <= reach + 1; k++) for (let m = -reach; m <= reach + 1; m++) {
     const line = (k - 0.5) * PITCH, cross = (m - 0.5) * PITCH;
     if (!onStreet(k, true, cross) || !onStreet(m, false, line)) continue; // no crossing here
+    // Traffic lights on two opposite corners (owner, 01/11/2026: "não tem semáforos"): a pole on the
+    // sidewalk, an arm over the street, the three-light head; green for one street, red for the other.
+    for (const [sx, sz, alongX] of [[1, 1, true], [-1, -1, false]] as const) {
+      const px = line + sx * 10.4, pz = cross + sz * 10.4;
+      if (riverDist(px, pz) < AVENUE + 3) continue;
+      signalPoles.box(px, 0.3, pz, 0.18, 5.4, 0.18);
+      const hx = alongX ? px - sx * 4 : px, hz = alongX ? pz : pz - sz * 4;
+      if (alongX) signalPoles.box((px + hx) / 2, 5.3, pz, 4, 0.14, 0.14); else signalPoles.box(px, 5.3, (pz + hz) / 2, 0.14, 0.14, 4);
+      signalPoles.box(hx, 4.1, hz, 0.4, 1.15, 0.4);
+      for (const [n, mass] of [[0, signalRed], [1, signalAmber], [2, signalGreen]] as const) {
+        const lit = alongX ? n === 2 : n === 0; // green on one street, red on the other
+        (lit ? mass : signalOff).box(hx, 4.2 + (2 - n) * 0.34, hz, 0.42, 0.24, 0.42);
+      }
+    }
     // A crosswalk on each of the four arms of the crossing at (line, cross), none by the river.
     for (const s of [-13, 13]) {
       if (riverDist(line, cross + s) > AVENUE + 3) for (let t = -8; t <= 8; t += 1.6) zebra.box(line + t, ROAD_TOP, cross + s, 0.8, 0.07, 3.2);
@@ -675,11 +748,12 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     for (const [start, end] of crossings(k, alongZ)) {
       const mid = (start + end) / 2, len = end - start + 1;
       bridges.push(alongZ ? [line - 7.6, start, line + 7.6, end] : [start, line - 7.6, end, line + 7.6]);
-      put(asphalt, mid, 0, -0.45, len, 10, ROAD_TOP + 0.45);
+      put(asphalt, mid, 0, -0.45, len, 10, DECK + 0.45);
+      for (let u = start + 3; u < end - 3; u += 9) put(marks, u, 0, DECK, 4.5, 0.3, 0.05);
       for (const s of [-1, 1]) {
-        put(concrete, mid, s * 6, -0.45, len, 2, ROAD_TOP + 0.6);                // sidewalk
-        put(shelters, mid, s * 7.15, ROAD_TOP + 0.15, len, 0.3, 0.85);          // parapet
-        put(shelters, mid, s * 7.15, ROAD_TOP + 1.0, len, 0.42, 0.08);          // its rail
+        put(concrete, mid, s * 6, -0.45, len, 2, DECK + 0.6);                    // sidewalk
+        put(shelters, mid, s * 7.15, DECK + 0.15, len, 0.3, 0.85);              // parapet
+        put(shelters, mid, s * 7.15, DECK + 1.0, len, 0.42, 0.08);              // its rail
         put(concrete, mid, s * 7.2, -1.35, len, 0.5, 0.95);                     // edge beam
         for (let u = start + 6; u < end - 4; u += 16) { const v = s * 7.15; lamps.push(alongZ ? [line + v, u] : [u, line + v]); }
         // An arch under each side, springing low at the quays and meeting the deck in the middle.
@@ -690,7 +764,7 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
         }
       }
       put(concrete, mid, 0, -1.35, len, 12, 0.9);                               // deck slab underside
-      for (const u of [start + 1.5, end - 1.5]) put(concrete, u, 0, WATER - 0.4, 3, 16, ROAD_TOP - WATER + 0.4); // abutments
+      for (const u of [start + 1.5, end - 1.5]) put(concrete, u, 0, WATER - 0.4, 3, 16, DECK - 0.05 - WATER + 0.4); // abutments
     }
   }
   city.add(mesh(concrete, plain("#d9d4ca", 0.85)));
@@ -699,11 +773,24 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   {
     // The lake, low in its stone rim, with a sandy shore round it and grass beyond.
     const ellipse = (g: THREE.BufferGeometry, y: number) => g.rotateX(-Math.PI / 2).scale(82, 1, 55).translate(lakeAt.x, y, lakeAt.y);
-    city.add(new THREE.Mesh(ellipse(new THREE.CircleGeometry(1.9, 64), GROUND - 0.3), plain("#6f9b45", 1)));
     city.add(new THREE.Mesh(ellipse(new THREE.CircleGeometry(1, 64), WATER), waterMaterial));
-    city.add(new THREE.Mesh(ellipse(new THREE.RingGeometry(1, 1.32, 64), 0.1), plain("#e8d9b4", 1)));
-    const rim = new THREE.CylinderGeometry(1, 1, 0.1 - WATER, 64, 1, true).scale(82, 1, 55).translate(lakeAt.x, (0.1 + WATER) / 2, lakeAt.y);
-    city.add(new THREE.Mesh(rim, new THREE.MeshStandardMaterial({ color: 0xbfb6a6, roughness: 0.9, side: THREE.DoubleSide })));
+    // The stone rim and the sandy shore go round the lake, open where the river flows in (owner,
+    // 01/11/2026: "o rio acaba do nada?" — a closed rim walled the river's mouth off).
+    const sand: number[] = [], rim: number[] = [], grass: number[] = [], N = 128;
+    const at = (a: number, r: number) => new THREE.Vector2(lakeAt.x + Math.cos(a) * 82 * r, lakeAt.y + Math.sin(a) * 55 * r);
+    for (let i = 0; i < N; i++) {
+      const a0 = (i / N) * Math.PI * 2, a1 = ((i + 1) / N) * Math.PI * 2, mid = at((a0 + a1) / 2, 1.1);
+      if (riverDist(mid.x, mid.y) < QUAY + 2) continue;
+      const [p0, p1, q0, q1, g0, g1] = [at(a0, 1), at(a1, 1), at(a0, 1.32), at(a1, 1.32), at(a0, 1.9), at(a1, 1.9)];
+      // Grass under the shore's outer band, where the terrain is cut away round the lake.
+      grass.push(q0.x, GROUND - 0.3, q0.y, g0.x, GROUND - 0.3, g0.y, q1.x, GROUND - 0.3, q1.y, q1.x, GROUND - 0.3, q1.y, g0.x, GROUND - 0.3, g0.y, g1.x, GROUND - 0.3, g1.y);
+      sand.push(p0.x, 0.1, p0.y, q0.x, 0.1, q0.y, p1.x, 0.1, p1.y, p1.x, 0.1, p1.y, q0.x, 0.1, q0.y, q1.x, 0.1, q1.y);
+      rim.push(p0.x, WATER, p0.y, p1.x, WATER, p1.y, p0.x, 0.1, p0.y, p0.x, 0.1, p0.y, p1.x, WATER, p1.y, p1.x, 0.1, p1.y);
+    }
+    const shape = (points: number[]) => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(points, 3)); g.computeVertexNormals(); return g; };
+    city.add(new THREE.Mesh(shape(sand), new THREE.MeshStandardMaterial({ color: 0xe8d9b4, roughness: 1, side: THREE.DoubleSide })));
+    city.add(new THREE.Mesh(shape(grass), new THREE.MeshStandardMaterial({ color: 0x6f9b45, roughness: 1, side: THREE.DoubleSide })));
+    city.add(new THREE.Mesh(shape(rim), new THREE.MeshStandardMaterial({ color: 0xbfb6a6, roughness: 0.9, side: THREE.DoubleSide })));
   }
   {
     // The river: water low between stone quay walls; on each bank a promenade, then (in the city) a
@@ -732,9 +819,9 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
           quad(walk, side(s, k * RIVER), side(e, k * RIVER), side(s, k * QUAY), side(e, k * QUAY), 0.3);
         }
         if (!town) continue;
-        quad(road, side(s, k * QUAY), side(e, k * QUAY), side(s, k * AVENUE), side(e, k * AVENUE), 0.08);
+        quad(road, side(s, k * QUAY), side(e, k * QUAY), side(s, k * AVENUE), side(e, k * AVENUE), AVENUE_TOP);
         const centre = side(s + STEP / 2, k * (QUAY + 7));
-        if (n % 2 === 0 && !nearDeck(centre.x, centre.y, 4)) quad(line, side(s, k * (QUAY + 6.85)), side(e, k * (QUAY + 6.85)), side(s, k * (QUAY + 7.15)), side(e, k * (QUAY + 7.15)), 0.13);
+        if (n % 2 === 0 && !nearDeck(centre.x, centre.y, 4)) quad(line, side(s, k * (QUAY + 6.85)), side(e, k * (QUAY + 6.85)), side(s, k * (QUAY + 7.15)), side(e, k * (QUAY + 7.15)), AVENUE_TOP + 0.06);
       }
     }
     const surface = (points: number[]) => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(points, 3)); g.computeVertexNormals(); return g; };
@@ -776,19 +863,27 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     }
     terrain.setIndex(keep);
     terrain.computeVertexNormals();
-    const land = new THREE.Mesh(terrain, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
+    // Smooth shading: the slopes read as hills, not facets.
+    const land = new THREE.Mesh(terrain, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
     land.receiveShadow = true; city.add(land);
   }
   /** Streets that climb the hills: ribbons along the grid lines, following the ground, where people live. */
   const climbing: number[] = [], climbIdx: number[] = [], dashes: number[] = [], dashIdx: number[] = [];
-  const ribbon = (points: [number, number, number][], alongZ: boolean) => {
+  /**
+   * One street up a slope, `half` its half width. Each side has a skirt going down into the ground, so
+   * no gap shows between the road and the coarser terrain under it.
+   */
+  const ribbon = (points: [number, number, number][], alongZ: boolean, half = 4) => {
     if (points.length < 5) return; // no stubs
     const base = climbing.length / 3;
     for (const [x, y, z] of points) {
-      if (alongZ) climbing.push(x - 4, y, z, x + 4, y, z); else climbing.push(x, y, z - 4, x, y, z + 4);
+      // Per point: left, right (the road), then each side again with its foot (the skirts).
+      const [lx, lz, rx, rz] = alongZ ? [x - half, z, x + half, z] : [x, z - half, x, z + half];
+      climbing.push(lx, y, lz, rx, y, rz, lx, y, lz, lx, y - 1.8, lz, rx, y, rz, rx, y - 1.8, rz);
     }
     for (let k = 0; k < points.length - 1; k++) {
-      const a = base + k * 2; climbIdx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      const a = base + k * 6;
+      climbIdx.push(a, a + 6, a + 1, a + 1, a + 6, a + 7, a + 2, a + 3, a + 8, a + 3, a + 9, a + 8, a + 4, a + 5, a + 10, a + 5, a + 11, a + 10);
       if (k % 2) continue;
       // Centre line, dashed: every other stretch.
       const d = dashes.length / 3, [x0, y0, z0] = points[k], [x1, y1, z1] = points[k + 1];
@@ -800,7 +895,8 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   const farGreen = new Mass();
   for (let gi = -farReach; gi <= farReach; gi++) for (let gj = -farReach; gj <= farReach; gj++) {
     const cx = gi * PITCH, cz = gj * PITCH, r = Math.hypot(cx, cz);
-    if (r > FAR || inside(gi, gj) || r < edgeMetres(Math.atan2(cz, cx)) - PITCH * 0.3) continue;
+    // Every block outside the detailed centre, right up to its edge (no empty band between the two).
+    if (r > FAR || inside(gi, gj)) continue;
     const hb = heightAt(cx, cz);
     if (lakeBlock(cx, cz)) {
       // The lake's open shore: grass and a ring of trees.
@@ -817,16 +913,17 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
         }
         continue;
       }
-      // A hillside neighbourhood between the streets that climb the hill.
-      hillBlockContent(cx, cz, false);
+      // A hillside neighbourhood between the streets that climb the hill: on terraces near the city,
+      // houses stepped into the slope further out.
+      hillBlockContent(cx, cz, false, r < HILLS_FROM);
       continue;
     }
     // Centre lines on this block's west and south streets (unless a flat city block beside it already
     // gives the street its lines), not where a street ends at the river.
     const dry = (k: number, alongZ: boolean, x: number, z: number) => riverDist(x, z) > AVENUE || onBridge(k, alongZ, alongZ ? z : x, APPROACH);
     for (const p of [-24, -12, 0, 12, 24]) {
-      if (!flatBlock(gi - 1, gj) && dry(gi, true, cx - PITCH / 2, cz + p)) marks.box(cx - PITCH / 2, ROAD_TOP, cz + p, 0.3, 0.06, 5);
-      if (!flatBlock(gi, gj - 1) && dry(gj, false, cx + p, cz - PITCH / 2)) marks.box(cx + p, ROAD_TOP, cz - PITCH / 2, 5, 0.06, 0.3);
+      if (!flatBlock(gi - 1, gj) && !slopeBlock(gi - 1, gj) && dry(gi, true, cx - PITCH / 2, cz + p)) marks.box(cx - PITCH / 2, ROAD_TOP, cz + p, 0.3, 0.06, 5);
+      if (!flatBlock(gi, gj - 1) && !slopeBlock(gi, gj - 1) && dry(gj, false, cx + p, cz - PITCH / 2)) marks.box(cx + p, ROAD_TOP, cz - PITCH / 2, 5, 0.06, 0.3);
     }
     // Crosswalks at the block's south-west crossing, out to where the city gets hazy.
     const around = [[gi - 1, gj - 1], [gi, gj - 1], [gi - 1, gj], [gi, gj]];
@@ -838,7 +935,7 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       }
     }
     if (nearRiver) { riverBlockContent(cx, cz, false); continue; }
-    pave(cx, cz, PITCH, PITCH);
+    paveBlock(cx, cz);
     plinths.box(cx, 0, cz, BLOCK, 0.3, BLOCK);
     if (random() < 0.12) {
       // A park block here and there: lawn and a few round trees.
@@ -858,22 +955,25 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       (STREET_STYLES[style].curtain || random() < 0.5 ? roofs : terracotta).box(x, h + 0.3, z, w - 1.2, 0.6, d - 1.2);
     }
   }
-  // Streets up the hills and the city's morros, on every grid line between two blocks on a slope
-  // (where a flat block is beside it, its own street is there); clear of the terrain.
+  // Streets up the hills and the city's morros: every grid line beside a block on a slope (see
+  // `paveBlock`: the flat block across leaves that street to this one). Full street width in town,
+  // narrower out on the hills; clear of the terrain.
   for (let k = -farReach; k <= farReach + 1; k++) for (const alongZ of [true, false]) {
     const line = (k - 0.5) * PITCH;
-    let run: [number, number, number][] = [];
+    let run: [number, number, number][] = [], wide = false;
+    const flush = () => { ribbon(run, alongZ, wide ? 7 : 4); run = []; wide = false; };
     for (let p = -FAR; p <= FAR; p += 8) {
       // Cheapest checks first; the ground only where the line qualifies.
       const x = alongZ ? line : p, z = alongZ ? p : line, n = Math.round(p / PITCH);
       let ok = Math.hypot(x, z) < FAR && lakeDist(x, z) > 1.5;
       const sides = alongZ ? [[k - 1, n], [k, n]] : [[n, k - 1], [n, k]];
-      ok = ok && sides.some(([i, j]) => relief(i * PITCH, j * PITCH) > 0.15) && !sides.some(([i, j]) => paved(i, j));
+      ok = ok && sides.some(([i, j]) => slopeBlock(i, j));
+      const town = ok && sides.some(([i, j]) => inside(i, j) || paved(i, j));
       const d = ok ? riverDist(x, z) : 0, h = ok && d > AVENUE ? heightWith(x, z, d) : -1;
-      if (h >= 0 && settledAt(x, z, h)) run.push([x, GROUND + h + 0.45 + 0.35 * Math.min(1, h / 4), z]);
-      else { ribbon(run, alongZ); run = []; }
+      if (h >= 0 && (town || settledAt(x, z, h))) { run.push([x, GROUND + h + 0.45 + 0.35 * Math.min(1, h / 4), z]); wide ||= town; }
+      else flush();
     }
-    ribbon(run, alongZ);
+    flush();
   }
   if (climbIdx.length) {
     const sheet = (points: number[], index: number[]) => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(points, 3)); g.setIndex(index); g.computeVertexNormals(); return g; };
@@ -884,6 +984,10 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
   city.add(mesh(farGreen, plain("#7cc35a", 1)));
   city.add(mesh(asphalt, plain("#4c5463", 0.95)));
 
+  city.add(mesh(terraces, plain("#c9bfae", 0.9)), mesh(signalPoles, plain("#2f3640", 0.5)), mesh(signalOff, plain("#1b1e24", 0.4)));
+  // The lit lamps glow, brighter at night.
+  for (const [mass, color] of [[signalRed, 0xff3b30], [signalAmber, 0xffb020], [signalGreen, 0x34c759]] as const)
+    if (!mass.empty) city.add(new THREE.Mesh(mass.geometry(), glows(new THREE.MeshStandardMaterial({ color, emissive: color, roughness: 0.4 }), 0.8, 2.5)));
   city.add(mesh(plinths, plain("#d9dde2")), mesh(plaza, plain("#eef0f2")), mesh(lawns, plain("#7cc35a", 1)), mesh(marks, plain("#f2c94c", 0.6)), mesh(zebra, plain("#f4f6f8", 0.6)));
   city.add(mesh(roofs, plain("#e9edf1", 0.7)), mesh(terracotta, plain("#d0714f", 0.7)), mesh(decks, plain("#d9a36e", 0.75)));
   // Details: building sites with cranes, courts, fountains, bus stops and benches, roof tanks, antenna lights.

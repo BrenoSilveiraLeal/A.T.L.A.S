@@ -121,7 +121,7 @@ export function Shell({
         <div className="office-bar-id">
           <Link href="/app" className="office-badge" aria-label={`${OFFICE.name}, andar ${OFFICE.floor} da sede ATLAS`} style={{ "--office": OFFICE.color } as React.CSSProperties}>
             <b>{OFFICE.floor}</b>
-            <span><strong>{OFFICE.name}</strong><small>Sede ATLAS · Autonomous Trading System</small></span>
+            <span><strong>{OFFICE.name}</strong><small>Sede ATLAS · {OFFICE.tagline}</small></span>
           </Link>
           <Link className="office-map-button" href={`/predio?andar=${OFFICE.floor}`} title="Voltar ao mapa do prédio para escolher outro escritório">
             <Building size={15} /> <span>Trocar de escritório</span>

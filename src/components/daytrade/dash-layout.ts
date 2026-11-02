@@ -1,4 +1,4 @@
-import type { DeskId } from "@/core/daytrade/desks";
+import { SECTORS, type DeskId } from "@/core/daytrade/desks";
 
 /**
  * The DASH floor plan (owner, 01/11/2026: "reformular o escritório para organizar tudo que vai ter
@@ -17,8 +17,8 @@ import type { DeskId } from "@/core/daytrade/desks";
  */
 export interface Box { x: number; z: number; w: number; d: number; h: number; y?: number; color: string; kind?: "glow" | "steel" | "wood" | "fabric" | "plant"; label?: string }
 
-/** Light polished concrete. */
-export const DASH_FLOOR = "#d6d0c4";
+/** Warm oak, as the DAWN office's floor. */
+export const DASH_FLOOR = "#a8845f";
 
 /** Back rooms: from the back wall to their glass front at ROOM_FRONT, between x0 and x1. */
 export const ROOM_FRONT = -5;
@@ -47,6 +47,30 @@ export const ISLANDS = [
   { sector: "dados", x: -8, z: 0.5, w: 5.2 }, { sector: "noticias", x: -2.5, z: 0.5, w: 3 }, { sector: "estrategia", x: 3, z: 0.5, w: 5.2 },
   { sector: "risco", x: -8, z: 5.5, w: 5.2 }, { sector: "execucao", x: 3, z: 5.5, w: 5.2 },
 ] as const;
+
+/**
+ * Each sector apart, as the council rooms are apart in the DAWN office (owner, 01/11/2026: "setores
+ * separados"): a low partition in the sector's colour behind its island and on both sides, open
+ * towards the video wall.
+ */
+export const PARTITIONS: Box[] = ISLANDS.flatMap((island) => {
+  const color = SECTORS.find((s) => s.id === island.sector)!.color, z0 = island.z - 1.5, z1 = island.z + 2.2;
+  return [
+    { x: island.x, z: z1, w: island.w + 0.2, d: 0.08, h: 1.2, color },
+    { x: island.x - island.w / 2 - 0.1, z: (z0 + z1) / 2, w: 0.08, d: z1 - z0, h: 1.2, color },
+    { x: island.x + island.w / 2 + 0.1, z: (z0 + z1) / 2, w: 0.08, d: z1 - z0, h: 1.2, color },
+  ];
+});
+
+/** Where the receptionist sits, behind the reception desk, facing the elevator. */
+export const RECEPTION = { x: -20.5, z: 8.3 };
+
+/** Framed posters: x, y, z, facing (rotation about y), title, subtitle, background, accent. */
+export const POSTERS: [number, number, number, number, string, string, string, string][] = [
+  [23.85, 1.9, -1.2, -Math.PI / 2, "Não operar também é resultado", "Regras da mesa", "#1d3557", "#f2a541"],
+  [23.85, 1.9, 1.6, -Math.PI / 2, "Stop sempre na corretora", "Risco", "#24504c", "#59e3a7"],
+  [-23.85, 1.9, 1.3, Math.PI / 2, "Dado sem origem não entra", "Dados de mercado", "#2f3b52", "#4fd1ff"],
+];
 
 /** The video wall, on the analysis room's glass, facing the trading floor. */
 export const VIDEO_WALL = { x: -6, z: ROOM_FRONT + 0.35, w: 9, h: 2.5, y: 0.65 };
@@ -84,6 +108,16 @@ export const FURNITURE: Box[] = [
   // Green divider between the trading floor and the break area.
   { x: 10.9, z: 3, w: 0.7, d: 9, h: 0.9, color: "#f4f6f8" },
   { x: 10.9, z: 3, w: 0.6, d: 8.8, h: 0.35, y: 0.9, color: "#4f9a45", kind: "plant" },
+  // Ping-pong beside the foosball, and the lounge TV facing the sofa.
+  { x: 20.6, z: -3.6, w: 2.7, d: 1.5, h: 0.76, color: "#1f6f8b" },
+  { x: 20.6, z: -3.6, w: 0.04, d: 1.6, h: 0.15, y: 0.76, color: "#f4f6f8" },
+  { x: 20.5, z: 7.3, w: 3.4, d: 0.45, h: 0.6, color: "#2b2e34" },
+  { x: 20.5, z: 7.35, w: 3.0, d: 0.06, h: 1.7, y: 0.75, color: "#ff7a59", kind: "glow", label: "tv" },
+  // Waiting sofa by the reception, its coffee table; a low bookshelf by the small meeting table.
+  { x: -15.6, z: 12.4, w: 3.6, d: 0.9, h: 0.45, color: "#3d5a80", kind: "fabric" },
+  { x: -15.6, z: 12.75, w: 3.6, d: 0.25, h: 0.95, color: "#3d5a80", kind: "fabric" },
+  { x: -15.6, z: 11.2, w: 1.3, d: 0.7, h: 0.4, color: "#b98a5a", kind: "wood" },
+  { x: -14.9, z: -1.6, w: 0.45, d: 3, h: 1.4, color: "#b98a5a", kind: "wood", label: "books" },
   // Supervisor's standing desk.
   { x: -2.5, z: 9.5, w: 1.6, d: 0.7, h: 0.06, y: 1.08, color: "#e9e4dc" },
   // Reception by the elevator, the DASH wall, a waiting bench and a small meeting table.
