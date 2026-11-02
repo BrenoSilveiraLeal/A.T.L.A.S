@@ -469,6 +469,18 @@ p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
 .price-history-swings li.up { border-left-color: #3dffa8; }
 .price-history-swings li.down { border-left-color: #ff5d7d; }
 .price-history-swings li span { color: #c7d0ca; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .price-history { gap: 10px; }
+  .price-history > .score-kicker { font-size: 12px; }
+  .price-history svg { border: 1px solid rgba(255,255,255,.09); background: linear-gradient(180deg, rgba(16,26,43,.92), rgba(10,18,34,.66)); border-radius: 14px; }
+  .price-history .ph-axis { font-size: 14px; }
+  .price-history .ph-label { font-size: 13px; }
+  .price-history .ph-label.extreme { display: none; }
+  .price-history .ph-tip { left: 6px !important; right: 6px; width: auto; max-width: none; transform: none; white-space: normal; overflow-wrap: anywhere; padding: 9px 11px; font-size: 11px; }
+  .price-history-swings { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .price-history-swings li { min-width: 0; padding: 8px; font-size: 11px; }
+  .price-history-swings li span { font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+}
 
 /* Council speech: who speaks, coloured by the vote. */
 .speech-bubble.council { max-width: 220px; white-space: normal; font-size: 11px; line-height: 1.35; font-weight: 600; }

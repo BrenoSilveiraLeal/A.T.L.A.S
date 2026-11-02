@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatBrl } from "@/core/format";
 import { swings } from "@/core/swings";
 import { SELLS_NEAR_HIGH } from "@/core/range";
@@ -19,8 +19,17 @@ export function PriceHistory({ ticker, bars, levels }: {
   ticker: string; bars: readonly Bar[]; levels: { low: number; high: number; buyBelow: number; sellAbove: number };
 }) {
   const [hover, setHover] = useState<number | null>(null);
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 640px)");
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   if (bars.length < 2) return null;
-  const W = 640, H = 230, left = 56, right = 10, top = 12, bottom = 196;
+  // A taller mobile viewBox keeps six months of candles legible in a narrow card.
+  const W = compact ? 520 : 640, H = compact ? 300 : 230, left = 56, right = 10, top = 12, bottom = compact ? 258 : 196;
   const lo = Math.min(...bars.map((b) => b.low), levels.buyBelow), hi = Math.max(...bars.map((b) => b.high), levels.sellAbove);
   const y = (v: number) => bottom - ((v - lo) / (hi - lo || 1)) * (bottom - top);
   const step = (W - left - right) / bars.length;
@@ -61,9 +70,9 @@ export function PriceHistory({ ticker, bars, levels }: {
               </g>;
             })}
             <circle cx={x(lowIndex)} cy={y(bars[lowIndex].close)} r="4" className="ph-mark low" />
-            <text x={x(lowIndex)} y={Math.min(bottom - 4, y(bars[lowIndex].close) + 16)} className="ph-label buy" textAnchor={anchor(lowIndex)}>mín {brl(bars[lowIndex].close)} ({day(bars[lowIndex].date)})</text>
+            <text x={x(lowIndex)} y={Math.min(bottom - 4, y(bars[lowIndex].close) + 16)} className="ph-label buy extreme" textAnchor={anchor(lowIndex)}>mín {brl(bars[lowIndex].close)} ({day(bars[lowIndex].date)})</text>
             <circle cx={x(highIndex)} cy={y(bars[highIndex].close)} r="4" className="ph-mark high" />
-            <text x={x(highIndex)} y={Math.max(top + 12, y(bars[highIndex].close) - 8)} className="ph-label sell" textAnchor={anchor(highIndex)}>máx {brl(bars[highIndex].close)} ({day(bars[highIndex].date)})</text>
+            <text x={x(highIndex)} y={Math.max(top + 12, y(bars[highIndex].close) - 8)} className="ph-label sell extreme" textAnchor={anchor(highIndex)}>máx {brl(bars[highIndex].close)} ({day(bars[highIndex].date)})</text>
             {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={top} y2={bottom} className="ph-cursor" />}
           </svg>
           {shown && <div className="ph-tip" style={{ left: `${(x(hover!) / W) * 100}%` }}>
