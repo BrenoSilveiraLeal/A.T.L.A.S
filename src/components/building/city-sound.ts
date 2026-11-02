@@ -3,21 +3,24 @@ import { useEffect, useRef } from "react";
 
 /**
  * The city's sound on the ATLAS map (owner, 02/11/2026: "tinha que adicionar um som no mapa também,
- * da cidade, e a opção de tirar"): the far-off rumble of traffic, cars passing from one side to the
- * other, a horn now and then and a breath of wind; birds by day, crickets and lighter traffic at
- * night. Everything is synthesised, as the office ambience (office-3d), so there are no files.
+ * da cidade, e a opção de tirar"; then "tire o barulho de carro"): no cars, horns or sirens, only a
+ * soft far-off hum of the city and a breath of wind; birds by day, crickets at night. Everything is
+ * synthesised, as the office ambience (office-3d), so there are no files.
  */
 export interface CitySound { night: (on: boolean) => void; stop: () => void }
+
+const HUM = { day: 0.05, night: 0.03 };
 
 export function startCitySound(ctx: AudioContext, startAtNight: boolean): CitySound {
   let night = startAtNight, stopped = false;
   const master = ctx.createGain(); master.connect(ctx.destination);
-  master.gain.setValueAtTime(0, ctx.currentTime); master.gain.linearRampToValueAtTime(1, ctx.currentTime + 2.5);
+  // Fades in; the mix stays well clear of distortion.
+  master.gain.setValueAtTime(0, ctx.currentTime); master.gain.linearRampToValueAtTime(1.8, ctx.currentTime + 2.5);
   const timers: number[] = [];
   const later = (fn: () => void, ms: number) => { timers.push(window.setTimeout(() => { if (!stopped) fn(); }, ms)); };
   const between = (a: number, b: number) => a + Math.random() * (b - a);
 
-  // Noise to shape: brown (deep, for the rumble) and white (hiss, wind, tyres).
+  // Noise to shape: brown (deep, for the hum) and white (for the wind).
   const noise = (seconds: number, brown: boolean) => {
     const data = new Float32Array(Math.round(ctx.sampleRate * seconds));
     let last = 0;
@@ -28,51 +31,23 @@ export function startCitySound(ctx: AudioContext, startAtNight: boolean): CitySo
     const buffer = ctx.createBuffer(1, data.length, ctx.sampleRate); buffer.copyToChannel(data, 0);
     return buffer;
   };
-  const brown = noise(5, true), white = noise(3, false);
   const loop = (buffer: AudioBuffer) => { const s = ctx.createBufferSource(); s.buffer = buffer; s.loop = true; return s; };
   const sources: AudioScheduledSourceNode[] = [];
 
-  // Traffic far off: a low rumble that swells and eases slowly.
-  const rumble = ctx.createGain(); rumble.gain.value = night ? 0.05 : 0.09;
-  const low = ctx.createBiquadFilter(); low.type = "lowpass"; low.frequency.value = 360;
-  const rumbleSrc = loop(brown); rumbleSrc.connect(low).connect(rumble).connect(master);
-  const swell = ctx.createOscillator(), swellDepth = ctx.createGain(); swell.frequency.value = 0.06; swellDepth.gain.value = 0.025;
-  swell.connect(swellDepth).connect(rumble.gain);
+  // The city far off: a soft, low hum that swells and eases slowly.
+  const hum = ctx.createGain(); hum.gain.value = night ? HUM.night : HUM.day;
+  const low = ctx.createBiquadFilter(); low.type = "lowpass"; low.frequency.value = 500;
+  const humSrc = loop(noise(5, true)); humSrc.connect(low).connect(hum).connect(master);
+  const swell = ctx.createOscillator(), swellDepth = ctx.createGain(); swell.frequency.value = 0.06; swellDepth.gain.value = 0.012;
+  swell.connect(swellDepth).connect(hum.gain);
   // Wind: a soft hiss rising and falling.
   const wind = ctx.createGain(); wind.gain.value = 0.012;
   const windBand = ctx.createBiquadFilter(); windBand.type = "bandpass"; windBand.frequency.value = 700; windBand.Q.value = 0.5;
-  const windSrc = loop(white); windSrc.connect(windBand).connect(wind).connect(master);
+  const windSrc = loop(noise(3, false)); windSrc.connect(windBand).connect(wind).connect(master);
   const gust = ctx.createOscillator(), gustDepth = ctx.createGain(); gust.frequency.value = 0.09; gustDepth.gain.value = 0.009;
   gust.connect(gustDepth).connect(wind.gain);
-  for (const s of [rumbleSrc, swell, windSrc, gust]) { s.start(); sources.push(s); }
+  for (const s of [humSrc, swell, windSrc, gust]) { s.start(); sources.push(s); }
 
-  // A car passing: tyres and engine growing, going by from one side to the other, and fading.
-  const car = () => {
-    const t0 = ctx.currentTime + 0.05, length = between(2.2, 4), loud = between(0.025, 0.06) * (night ? 0.7 : 1), dir = Math.random() < 0.5 ? -1 : 1;
-    const src = ctx.createBufferSource(); src.buffer = white; src.loop = true;
-    const band = ctx.createBiquadFilter(); band.type = "bandpass"; band.Q.value = 0.8;
-    band.frequency.setValueAtTime(between(520, 700), t0); band.frequency.linearRampToValueAtTime(between(380, 480), t0 + length);
-    const gain = ctx.createGain(); gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(loud, t0 + length * 0.5); gain.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
-    const pan = ctx.createStereoPanner(); pan.pan.setValueAtTime(-0.8 * dir, t0); pan.pan.linearRampToValueAtTime(0.8 * dir, t0 + length);
-    src.connect(band).connect(gain).connect(pan).connect(master); src.start(t0); src.stop(t0 + length + 0.1);
-    later(car, night ? between(4000, 12000) : between(1200, 4500));
-  };
-  // A horn down in the street, once in a while: one or two short toots, muffled by distance.
-  const horn = () => {
-    if (!night || Math.random() < 0.3) {
-      const muffle = ctx.createBiquadFilter(); muffle.type = "lowpass"; muffle.frequency.value = 1100; muffle.connect(master);
-      const pan = ctx.createStereoPanner(); pan.pan.value = between(-0.7, 0.7); pan.connect(muffle);
-      const gain = ctx.createGain(); gain.gain.value = 0; gain.connect(pan);
-      const t0 = ctx.currentTime + 0.05, toots = Math.random() < 0.5 ? [0] : [0, 0.32];
-      for (const f of [between(380, 420), between(470, 520)]) { const o = ctx.createOscillator(); o.type = "square"; o.frequency.value = f; o.connect(gain); o.start(t0); o.stop(t0 + 0.8); }
-      for (const at of toots) {
-        gain.gain.setValueAtTime(0, t0 + at); gain.gain.linearRampToValueAtTime(0.008, t0 + at + 0.02);
-        gain.gain.setValueAtTime(0.008, t0 + at + 0.2); gain.gain.linearRampToValueAtTime(0, t0 + at + 0.24);
-      }
-    }
-    later(horn, between(20000, 55000));
-  };
   // Birds by day: a few quick chirps from one spot.
   const birds = () => {
     if (!night) {
@@ -98,19 +73,19 @@ export function startCitySound(ctx: AudioContext, startAtNight: boolean): CitySo
         const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = between(4300, 4800); g.gain.value = 0;
         o.connect(g).connect(pan);
         const t0 = ctx.currentTime + between(0.05, 0.4);
-        for (let k = 0; k < 3; k++) { g.gain.setValueAtTime(0.004, t0 + k * 0.06); g.gain.setValueAtTime(0, t0 + k * 0.06 + 0.035); }
+        for (let k = 0; k < 3; k++) { g.gain.setValueAtTime(0.006, t0 + k * 0.06); g.gain.setValueAtTime(0, t0 + k * 0.06 + 0.035); }
         o.start(t0); o.stop(t0 + 0.25);
       }
     }
     later(crickets, between(800, 1400));
   };
-  later(car, 600); later(horn, between(8000, 20000)); later(birds, 1500); later(crickets, 1000);
+  later(birds, 1500); later(crickets, 1000);
 
   return {
     night: (on) => {
       night = on;
-      rumble.gain.cancelScheduledValues(ctx.currentTime); rumble.gain.setValueAtTime(rumble.gain.value, ctx.currentTime);
-      rumble.gain.linearRampToValueAtTime(on ? 0.05 : 0.09, ctx.currentTime + 2);
+      hum.gain.cancelScheduledValues(ctx.currentTime); hum.gain.setValueAtTime(hum.gain.value, ctx.currentTime);
+      hum.gain.linearRampToValueAtTime(on ? HUM.night : HUM.day, ctx.currentTime + 2);
     },
     stop: () => {
       stopped = true; timers.forEach((t) => window.clearTimeout(t));
