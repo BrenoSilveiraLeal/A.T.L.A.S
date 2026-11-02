@@ -604,7 +604,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, mobile ? 1 : 1.25));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    // The same softer daylight as the map (owner, 01/11/2026: "a luz da manhã tá muito estourada").
+    renderer.toneMappingExposure = 0.85;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = !mobile;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -645,15 +646,16 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
     } catch { /* storage blocked */ }
 
-    const sky = new THREE.HemisphereLight(0xffffff, 0x9c9384, 1.15); scene.add(sky);
-    const sun = new THREE.DirectionalLight(0xfff4e6, 1.7);
+    const sky = new THREE.HemisphereLight(0xffffff, 0x9c9384, 0.7); scene.add(sky);
+    const sun = new THREE.DirectionalLight(0xfff4e6, 1.8);
+    scene.environmentIntensity = 0.4;
     sun.position.set(-14, 30, 18); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 22, bottom: -22, near: 1, far: 90 });
     sun.shadow.bias = -0.0004;
     scene.add(sun);
     // Night on the map is night here too: softer daylight, the city lit outside the windows.
-    if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; }
+    if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; renderer.toneMappingExposure = 0.95; }
     // The office's own lights (owner, 01/11/2026: "a luz do escritório apaga quando não tem ninguém"):
     // on while anyone is in, off when the last one leaves; at night the office then goes dark, by day
     // only the daylight is left. See `officeLights` in the frame loop.

@@ -56,11 +56,13 @@ export function Dash3D({ status }: { status: DashStatus }) {
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     const surroundings = buildSurroundings(scene, { floor: FLOOR, mobile });
-    const sky = new THREE.HemisphereLight(0xeaf3ff, 0x8a7d6a, 1.1); scene.add(sky);
-    const sun = new THREE.DirectionalLight(0xfff0d2, 1.9); sun.position.set(-20, 34, 22); sun.castShadow = true;
+    // The same softer daylight as the map (owner, 01/11/2026: "a luz da manhã tá muito estourada").
+    renderer.toneMappingExposure = 0.85; scene.environmentIntensity = 0.4;
+    const sky = new THREE.HemisphereLight(0xeaf3ff, 0x8a7d6a, 0.7); scene.add(sky);
+    const sun = new THREE.DirectionalLight(0xfff0d2, 1.8); sun.position.set(-20, 34, 22); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 22, bottom: -22, near: 1, far: 90 }); sun.shadow.bias = -0.0004;
     scene.add(sun);
-    if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; }
+    if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; renderer.toneMappingExposure = 0.95; }
 
     const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 6000);
     const home = new THREE.Vector3(0, 30, 34);
