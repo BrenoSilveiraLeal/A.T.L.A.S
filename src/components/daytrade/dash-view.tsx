@@ -318,7 +318,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
               <div><dt>Operações fora da amostra</dt><dd>{backtest.trades}</dd></div>
               <div><dt>Pregões avaliados / blocos</dt><dd>{backtest.evaluationDays} / {backtest.walkForwardFolds}</dd></div>
               <div><dt>Histórico anterior acumulado</dt><dd>{backtest.trainingDays} pregões</dd></div>
-              <div><dt>Resultado líquido</dt><dd>R$ {backtest.netPnl?.toFixed(2)}</dd></div>
+              <div><dt>Líquido após custos, antes de IR</dt><dd>R$ {backtest.netPnl?.toFixed(2)}</dd></div>
               <div><dt>Acerto</dt><dd>{backtest.winRate === null || backtest.winRate === undefined ? "—" : `${(backtest.winRate * 100).toFixed(1)}%`}</dd></div>
               <div><dt>Fator de lucro</dt><dd>{backtest.profitFactor?.toFixed(2) ?? "—"}</dd></div>
               <div><dt>Drawdown máximo</dt><dd>R$ {backtest.maxDrawdown?.toFixed(2)}</dd></div>

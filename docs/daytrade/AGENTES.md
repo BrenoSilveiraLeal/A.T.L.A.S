@@ -44,7 +44,7 @@ Guia para implementar os agentes do DASH em outro computador. O código está em
 |---|---|
 | Feed e validação | ProfitDLL local, somente leitura; valida origem, atraso, contrato, OHLCV, candle e tick antes da persistência. |
 | Preço e estratégia | `opening-range-vwap-v1` calcula faixa inicial, VWAP e EMA em candle fechado e grava uma observação idempotente. |
-| Pesquisa | Backtest cronológico 70/30 com fricção por lado e avaliação fora da amostra; não aprova a estratégia automaticamente. |
+| Pesquisa | Backtest walk-forward em sessões completas, com fills no candle seguinte, fricção por lado e pregão corrente excluído; não aprova a estratégia automaticamente. |
 | Risco e execução paper | RPC Postgres transacional, um contrato, uma posição por vez; sinal do fechamento preenche no próximo candle; custo/risk config pendente bloqueia entradas. |
 | Notícias, supervisão, chefia e reconciliação com conta | Ainda sem workers ativos; não participam nem autorizam ordens reais. |
 | Roteamento real ProfitDLL | Desativado: não há chamadas OMS no gateway nem endpoint de envio. |

@@ -44,7 +44,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ reso
       if (resource === "backtest") {
         if (!config.costs.verified || config.costs.brokeragePerContract === null || config.costs.exchangeFeesPerContract === null || contract.pointValue === null || contract.tickSize === null)
           return json({ status: "COSTS_NOT_CONFIGURED", researchOnly: true });
-        return json(backtestCandidate(bars, contract.pointValue, contract.tickSize, config.costs.brokeragePerContract + config.costs.exchangeFeesPerContract, config.costs.slippageTicks));
+        return json(backtestCandidate(bars, contract.pointValue, contract.tickSize, config.costs.brokeragePerContract + config.costs.exchangeFeesPerContract, config.costs.slippageTicks, contract.expiresOn));
       }
       return json({ instrument: symbol, timeframe: "1m", bars, analysis: analyzeOpeningRange(bars), source: "PROFITDLL_DAYTRADE" });
     }

@@ -14,8 +14,8 @@ Não escolhi um influenciador para copiar. Não encontrei, nas fontes pesquisada
 - exige os 15 candles completos e consecutivos;
 - só indica observação compradora se o fechamento romper a máxima da faixa, estiver acima da VWAP e EMA 9 estiver acima da EMA 21; o caso vendedor é simétrico;
 - quando falta candle ou volume, informa que não há configuração;
-- o backtest cronológico avalia blocos sequenciais de seis pregões após ao menos 14 pregões completos de histórico, expandindo a janela histórica a cada bloco (walk-forward ancorado). As regras permanecem congeladas; não há ajuste de parâmetros. Usa fricção de ida e volta e no máximo um trade por dia;
-- o backtest fecha no fim da sessão e aproxima fills a partir de OHLCV de 1 minuto. Slippage e gaps intrabar não ficam perfeitamente modelados; resultados não autorizam operação real.
+- o backtest walk-forward avalia blocos sequenciais de seis pregões somente depois de pelo menos 14 sessões históricas completas e contínuas. O pregão corrente é sempre excluído; entrada ocorre na abertura do candle seguinte ao sinal, saída por stop considera gaps, e saída por filtro também usa a próxima abertura. Custos e slippage são cobrados nos dois lados; não há ajuste de parâmetros nem aprovação automática.
+- O backtest fecha no fim da sessão e aproxima preenchimentos a partir de OHLCV de 1 minuto. O P&L mostrado desconta corretagem, emolumentos e slippage informados, mas não calcula IR; gaps intrabar podem alterar o preenchimento real. Resultado não autoriza operação real.
 
 Artigos sobre ORB encontraram resultados diferentes em mercados e períodos diferentes: há estudos de futuros de petróleo e outros mercados com resultados favoráveis sob determinadas regras, enquanto estudos mais recentes podem não encontrar vantagem depois de custos. Não há evidência suficiente para assumir que o mesmo funciona no WIN/Genial. Por isso o DASH começa coletando dados próprios e apresenta “pesquisa”, sem promover o sinal a ordem.
 

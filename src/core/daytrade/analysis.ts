@@ -50,11 +50,24 @@ export interface BacktestSummary {
 }
 
 /** Anchored walk-forward evaluation of frozen rules; no parameter fitting or forecast. */
-export function backtestCandidate(bars: MinuteBar[], pointValue: number, tickSize: number, costPerSide: number, slippageTicks: number): BacktestSummary {
+export function backtestCandidate(bars: MinuteBar[], pointValue: number, tickSize: number, costPerSide: number, slippageTicks: number, expiresOn: string | null = null): BacktestSummary {
   const sorted = [...bars].sort((a, b) => a.bucket_at.localeCompare(b.bucket_at));
   const allDays = new Map<string, MinuteBar[]>();
   for (const bar of sorted) { const key = saoPauloDay(bar.bucket_at); allDays.set(key, [...(allDays.get(key) ?? []), bar]); }
-  const validDays = [...allDays.entries()].filter(([, day]) => day.some((b) => saoPauloMinute(b.bucket_at) >= "09:00" && saoPauloMinute(b.bucket_at) < "18:25"));
+  const today = saoPauloDay(new Date().toISOString());
+  const validDays: Array<[string, MinuteBar[]]> = [];
+  for (const [date, rawDay] of allDays) {
+    // Never treat today's still-forming session as an out-of-sample observation.
+    if (date >= today) continue;
+    const close = date === expiresOn || date < "2026-11-03" ? "18:00" : "18:25";
+    const day = rawDay.filter((b) => saoPauloMinute(b.bucket_at) >= "09:00" && saoPauloMinute(b.bucket_at) < close);
+    const closeMinutes = Number(close.slice(0, 2)) * 60 + Number(close.slice(3));
+    const expectedBars = closeMinutes - 9 * 60;
+    const lastMinuteOfSession = `${String(Math.floor((closeMinutes - 1) / 60)).padStart(2, "0")}:${String((closeMinutes - 1) % 60).padStart(2, "0")}`;
+    if (day.length !== expectedBars || saoPauloMinute(day.at(-1)!.bucket_at) !== lastMinuteOfSession) continue;
+    if (!day.every((bar, i) => i === 0 || Date.parse(bar.bucket_at) - Date.parse(day[i - 1].bucket_at) === 60_000)) continue;
+    validDays.push([date, day]);
+  }
   const initialTrainingDays = 14, evaluationBlockDays = 6;
   const foldCount = Math.floor(Math.max(0, validDays.length - initialTrainingDays) / evaluationBlockDays);
   const evaluationStart = initialTrainingDays;
@@ -67,24 +80,23 @@ export function backtestCandidate(bars: MinuteBar[], pointValue: number, tickSiz
    const blockStart = evaluationStart + fold * evaluationBlockDays;
    const trainingWindow = validDays.slice(0, blockStart);
    if (trainingWindow.length < initialTrainingDays) continue;
-   for (const [, rawDay] of validDays.slice(blockStart, blockStart + evaluationBlockDays)) {
-    const day = rawDay.filter((b) => saoPauloMinute(b.bucket_at) >= "09:00" && saoPauloMinute(b.bucket_at) < "18:25");
+   for (const [, day] of validDays.slice(blockStart, blockStart + evaluationBlockDays)) {
     if (day.length < 30) continue;
     const opening = day.filter((b) => saoPauloMinute(b.bucket_at) >= "09:00" && saoPauloMinute(b.bucket_at) < "09:15");
     if (opening.length !== 15) continue;
     const rangeHigh = Math.max(...opening.map((b) => b.high)), rangeLow = Math.min(...opening.map((b) => b.low));
     const rest = day.filter((b) => saoPauloMinute(b.bucket_at) >= "09:15"); let side: 1 | -1 | 0 = 0, entry = 0, exit = 0;
     for (let i = 5; i < rest.length; i++) {
-      const history = [...opening, ...rest.slice(0, i + 1)], last = rest[i];
+      const history = [...opening, ...rest.slice(0, i + 1)], last = rest[i], next = rest[i + 1];
       const totalVol = history.reduce((sum, b) => sum + b.volume, 0);
       const vwap = totalVol > 0 ? history.reduce((sum, b) => sum + b.close * b.volume, 0) / totalVol : null;
       const closes = history.map((b) => b.close), fast = ema(closes, 9), slow = ema(closes, 21);
       if (vwap === null || fast === null || slow === null) continue;
-      if (!side && last.close > rangeHigh && last.close > vwap && fast > slow) { side = 1; entry = last.close; }
-      else if (!side && last.close < rangeLow && last.close < vwap && fast < slow) { side = -1; entry = last.close; }
-      else if (side === 1 && last.low <= rangeLow) { exit = rangeLow; break; }
-      else if (side === -1 && last.high >= rangeHigh) { exit = rangeHigh; break; }
-      else if (side && ((side === 1 && (last.close < fast || last.close < vwap)) || (side === -1 && (last.close > fast || last.close > vwap)))) { exit = last.close; break; }
+      if (!side && next && last.close > rangeHigh && last.close > vwap && fast > slow && next.open > rangeLow) { side = 1; entry = next.open; }
+      else if (!side && next && last.close < rangeLow && last.close < vwap && fast < slow && next.open < rangeHigh) { side = -1; entry = next.open; }
+      else if (side === 1 && last.low <= rangeLow) { exit = last.open <= rangeLow ? last.open : rangeLow; break; }
+      else if (side === -1 && last.high >= rangeHigh) { exit = last.open >= rangeHigh ? last.open : rangeHigh; break; }
+      else if (side && ((side === 1 && (last.close < fast || last.close < vwap)) || (side === -1 && (last.close > fast || last.close > vwap)))) { exit = next?.open ?? last.close; break; }
     }
     if (side) { if (!exit) exit = rest.at(-1)!.close; pnl.push(side * (exit - entry) * pointValue - roundTripFriction); }
    }
