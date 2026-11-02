@@ -135,6 +135,17 @@ export function Dash3D({ status }: { status: DashStatus }) {
     wallMesh.position.set(VIDEO_WALL.x, VIDEO_WALL.y + VIDEO_WALL.h / 2, VIDEO_WALL.z); scene.add(wallMesh);
     add(new THREE.Mesh(new THREE.BoxGeometry(VIDEO_WALL.w + 0.3, VIDEO_WALL.h + 0.3, 0.15), metal)).position.set(VIDEO_WALL.x, VIDEO_WALL.y + VIDEO_WALL.h / 2, VIDEO_WALL.z - 0.1);
 
+    // Only when walking (owner, 02/11/2026: "quando estou andando dentro do escritório tem que mostrar um
+    // teto"): the ceiling with light panels, as in the DAWN office; seen from above it would hide the room.
+    const inside = new THREE.Group(); inside.visible = false; scene.add(inside);
+    {
+      const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, D), matte("#ecebe7", 0.9));
+      ceiling.rotation.x = Math.PI / 2; ceiling.position.y = H; inside.add(ceiling);
+      const panels = new Mass();
+      for (let x = -20; x <= 20; x += 6) for (let z = -10; z <= 10; z += 5) panels.box(x, H - 0.03, z, 1.8, 0.03, 0.6);
+      inside.add(new THREE.Mesh(panels.geometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4dc, emissiveIntensity: 0.9 })));
+    }
+
     // ----- The floor plan (dash-layout.ts, the same the map shows) -----
     /** What blocks the way in first person: boxes x0, z0, x1, z1. */
     const obstacles: [number, number, number, number][] = [[-W / 2, -D / 2, ROOMS[ROOMS.length - 1].x1 + 0.2, ROOM_FRONT + 0.15]];
@@ -382,7 +393,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
     const walk = { on: false, yaw: 0, pitch: 0, keys: new Set<string>(), drag: null as { x: number; y: number } | null };
     const KEYS: Record<string, [number, number]> = { w: [0, 1], arrowup: [0, 1], s: [0, -1], arrowdown: [0, -1], a: [-1, 0], arrowleft: [-1, 0], d: [1, 0], arrowright: [1, 0] };
     const firstPerson = (on: boolean) => {
-      walk.on = on; walk.keys.clear(); controls.enabled = !on && entry.at < 0;
+      walk.on = on; walk.keys.clear(); controls.enabled = !on && entry.at < 0; inside.visible = on;
       if (on) { entry.at = -1; camera.position.set(ELEVATOR.x, 1.65, D / 2 - 2.2); walk.yaw = 0; walk.pitch = -0.05; }
       else reset();
     };

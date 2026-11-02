@@ -17,6 +17,14 @@ import { SECTORS, type DeskId } from "@/core/daytrade/desks";
  */
 export interface Box { x: number; z: number; w: number; d: number; h: number; y?: number; color: string; kind?: "glow" | "steel" | "wood" | "fabric" | "plant"; label?: string }
 
+/** The tower's rounded corners (radius in metres): nothing on the floor may stick out of them. */
+export const FLOOR_R = 4;
+/** How far from the centre (|x|) the floor reaches at depth z, kept `margin` inside the glass. */
+export function floorEdge(z: number, margin = 0.15) {
+  const into = Math.max(0, Math.abs(z) - (14 - FLOOR_R));
+  return 24 - FLOOR_R + Math.sqrt(Math.max(0, FLOOR_R ** 2 - into ** 2)) - margin;
+}
+
 /** Warm oak, as the DAWN office's floor. */
 export const DASH_FLOOR = "#a8845f";
 
@@ -87,10 +95,10 @@ export const FURNITURE: Box[] = [
   { x: -19, z: -13.75, w: 3.2, d: 0.08, h: 1.5, y: 1.1, color: "#e3c28d", kind: "glow", label: "chefia" },
   { x: 6, z: -13.75, w: 3, d: 0.08, h: 1.5, y: 1.1, color: "#9db4e8", kind: "glow", label: "registro" },
   // Break area: kitchen along the back wall, fridge, coffee, island with stools.
-  { x: 17, z: -13.25, w: 11, d: 0.9, h: 0.95, color: "#f4f6f8" },
-  { x: 17, z: -13.25, w: 11.1, d: 0.95, h: 0.06, y: 0.95, color: "#b98a5a", kind: "wood" },
-  { x: 17, z: -13.6, w: 11, d: 0.4, h: 0.8, y: 1.9, color: "#ff7a59" },
-  { x: 23.2, z: -12.9, w: 1, d: 1, h: 2.1, color: "#c9cdd2", kind: "steel" },
+  { x: 16.4, z: -13.25, w: 9.8, d: 0.9, h: 0.95, color: "#f4f6f8" },
+  { x: 16.4, z: -13.25, w: 9.9, d: 0.95, h: 0.06, y: 0.95, color: "#b98a5a", kind: "wood" },
+  { x: 16.4, z: -13.55, w: 9.8, d: 0.35, h: 0.8, y: 1.9, color: "#ff7a59" },
+  { x: 23.05, z: -10.6, w: 1, d: 1, h: 2.1, color: "#c9cdd2", kind: "steel" },
   { x: 13.4, z: -13.2, w: 0.5, d: 0.45, h: 0.5, y: 1.01, color: "#2b2e34" },
   { x: 17.5, z: -9.4, w: 4.6, d: 1.4, h: 1.0, color: "#ffd166" },
   { x: 17.5, z: -9.4, w: 4.8, d: 1.6, h: 0.06, y: 1.0, color: "#b98a5a", kind: "wood" },
@@ -98,9 +106,9 @@ export const FURNITURE: Box[] = [
   { x: 16.5, z: -3.6, w: 1.5, d: 0.8, h: 0.82, color: "#3d5a80" },
   { x: 16.5, z: -3.6, w: 1.4, d: 0.7, h: 0.04, y: 0.82, color: "#2f8f5a" },
   // Lounge: L sofa, coffee table, bean bags (as fabric boxes, rounded by the scene).
-  { x: 21.5, z: 11.6, w: 4.5, d: 1.1, h: 0.5, color: "#ff7a59", kind: "fabric" },
-  { x: 21.5, z: 12.1, w: 4.5, d: 0.3, h: 1.0, color: "#ff7a59", kind: "fabric" },
-  { x: 23.3, z: 9.6, w: 1.1, d: 3.2, h: 0.5, color: "#ff7a59", kind: "fabric" },
+  { x: 21, z: 11.6, w: 3.6, d: 1.1, h: 0.5, color: "#ff7a59", kind: "fabric" },
+  { x: 21, z: 12.05, w: 3.6, d: 0.3, h: 1.0, color: "#ff7a59", kind: "fabric" },
+  { x: 23, z: 9.5, w: 1.1, d: 3, h: 0.5, color: "#ff7a59", kind: "fabric" },
   { x: 19.5, z: 9.4, w: 1.6, d: 1, h: 0.42, color: "#b98a5a", kind: "wood" },
   { x: 14.6, z: 10.2, w: 1.2, d: 1.2, h: 0.6, color: "#ef476f", kind: "fabric" },
   { x: 16.2, z: 11.8, w: 1.2, d: 1.2, h: 0.6, color: "#ffd166", kind: "fabric" },
@@ -130,10 +138,10 @@ export const FURNITURE: Box[] = [
 
 /** Floor rugs: under the islands (in the sector's colour), the break area and the lounge. */
 export const RUGS: Box[] = [
-  { x: 17.5, z: -7, w: 12, d: 13, h: 0.02, color: "#e9d8b4" },
-  { x: 18.5, z: 10, w: 10, d: 6.5, h: 0.02, color: "#ffe1a8" },
+  { x: 17, z: -6.9, w: 11, d: 11.8, h: 0.02, color: "#e9d8b4" },
+  { x: 18, z: 9.75, w: 9, d: 6, h: 0.02, color: "#ffe1a8" },
   { x: -19, z: 6, w: 9, d: 9, h: 0.02, color: "#3a4256" },
 ];
 
 /** Big plants in pots: x, z. */
-export const PLANTS: [number, number][] = [[-23, -3.8], [-13.4, -3.8], [9.6, -3.8], [9.6, 12.8], [-13, 12.8], [12.2, -12.6], [23.2, 5.4], [12.2, 13], [-23.2, 12.8]];
+export const PLANTS: [number, number][] = [[-23, -3.8], [-13.4, -3.8], [9.6, -3.8], [9.6, 12.8], [-13, 12.8], [12.2, -12.6], [23.2, 5.4], [12.2, 13], [-22.4, 11.2]];

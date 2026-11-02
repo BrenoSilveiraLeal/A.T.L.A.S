@@ -7,7 +7,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { floorLevel, OFFICE_GLASS, OFFICES, STATUS_LABEL, TOWER, windowBays, type Office } from "@/core/building";
 import { tradingDay } from "@/core/b3-calendar";
 import { DESKS, SECTORS } from "@/core/daytrade/desks";
-import { DASH_FLOOR, deskAt, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "@/components/daytrade/dash-layout";
+import { DASH_FLOOR, deskAt, floorEdge, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "@/components/daytrade/dash-layout";
 import { buildCity, glows, Mass, roundedSlab, setNight, SKY } from "./city";
 import { crownTop, elevatorTube, floorShell, lobby, towerMaterials } from "./tower";
 
@@ -199,7 +199,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       if (!dash) {
         // The dividends office: rugs, the back rooms behind glass with their coloured walls, the four
         // desk islands, the snack bar, the TV lounge, the market corner and the reception.
-        rug(29, 8.4, -7.75, 0.4, "#2f3b52"); rug(16, 5.8, -2, 10.4, "#6b3a48"); rug(16.4, 7.6, 15.8, 10.1, "#c98b5e"); rug(12, 8, 16.5, 0.4, "#24504c");
+        rug(29, 8.4, -7.75, 0.4, "#2f3b52"); rug(16, 5.8, -2, 10.4, "#6b3a48"); rug(14.9, 6.4, 15.05, 9.5, "#c98b5e"); rug(12, 8, 16.5, 0.4, "#24504c");
         [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => {
           const wall = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3, 7.3), matte(["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"][i % 4], 0.8));
           wall.position.set(x, 1.5, -9.65); g.add(wall);
@@ -253,7 +253,9 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         // DASH: the plan of its own scene (dash-layout.ts) — back rooms behind glass, the sector
         // islands facing the video wall, the supervisor on the floor, the break area and the reception.
         for (const r of ROOMS) {
-          const accent = new THREE.Mesh(new THREE.BoxGeometry(r.x1 - r.x0 - 0.3, 3.2, 0.06), matte(r.color, 0.85)); accent.position.set((r.x0 + r.x1) / 2, 1.6, -D / 2 + 0.6); g.add(accent);
+          // Up to where the corner rounds off, so the wall stays behind the glass.
+          const z = -D / 2 + 0.6, a = Math.max(r.x0 + 0.15, -floorEdge(z)), b = Math.min(r.x1 - 0.15, floorEdge(z));
+          const accent = new THREE.Mesh(new THREE.BoxGeometry(b - a, 3.2, 0.06), matte(r.color, 0.85)); accent.position.set((a + b) / 2, 1.6, z); g.add(accent);
           if (r.x0 > -W / 2) light.box(r.x0, 0, (ROOM_FRONT - D / 2) / 2, 0.14, 3.2, ROOM_FRONT + D / 2);
         }
         light.box(ROOMS[ROOMS.length - 1].x1, 0, (ROOM_FRONT - D / 2) / 2, 0.14, 3.2, ROOM_FRONT + D / 2);

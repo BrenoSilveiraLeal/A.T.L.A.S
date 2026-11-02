@@ -759,7 +759,7 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       /** Along the strip at offset v, where the ground is closer than `limit` to the river's middle. */
       const along = (v: number, limit: number): [number, number] | null => {
         let a = Infinity, b = -Infinity;
-        for (let u = start - 25; u <= end + 25; u += 0.5) {
+        for (let u = start - 25; u <= end + 25; u += 0.25) {
           const x = alongZ ? line + v : u, z = alongZ ? u : line + v;
           if (riverDist(x, z) < limit) { a = Math.min(a, u); b = Math.max(b, u); }
         }
@@ -767,15 +767,17 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       };
       const strip = (mass: Mass, v: number, width: number, limit: number, y: number, h: number) => {
         const r = along(v, limit);
-        if (r) put(mass, (r[0] + r[1]) / 2, v, y, r[1] - r[0] + 0.5, width, h);
+        if (r) put(mass, (r[0] + r[1]) / 2, v, y, r[1] - r[0] + 0.25, width, h);
         return r;
       };
       // The road: from bank to bank, meeting the street that comes down to the quay.
-      for (let v = -4.5; v <= 4.5; v += 1) strip(asphalt, v, 1.02, QUAY - 0.5, -0.45, DECK + 0.45);
+      // Its top (DECK + 0.05) a little above the promenade it passes over at the banks.
+      // Over the promenade up to the avenue's edge, in half-metre strips so the end follows the bank closely.
+      for (let v = -4.75; v <= 4.75; v += 0.5) strip(asphalt, v, 0.52, QUAY, -0.45, DECK + 0.5);
       const centre = along(0, RIVER);
-      if (centre) for (let u = centre[0] + 2; u < centre[1] - 2; u += 9) put(marks, u, 0, DECK, 4.5, 0.3, 0.05);
+      if (centre) for (let u = centre[0] + 2; u < centre[1] - 2; u += 9) put(marks, u, 0, DECK + 0.05, 4.5, 0.3, 0.05);
       for (const s of [-1, 1]) {
-        for (const v of [5.5, 6.5]) strip(concrete, s * v, 1.02, QUAY - 0.5, -0.45, DECK + 0.6);       // sidewalk
+        for (const v of [5.25, 5.75, 6.25, 6.75]) strip(concrete, s * v, 0.52, QUAY, -0.45, DECK + 0.6); // sidewalk, onto the promenade
         const rail = strip(shelters, s * 7.15, 0.3, RIVER + 0.5, DECK + 0.15, 0.85);                    // parapet, over the water
         strip(shelters, s * 7.15, 0.42, RIVER + 0.5, DECK + 1.0, 0.08);                                // its rail
         strip(concrete, s * 7.2, 0.5, RIVER, -1.35, 0.95);                                             // edge beam
@@ -839,13 +841,20 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
       if (lake < 1.35) continue;
       for (const k of [1, -1]) {
         quad(floor, side(s, k * RIVER), side(e, k * RIVER), side(s, k * (AVENUE + 32)), side(e, k * (AVENUE + 32)), GROUND - 0.3);
+        // The quay wall and the promenade run right up to each bridge (owner, 02/11/2026: "tá faltando
+        // um pouco de calçada ali"): by a bridge in half-metre pieces, leaving out only those wholly
+        // under its deck (the deck lies a little above the promenade, so where they overlap it covers it).
         const bank = side(s + STEP / 2, k * (RIVER + 2.5));
-        if (!nearDeck(bank.x, bank.y, 1)) {
-          upright(walls, side(s, k * RIVER), side(e, k * RIVER), WATER - 0.3, 0.3);
-          quad(walk, side(s, k * RIVER), side(e, k * RIVER), side(s, k * QUAY), side(e, k * QUAY), 0.3);
+        const piece = nearDeck(bank.x, bank.y, 12) ? 0.5 : STEP;
+        for (let a = s; a < e - 0.01; a += piece) {
+          const b = Math.min(a + piece, e);
+          if (piece < STEP && [side(a, k * RIVER), side(b, k * RIVER), side(a, k * QUAY), side(b, k * QUAY)].every((p) => nearDeck(p.x, p.y, -0.6))) continue;
+          upright(walls, side(a, k * RIVER), side(b, k * RIVER), WATER - 0.3, 0.3);
+          quad(walk, side(a, k * RIVER), side(b, k * RIVER), side(a, k * QUAY), side(b, k * QUAY), 0.3);
         }
         if (!town) continue;
-        quad(road, side(s, k * QUAY), side(e, k * QUAY), side(s, k * AVENUE), side(e, k * AVENUE), AVENUE_TOP);
+        // From under the promenade's edge, so no ground shows between it, a bridge's end and the avenue.
+        quad(road, side(s, k * (QUAY - 1.5)), side(e, k * (QUAY - 1.5)), side(s, k * AVENUE), side(e, k * AVENUE), AVENUE_TOP);
         const centre = side(s + STEP / 2, k * (QUAY + 7));
         if (n % 2 === 0 && !nearDeck(centre.x, centre.y, 4)) quad(line, side(s, k * (QUAY + 6.85)), side(e, k * (QUAY + 6.85)), side(s, k * (QUAY + 7.15)), side(e, k * (QUAY + 7.15)), AVENUE_TOP + 0.06);
       }
