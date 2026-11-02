@@ -204,7 +204,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
 
         {tab === "office" && <>
           <Dash3D status={status} halted={halted} />
-          <p className="dash-banner" role="note"><ShieldAlert size={16} /> O DASH ainda não tem feed, corretora nem estratégia aprovada. Ele não envia ordens; tudo aqui é simulado ou vazio até cada parte ser conectada e testada.</p>
+          <p className="dash-banner" role="note"><ShieldAlert size={16} /> {status.data === "REAL" ? "Feed ProfitDLL conectado somente para leitura; os candles são analisados e registrados como pesquisa." : "Feed ProfitDLL aguardando conexão para começar a coletar candles e registrar observações de pesquisa."} A estratégia ainda não está aprovada e o DASH não envia ordens nem usa dinheiro real.</p>
           <section className="dash-grid" aria-label="Resumo da mesa">{session}{signals}{orders}</section>
         </>}
 
