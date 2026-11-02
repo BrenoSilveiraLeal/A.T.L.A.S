@@ -654,6 +654,12 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     scene.add(sun);
     // Night on the map is night here too: softer daylight, the city lit outside the windows.
     if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; }
+    // The office's own lights (owner, 01/11/2026: "a luz do escritório apaga quando não tem ninguém"):
+    // on while anyone is in, off when the last one leaves; at night the office then goes dark, by day
+    // only the daylight is left. See `officeLights` in the frame loop.
+    const officeLight = new THREE.HemisphereLight(0xfff1dc, 0x8a7d6a, 0); scene.add(officeLight);
+    const nightTime = Boolean(surroundings.userData.night), baseSky = sky.intensity;
+    let lightsOn = 1;
 
     // Furniture helpers.
     const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material, shadow = true) => {
@@ -702,12 +708,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       frame.position.set(pane.position.x, h, pane.position.z); frame.rotation.y = pane.rotation.y; scene.add(frame);
     };
     const H = 3.4, Hi = 3.0;
-    // Only in first person: the ceiling with light panels.
+    // Only in first person: the ceiling with light panels (they go off with the office's lights).
     const inside = new THREE.Group(); inside.visible = false; scene.add(inside);
+    const ceilingPanel = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4dc, emissiveIntensity: 0.9 });
     {
       const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(48, 28), matte("#e9e6e0", 0.9));
       ceiling.rotation.x = Math.PI / 2; ceiling.position.y = H; inside.add(ceiling);
-      const panel = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4dc, emissiveIntensity: 0.9 });
+      const panel = ceilingPanel;
       for (let x = -20; x <= 20; x += 6) for (let z = -10; z <= 10; z += 5) {
         const p = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.03, 0.6), panel); p.position.set(x, H - 0.02, z); inside.add(p);
       }
@@ -1491,6 +1498,17 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           scene.add(made.group); pickables.push(made.group);
           r = { ...made, label, labelEl, bubble, bubbleEl, path: [], slot: null, key: "", phase: i * 1.7, zone: null, rest: null };
           people.set(agent.id, r);
+          // Home after the day's work, back before the open (see `commute`).
+          const walker = r;
+          commute({ person: walker, id: agent.id, staff: false,
+            exit: () => (walker.slot && !walker.path.length ? [...walker.slot.route].reverse() : []),
+            place: () => (walker.slot ? { at: walker.slot.pos, face: walker.slot.face } : { at: [0, 0], face: 0 }),
+            onLeave: () => { walker.path = []; if (walker.rest) { releaseSpot(walker.rest.activity, walker.rest.spot); walker.rest = null; } },
+            onArrive: () => {
+              // Their place may have changed while they were away: walk on to it.
+              const slot = walker.slot, pos: V2 = [walker.group.position.x, walker.group.position.z];
+              walker.path = slot && Math.hypot(pos[0] - slot.pos[0], pos[1] - slot.pos[1]) > 0.3 ? [...way(pos, slot.route.at(-1) ?? slot.pos), slot.pos] : [];
+            } });
         }
         // Councils sit only in working hours (owner, 27/10/2026): outside them an agent rests instead.
         const zone: OfficeZone = agent.zone === "OUT" || (agent.zone === "MEETING" && !workingHours(new Date())) ? "COFFEE" : agent.zone;
@@ -1590,7 +1608,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         inside.visible = true;
       } else {
         if (document.pointerLockElement === labels.domElement) document.exitPointerLock();
-        inside.visible = false; bossPerson.group.visible = true;
+        // Back to the map view: the boss shows again, unless he has gone home.
+        inside.visible = false; bossPerson.group.visible = (commuteOf.get(bossPerson.group)?.state ?? "in") !== "away";
         bossPerson.group.position.set(BOSS_DESK[0], 0, BOSS_DESK[1]); bossPerson.group.rotation.y = 0;
         bossState = "desk"; bossStaff.pose = "type";
         camera.fov = 34; camera.updateProjectionMatrix();
@@ -1743,6 +1762,86 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       else { pos.x += (dx / dist) * step; pos.z += (dz / dist) * step; p.group.rotation.y = Math.atan2(dx, dz); }
     };
 
+    // Going home and coming back (owner, 01/11/2026: "depois do horário de expediente as pessoas do
+    // escritório podem ir para casa entrando no elevador e sumindo, e voltar antes da bolsa abrir;
+    // inclusive o chefe, supervisora, assistente e secretária; podem ficar depois do horário se
+    // quiserem; só podem ir embora quando a bolsa fechar e depois da reunião"). On trading days each
+    // person arrives between 08:00 and 09:20 (São Paulo), before the open at 10:00, and leaves after the
+    // team meeting (never before 17:05, never during it): most soon after, about a quarter later in the
+    // evening. Times differ per person and per day but stay fixed within a day. Weekends and B3
+    // holidays: nobody comes in. Leaving: to the elevator, and gone; arriving: out of the elevator, to
+    // their place. While away or on the way, their usual routine waits.
+    type Commute = { person: Person; id: string; staff: boolean; state: "in" | "leaving" | "away" | "arriving"; path: V2[];
+      /** The way from their place to the open floor (rooms have doors), and their place itself. */
+      exit: () => V2[]; place: () => { at: V2; face: number }; onLeave?: () => void; onArrive?: () => void };
+    const commuters: Commute[] = [], commuteOf = new Map<THREE.Object3D, Commute>();
+    const DOOR: V2 = [ELEVATOR.x, TOWER.depth / 2 - 1.1];
+    const hash = (key: string) => { let h = 2166136261; for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619); return ((h >>> 0) % 10000) / 10000; };
+    const minutesOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+    const LEAVE_FROM = minutesOf("17:05"), CLOSES = minutesOf("22:00");
+    const expected = (id: string, staffMember: boolean) => {
+      const c = saoPauloClock(new Date());
+      if (["Sat", "Sun"].includes(c.weekday) || B3_CALENDAR[c.year]?.closed[c.date]) return false;
+      const now = minutesOf(c.time);
+      // The office closes at 22:00 (owner, 01/11/2026): by then everybody has gone home.
+      if (now >= CLOSES) return false;
+      const arrive = (staffMember ? 8 * 60 : 8 * 60 + 20) + hash(`${id}:in:${c.date}`) * (staffMember ? 40 : 60);
+      if (now < arrive) return false;
+      if (now < LEAVE_FROM || inMeeting(meetingData)) return true;
+      const late = hash(`${id}:late:${c.date}`) < 0.25, extra = hash(`${id}:out:${c.date}`);
+      return now < LEAVE_FROM + 10 + (late ? 120 + extra * 150 : extra * 45);
+    };
+    /** Their usual routine runs only while they are in. */
+    const present = (p: Person) => (commuteOf.get(p.group)?.state ?? "in") === "in";
+    const showPerson = (p: Person, on: boolean) => { p.group.visible = on; p.group.traverse((o) => { if (o instanceof CSS2DObject) o.visible = on; }); };
+    const way = (from: V2, to: V2): V2[] => nav.path(from, to) ?? [to];
+    const commute = (c: Omit<Commute, "state" | "path">) => {
+      const entry: Commute = { ...c, state: "in", path: [] };
+      commuters.push(entry); commuteOf.set(c.person.group, entry);
+      if (!expected(c.id, c.staff)) { entry.state = "away"; showPerson(c.person, false); }
+      return entry;
+    };
+    let commuteCheck = 0;
+    const updateCommute = (dt: number, t: number) => {
+      commuteCheck -= dt;
+      const recheck = commuteCheck <= 0;
+      if (recheck) commuteCheck = 2;
+      for (const c of commuters) {
+        // The boss stays while the owner walks in his shoes (first person).
+        if (recheck && !(fp && c.person === bossPerson)) {
+          const want = expected(c.id, c.staff);
+          if (want && c.state === "away") {
+            const exit = c.exit(), place = c.place(), start = exit.at(-1) ?? place.at;
+            showPerson(c.person, true); c.person.group.position.set(DOOR[0], 0, DOOR[1]);
+            c.path = [...way(DOOR, start), ...[...exit].reverse(), place.at]; c.state = "arriving";
+          } else if (!want && (c.state === "in" || c.state === "arriving")) {
+            const exit = c.state === "in" ? c.exit() : [], pos: V2 = [c.person.group.position.x, c.person.group.position.z];
+            c.onLeave?.();
+            c.path = [...exit, ...way(exit.at(-1) ?? pos, DOOR), DOOR]; c.state = "leaving";
+          }
+        }
+        if (c.state !== "arriving" && c.state !== "leaving") continue;
+        if (c.path.length) { walk(c.person, c.path, reduced ? 40 : 1.5, dt); pose(c.person, "walk", t, 1); continue; }
+        if (c.state === "leaving") { showPerson(c.person, false); c.state = "away"; continue; }
+        c.person.group.rotation.y = c.place().face; c.state = "in"; c.onArrive?.();
+      }
+    };
+    // The staff: boss, assistant, receptionist, supervisor and the council analysts.
+    const officeExit = (x: number): V2[] => [[x, -7.2], [x, CORRIDOR_Z]];
+    commute({ person: bossPerson, id: "boss", staff: true, exit: () => officeExit(BOSS_X), place: () => ({ at: BOSS_DESK, face: 0 }),
+      onLeave: () => { bossPath.length = 0; bossState = "desk"; bossStaff.pose = "type"; } });
+    commute({ person: assistant, id: "assistant", staff: true, exit: () => officeExit(BOSS_X), place: () => ({ at: ASSIST_DESK, face: Math.PI }),
+      onLeave: () => { assistPath.length = 0; assistState = "desk"; assistTimer = 30; } });
+    commute({ person: receptionist, id: "receptionist", staff: true, exit: () => [[-17.2, 8.3]], place: () => ({ at: [-19.5, 8.3], face: 0 }) });
+    commute({ person: supervisor, id: "supervisor", staff: true, exit: () => [], place: () => ({ at: [-22.4, -4.2], face: 0 }),
+      onLeave: () => { supPath.length = 0; supState = "patrol"; patrolWait = 0; } });
+    for (const a of analysts) {
+      commute({ person: a.member.person, id: `analyst:${a.room}:${a.seat}`, staff: false,
+        // From their chair, out of the room; already out on a break, straight from where they are.
+        exit: () => (a.state === "seat" ? roomExit(a.room, a.seat) : []), place: () => { const s = councilSeat(a.room, a.seat); return { at: s.pos, face: s.face }; },
+        onLeave: () => { if (a.spot >= 0) takenSpots.delete(a.spot); Object.assign(a, { state: "seat", path: [], spot: -1, corner: false }); a.member.away = false; } });
+    }
+
     let shooter: Walker | null = null, shotAt = 0, shotDone = true, poolTurn = 0, poolWait = 1;
     const clock = new THREE.Clock();
     let frame = 0;
@@ -1762,7 +1861,17 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         camera.position.lerpVectors(entry.from, home, smooth);
         if (k >= 1) { entry.at = -1; controls.maxDistance = 62; controls.enabled = true; }
       }
+      updateCommute(dt, t);
+      {
+        // Office lights: fade on when someone is in, off when the office is empty.
+        const anyone = commuters.some((c) => c.state !== "away");
+        lightsOn += ((anyone ? 1 : 0) - lightsOn) * Math.min(1, dt * 1.5);
+        officeLight.intensity = lightsOn * (nightTime ? 0.55 : 0.2);
+        sky.intensity = nightTime ? 0.2 + (baseSky - 0.2) * lightsOn : baseSky - 0.25 * (1 - lightsOn);
+        ceilingPanel.emissiveIntensity = 0.9 * lightsOn;
+      }
       for (const r of people.values()) {
+        if (!present(r)) continue; // gone home, or on the way in or out
         if (r.path.length) {
           walk(r, r.path, reduced ? 40 : 2.4, dt);
           pose(r, "walk", t, r.phase);
@@ -1782,7 +1891,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
       // Pool game: when the balls stop, the next player shoots the cue ball at a coloured ball.
       {
-        const players = [...people.values()].filter((r) => r.rest?.activity === "POOL" && !r.path.length);
+        const players = [...people.values()].filter((r) => r.rest?.activity === "POOL" && !r.path.length && present(r));
         const moving = balls.some((b) => !b.potted && Math.hypot(b.vx, b.vz) > 0.01);
         if (shooter && performance.now() >= shotAt && !shotDone) {
           const cue = balls[0], targets = balls.filter((b, k) => k && !b.potted);
@@ -1855,16 +1964,19 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         if (clock.phase !== "TALKING") meetingTurn = -1;
       }
       // Boss: to the head of the meeting table after the close, back to the desk when he ends it.
-      if (meetingNow && bossState === "desk") { bossState = "going"; bossPath.push(...toMeeting(BOSS_DESK, BOSS_SEAT)); }
-      if (!meetingNow && bossState === "meeting") { bossState = "back"; bossPath.push(...fromMeeting(BOSS_SEAT, BOSS_DESK)); }
-      if (bossPath.length) { walk(bossPerson, bossPath, reduced ? 40 : 1.6, dt); pose(bossPerson, "walk", t, 7); }
-      else if (bossState === "going") { bossState = "meeting"; bossPerson.group.rotation.y = Math.PI / 2; bossStaff.pose = "talk"; }
-      else if (bossState === "back") { bossState = "desk"; bossPerson.group.rotation.y = 0; bossStaff.pose = "type"; }
-      for (const s of staff) if (!s.away && (s !== bossStaff || (!bossPath.length && bossState !== "player"))) pose(s.person, s.pose, t, s.phase);
+      if (present(bossPerson)) {
+        if (meetingNow && bossState === "desk") { bossState = "going"; bossPath.push(...toMeeting(BOSS_DESK, BOSS_SEAT)); }
+        if (!meetingNow && bossState === "meeting") { bossState = "back"; bossPath.push(...fromMeeting(BOSS_SEAT, BOSS_DESK)); }
+        if (bossPath.length) { walk(bossPerson, bossPath, reduced ? 40 : 1.6, dt); pose(bossPerson, "walk", t, 7); }
+        else if (bossState === "going") { bossState = "meeting"; bossPerson.group.rotation.y = Math.PI / 2; bossStaff.pose = "talk"; }
+        else if (bossState === "back") { bossState = "desk"; bossPerson.group.rotation.y = 0; bossStaff.pose = "type"; }
+      }
+      for (const s of staff) if (!s.away && present(s.person) && (s !== bossStaff || (!bossPath.length && bossState !== "player"))) pose(s.person, s.pose, t, s.phase);
       // Council analysts: free outside their hours, back at their tables from 09:30.
       const working = workingHours(new Date()), analystsOn = workingHours(new Date(), ANALYSTS_FROM);
       for (const a of analysts) {
         const p = a.member.person;
+        if (!present(p)) continue;
         if (a.state === "seat") {
           if (analystsOn) continue;
           a.timer -= dt;
@@ -1912,13 +2024,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           }
         }
       }
-      // Assistant routine: desk → boss (report) → desk.
-      assistTimer -= dt;
-      if (assistState === "desk") {
+      // Assistant routine: desk → boss (report) → desk (only while he is in).
+      if (present(assistant)) assistTimer -= dt;
+      if (!present(assistant)) { /* gone home, or on the way */ }
+      else if (assistState === "desk") {
         pose(assistant, "type", t, 11);
         // Only when the boss is in his office (owner, 27/10/2026: not while he is at the meeting).
         if (assistTimer <= 0) {
-          if (bossState === "desk") { assistState = "going"; assistPath.push([BOSS_X + 1.6, -7.2], [BOSS_X + 0.9, -9.5]); }
+          if (bossState === "desk" && present(bossPerson)) { assistState = "going"; assistPath.push([BOSS_X + 1.6, -7.2], [BOSS_X + 0.9, -9.5]); }
           else assistTimer = 20;
         }
       } else if (assistState === "going" && bossState !== "desk") {
@@ -1937,7 +2050,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
       // Resting agents move on to another activity every 25 to 45 s.
       for (const r of people.values()) {
-        if (!r.rest || r.path.length) continue;
+        if (!r.rest || r.path.length || !present(r)) continue;
         r.rest.timer -= dt;
         if (r.rest.timer > 0) continue;
         const current = r.rest.activity;
@@ -1958,7 +2071,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         // The analysts answer only an agent sitting with them in the room, in working hours (owner,
         // 27/10/2026); never during the team meeting, on their breaks or while the agent is on its way.
         const visitor = agent && people.get(agent.id);
-        if (!agent?.debate || meetingNow || !working || !visitor || visitor.zone !== "MEETING" || visitor.path.length) { talk.agentId = ""; return; }
+        if (!agent?.debate || meetingNow || !working || !visitor || !present(visitor) || visitor.zone !== "MEETING" || visitor.path.length) { talk.agentId = ""; return; }
         if (talk.agentId !== agent.id) { talk.agentId = agent.id; talk.turn = 0; talk.timer = 0; }
         talk.timer -= dt;
         if (talk.timer > 0) return;
@@ -1978,12 +2091,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       chatTimer -= dt;
       if (chatTimer <= 0) {
         chatTimer = 8 + Math.random() * 6;
-        const resting = [...people.values()].filter((r) => r.zone && REST_ZONES.includes(r.zone) && !r.path.length && r.bubbleEl.hidden);
+        const resting = [...people.values()].filter((r) => r.zone && REST_ZONES.includes(r.zone) && !r.path.length && r.bubbleEl.hidden && present(r));
         const r = resting[Math.floor(Math.random() * resting.length)];
         const agent = r && latest.get(r.group.userData.agentId as string);
         if (r && agent && !meetingNow) show(r.bubbleEl, chatLine(agent), 4);
       }
-      // Supervisor: to the end of the meeting table after the close; otherwise the patrol.
+      // Supervisor: to the end of the meeting table after the close; otherwise the patrol (while she is in).
+      if (present(supervisor)) {
       if (meetingNow && supState === "patrol") { supState = "going"; supPath.length = 0; patrolWait = 0; supPath.push(...toMeeting([supervisor.group.position.x, supervisor.group.position.z], SUPERVISOR_SEAT)); }
       if (!meetingNow && supState !== "patrol") { supState = "patrol"; supPath.length = 0; supPath.push([SUPERVISOR_SEAT[0], -7.2], [MEETING_DOOR, -7.2], [MEETING_DOOR, CORRIDOR_Z]); }
       if (supState !== "patrol") {
@@ -2001,6 +2115,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         }
         patrolIndex++;
         supPath.push(patrol[patrolIndex % patrol.length].at); patrolWait = stop.wait ?? 0;
+      }
       }
       if (!supBubbleEl.hidden && performance.now() > supTalkUntil) supBubbleEl.hidden = true;
       if (fp) {

@@ -751,30 +751,46 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     const put = (mass: Mass, u: number, v: number, y: number, du: number, dv: number, h: number) =>
       alongZ ? mass.box(line + v, y, u, dv, h, du) : mass.box(u, y, line + v, du, h, dv);
     for (const [start, end] of crossings(k, alongZ)) {
-      const mid = (start + end) / 2, len = end - start + 1;
       bridges.push(alongZ ? [line - 7.6, start, line + 7.6, end] : [start, line - 7.6, end, line + 7.6]);
-      // The stretch over the water itself: sidewalks, parapets and lamps stay there, so they never
-      // stand across the riverside avenue (owner, 01/11/2026: "essa ponte tá tapando as ruas").
-      let ws = end, we = start;
-      for (let u = start; u <= end; u += 0.5) if (riverDist(alongZ ? line : u, alongZ ? u : line) < RIVER + 0.5) { ws = Math.min(ws, u); we = Math.max(we, u); }
-      const span = Math.max(4, we - ws + 3), smid = (ws + we) / 2;
-      put(asphalt, mid, 0, -0.45, len, 10, DECK + 0.45);
-      for (let u = start + 3; u < end - 3; u += 9) put(marks, u, 0, DECK, 4.5, 0.3, 0.05);
+      // The river crosses the street at an angle (and on a bend), so each lengthwise strip of the
+      // bridge starts and ends at the bank where that strip meets it: built in 1 m strips, the deck
+      // follows the quay line and never covers the riverside avenue (owner, 01/11/2026: "as pontes
+      // ainda estão tapando a rua por conta da curva").
+      /** Along the strip at offset v, where the ground is closer than `limit` to the river's middle. */
+      const along = (v: number, limit: number): [number, number] | null => {
+        let a = Infinity, b = -Infinity;
+        for (let u = start - 25; u <= end + 25; u += 0.5) {
+          const x = alongZ ? line + v : u, z = alongZ ? u : line + v;
+          if (riverDist(x, z) < limit) { a = Math.min(a, u); b = Math.max(b, u); }
+        }
+        return a <= b ? [a, b] : null;
+      };
+      const strip = (mass: Mass, v: number, width: number, limit: number, y: number, h: number) => {
+        const r = along(v, limit);
+        if (r) put(mass, (r[0] + r[1]) / 2, v, y, r[1] - r[0] + 0.5, width, h);
+        return r;
+      };
+      // The road: from bank to bank, meeting the street that comes down to the quay.
+      for (let v = -4.5; v <= 4.5; v += 1) strip(asphalt, v, 1.02, QUAY - 0.5, -0.45, DECK + 0.45);
+      const centre = along(0, RIVER);
+      if (centre) for (let u = centre[0] + 2; u < centre[1] - 2; u += 9) put(marks, u, 0, DECK, 4.5, 0.3, 0.05);
       for (const s of [-1, 1]) {
-        put(concrete, smid, s * 6, -0.45, span, 2, DECK + 0.6);                  // sidewalk
-        put(shelters, smid, s * 7.15, DECK + 0.15, span, 0.3, 0.85);            // parapet
-        put(shelters, smid, s * 7.15, DECK + 1.0, span, 0.42, 0.08);            // its rail
-        put(concrete, mid, s * 7.2, -1.35, len, 0.5, 0.95);                     // edge beam
-        for (let u = ws + 2; u < we - 1; u += 16) { const v = s * 7.15; lamps.push(alongZ ? [line + v, u] : [u, line + v]); }
-        // An arch under each side, springing low at the quays and meeting the deck in the middle.
-        const a0 = start + (QUAY - RIVER) * 1.3, a1 = end - (QUAY - RIVER) * 1.3, n = 16;
-        for (let i = 0; i < n; i++) {
-          const t = (i + 0.5) / n, y = WATER + (-1.35 - WATER) * Math.sin(Math.PI * t);
-          put(concrete, a0 + (a1 - a0) * t, s * 6.2, y - 0.35, (a1 - a0) / n + 0.3, 0.7, 0.7);
+        for (const v of [5.5, 6.5]) strip(concrete, s * v, 1.02, QUAY - 0.5, -0.45, DECK + 0.6);       // sidewalk
+        const rail = strip(shelters, s * 7.15, 0.3, RIVER + 0.5, DECK + 0.15, 0.85);                    // parapet, over the water
+        strip(shelters, s * 7.15, 0.42, RIVER + 0.5, DECK + 1.0, 0.08);                                // its rail
+        strip(concrete, s * 7.2, 0.5, RIVER, -1.35, 0.95);                                             // edge beam
+        if (rail) for (let u = rail[0] + 2; u < rail[1] - 1; u += 16) { const v = s * 7.15; lamps.push(alongZ ? [line + v, u] : [u, line + v]); }
+        // An arch under each side, springing low at the quay walls and meeting the deck in the middle.
+        const span = along(s * 6.2, RIVER);
+        if (span) {
+          const [a0, a1] = span, n = 16;
+          for (let i = 0; i < n; i++) {
+            const t = (i + 0.5) / n, y = WATER + (-1.35 - WATER) * Math.sin(Math.PI * t);
+            put(concrete, a0 + (a1 - a0) * t, s * 6.2, y - 0.35, (a1 - a0) / n + 0.3, 0.7, 0.7);
+          }
         }
       }
-      put(concrete, mid, 0, -1.35, len, 12, 0.9);                               // deck slab underside
-      for (const u of [start + 1.5, end - 1.5]) put(concrete, u, 0, WATER - 0.4, 3, 16, DECK - 0.05 - WATER + 0.4); // abutments
+      for (let v = -5.5; v <= 5.5; v += 1) strip(concrete, v, 1.02, RIVER, -1.35, 0.9);                 // deck slab underside
     }
   }
   city.add(mesh(concrete, plain("#d9d4ca", 0.85)));
