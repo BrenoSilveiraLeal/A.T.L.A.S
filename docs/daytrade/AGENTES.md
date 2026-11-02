@@ -49,7 +49,7 @@ Guia para implementar os agentes do DASH em outro computador. O código está em
 | Notícias, supervisão, chefia e reconciliação com conta | Ainda sem workers ativos; não participam nem autorizam ordens reais. |
 | Roteamento real ProfitDLL | Desativado: não há chamadas OMS no gateway nem endpoint de envio. |
 
-Hoje todo worker é `notImplemented`. Ele responde `IDLE` e diz o motivo, sem nunca inventar dado.
+Apenas os setores listados na tabela de implementação executam trabalho real (ingestão, análise, pesquisa e paper). Os demais workers ainda respondem `IDLE` com o motivo; não inventam dados nem autorizam ordens.
 
 ## Fluxo de uma operação
 

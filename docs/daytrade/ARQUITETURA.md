@@ -56,11 +56,11 @@ O desenho é uma proposta, não uma infraestrutura já instalada. A documentaç�
 | IR e datas | `src/core/tax.ts`, `src/core/b3-calendar.ts` | Reutilizar helpers somente depois de confirmar compatibilidade | `tax.ts` já separa resultados de day trade de ações e operações comuns, mas sua entrada é `TaxFill` de ticker/quantidade/preço; não modela ajuste diário, futuros, margem ou especificidades fiscais dos minicontratos. `b3-calendar.ts` é um guard conservador para ações à vista, tem janela 10:05–16:50 e lista 2027 provisória; não é um calendário operacional confirmado para WIN/WDO. |
 | Estratégia/risco/OMS | `src/core/risk.ts`, `src/core/oms.ts`, `src/core/executor.ts`, `src/lib/executor.ts`, `src/providers/execution-gateway.ts` | Referência para contratos, auditoria, idempotência e estados de falha | O domínio de risco valida `assetClass === "EQUITY"`, lotes de ações e ordens LIMIT/STOP_LIMIT; OMS e executor atuais são do fluxo de ações. Não conectar o motor DASH diretamente a eles sem separar domínio, persistência, identidade de conta e invariantes de futuros. |
 | IA de notícias | `src/core/news-ai.ts`, `src/lib/news-ai.ts` | Reusar leitura de manchetes e configuração de provedor após limitar permissões | A implementação atual gera etiquetas de contexto de ações e grava no banco. Não é um agente trader e não deve ganhar acesso a credenciais, gateway ou escrita de ordens. DASH só poderá usar IA para reduzir risco/bloquear entradas e redigir relatório, com fontes e schema validados. |
-| Gateway DASH | `gateways/profitdll/README.md` (plano) | Implementar processo x64 separado, primeiro somente leitura, em conformidade com o SDK licenciado | Ainda não há SDK, binding, callbacks, feed nem roteamento implementados. Não alterar `gateways/mt5/`: ele continua atendendo ao DAWN e não aceita futuros. |
+| Gateway DASH | `gateways/profitdll/gateway.py`, `run-gateway.ps1` e README | Coletor Windows x64 somente leitura; usa Market Data do SDK licenciado e envia candles/quotes autenticados ao BFF | Código de integração existe, mas ainda depende da DLL/ativação oficiais, entitlement e contrato vigente. OMS/roteamento real e reconciliação permanecem desativados. Não alterar `gateways/mt5/`: ele continua atendendo ao DAWN. |
 | Interface visual | `src/components/shell.tsx`, estilos em `src/app/globals.css`, páginas em `src/app/app/` | Reutilizar tokens/componentes neutros, quando adequado | A interface não comprova estado de mercado, preenchimento ou lucratividade. DASH deve mostrar `PENDING`/vazio quando não houver dado persistido, ter responsividade e respeitar movimento reduzido. |
 | Testes e CI | `vitest.config.ts`, `tests/`, `gateways/mt5/test_*.py`, `.github/workflows/ci.yml`, `package.json` | Usar Vitest/PGlite para banco e MT5 falso em testes Python; CI já prepara Python 3.13 | Linha de base: 629 testes Vitest passaram, 15 foram ignorados; 69 testes Python passaram. Novos testes devem ser aditivos; não editar testes de ações para fazer DASH passar. |
 
-## Estrutura nova planejada
+## Estrutura planejada ainda não concluída (itens já entregues indicados acima)
 
 ```text
 daytrade/                         domínio e processos Python exclusivos do DASH
@@ -79,7 +79,7 @@ supabase/migrations/*_daytrade_*   schema aditivo, RLS e RPCs próprias
 docs/daytrade/                     arquitetura, pesquisa, runbook e readiness
 ```
 
-Nomes, organização e runtime serão confirmados contra o código durante a etapa de esqueleto. A primeira entrega de mercado planejada é WIN. WDO, meta-labeling, hospedagem VPS e qualquer operação real não são requisitos para concluir as primeiras etapas.
+A estrutura acima descreve módulos futuros; hoje a coleta ProfitDLL e o motor paper persistente são implementados no gateway e no app Next.js listados no estado de implementação. WDO, meta-labeling, agente de notícias, supervisão automática, reconciliação com corretora e hospedagem contínua ainda não estão entregues.
 
 ## Proteção do ATLAS de ações
 
