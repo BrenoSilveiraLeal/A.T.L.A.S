@@ -22,7 +22,7 @@ export function CandleChart({
     const media = window.matchMedia("(max-width: 640px)");
     const update = () => {
       setCompact(media.matches);
-      if (media.matches) setRange((current) => Math.min(current, 60));
+      if (media.matches) setRange((current) => Math.min(current, 20));
     };
     update();
     media.addEventListener("change", update);
@@ -57,7 +57,7 @@ export function CandleChart({
             value={range}
             onChange={(e) => setRange(Number(e.target.value))}
           >
-            {timeframe === "minute" ? <><option value={30}>30 minutos</option><option value={60}>60 minutos</option>{!compact && <option value={180}>180 minutos</option>}</> : <><option value={20}>20 pregões</option><option value={60}>60 pregões</option>{!compact && <option value={100}>100 pregões</option>}</>}
+            {timeframe === "minute" ? <><option value={20}>20 minutos</option><option value={30}>30 minutos</option><option value={60}>60 minutos</option>{!compact && <option value={180}>180 minutos</option>}</> : <><option value={20}>20 pregões</option><option value={60}>60 pregões</option>{!compact && <option value={100}>100 pregões</option>}</>}
           </select>
         </label>
       </div>
