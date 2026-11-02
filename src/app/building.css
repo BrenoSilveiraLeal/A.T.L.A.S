@@ -107,5 +107,13 @@
   .building-foot .building-hint.notice { display: block; }
   .floor-tag span { font-size: 11px; }
 }
+/* On narrow phones the brand and the map controls need separate rows. */
+@media (max-width: 520px) {
+  .building-brand { top: calc(env(safe-area-inset-top, 0px) + 12px); left: 14px; }
+  .building-tools { top: calc(env(safe-area-inset-top, 0px) + 58px); left: 12px; right: 12px; justify-content: flex-end; gap: 6px; }
+  .building-tools button { min-height: 36px; }
+  .building-tools .round { width: 36px; }
+  .building-tools .pill { padding: 0 11px; }
+}
 @media (max-width: 640px) { .office3d-map-link { padding: 0 10px; font-size: 12px; } }
 @media (prefers-reduced-motion: reduce) { .floor-tag, .office-row { transition: none; } .building-intro { display: none; } }
