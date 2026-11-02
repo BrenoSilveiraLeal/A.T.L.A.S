@@ -6,6 +6,7 @@ import { Building, Building2, LayoutGrid, OctagonX, ShieldAlert, ShieldCheck, Us
 import { officeById } from "@/core/building";
 import { CandleChart } from "@/components/candle-chart";
 import type { MinuteBar, DeskSignal } from "@/core/daytrade/analysis";
+import type { DashConfig } from "@/core/daytrade/config";
 import { DATA_LABEL, DESKS, deskState, INITIAL_STATUS, MARKET_LABEL, ORDER_STATES, SECTORS, type DashStatus } from "@/core/daytrade/desks";
 
 const Dash3D = dynamic(() => import("./dash-3d").then((m) => m.Dash3D), {
@@ -24,6 +25,7 @@ type PaperData = {
   state: Array<{ instrument: string; position_side: number; entry_price: string | null; stop_price: string | null; pending_side: number; trades_today: number; realized_pnl_today: string; last_bar_at: string | null }>;
   fills: Array<{ instrument: string; bar_at: string; action: "ENTRY" | "EXIT"; side: "BUY" | "SELL"; price: string; fees: string; net_pnl: string | null; reason: string }>;
 };
+type DeskHeartbeat = { desk: string; at: string; state: "IDLE" | "WORKING" | "BLOCKED" | "ERROR"; detail: string };
 
 /**
  * The DASH office (owner, 01/11/2026: "crie o escritório do DASH para eu poder entrar e começar a
@@ -40,6 +42,9 @@ export function DashView({ connected = false }: { connected?: boolean }) {
   const [missing, setMissing] = useState<string[] | null>(null);
   const [paperMissing, setPaperMissing] = useState<string[] | null>(null);
   const [paper, setPaper] = useState<PaperData | null>(null);
+  const [config, setConfig] = useState<DashConfig | null>(null);
+  const [heartbeats, setHeartbeats] = useState<DeskHeartbeat[]>([]);
+  const [renderedAt, setRenderedAt] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [bars, setBars] = useState<MinuteBar[]>([]);
@@ -48,6 +53,12 @@ export function DashView({ connected = false }: { connected?: boolean }) {
   const [backtestBusy, setBacktestBusy] = useState(false);
   const [chartMessage, setChartMessage] = useState("Conecte o coletor ProfitDLL e configure um contrato ativo para receber candles.");
   const [tab, setTab] = useState<Tab>("office");
+  useEffect(() => {
+    const update = () => setRenderedAt(Date.now());
+    update();
+    const timer = window.setInterval(update, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
   // With the database: the office's state from /api/daytrade/status (dt_* tables), every 30 s.
   useEffect(() => {
     if (!connected) return;
@@ -57,12 +68,22 @@ export function DashView({ connected = false }: { connected?: boolean }) {
         const response = await fetch("/api/daytrade/status", { cache: "no-store" });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Falha ao ler o DASH.");
-        if (alive) { setStatus(data.status); setHalted(data.halted); setMissing(data.missing); setPaperMissing(data.paperMissing); }
+        if (alive) { setStatus(data.status); setHalted(data.halted); setMissing(data.missing); setPaperMissing(data.paperMissing); setHeartbeats(data.heartbeats ?? []); }
       } catch (error) { if (alive) setMessage(error instanceof Error ? error.message : "Falha ao ler o DASH."); }
     };
     void load();
     const timer = window.setInterval(load, 30000);
     return () => { alive = false; window.clearInterval(timer); };
+  }, [connected]);
+  useEffect(() => {
+    if (!connected) return;
+    let alive = true;
+    void fetch("/api/daytrade/config", { cache: "no-store" }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Falha ao ler a configuração do DASH.");
+      if (alive) setConfig(data.config);
+    }).catch(() => { if (alive) setConfig(null); });
+    return () => { alive = false; };
   }, [connected]);
   useEffect(() => {
     if (!connected || tab !== "panel") return;
@@ -116,17 +137,20 @@ export function DashView({ connected = false }: { connected?: boolean }) {
   }
   const idle = deskState(status) === "IDLE";
   const current = TABS.find((t) => t.id === tab)!;
+  const heartbeatByDesk = new Map(heartbeats.map((heartbeat) => [heartbeat.desk, heartbeat]));
   const activity = (id: string) => {
+    const heartbeat = heartbeatByDesk.get(id);
+    if (heartbeat && renderedAt > 0 && renderedAt - Date.parse(heartbeat.at) <= 60000) return `${heartbeat.state} · ${heartbeat.detail}`;
     switch (id) {
-      case "chief": return "Aguardando plano de sessão e gates completos";
-      case "supervisor": return halted ? "Parada ativa" : "Monitoramento automático ainda não conectado";
+      case "chief": return "Sessão automática e aprovação real desativadas";
+      case "supervisor": return halted ? "Parada ativa" : "Aguardando ciclo de supervisão";
       case "feed": return status.data === "REAL" ? "Feed ProfitDLL ativo · somente leitura" : "Aguardando conexão do ProfitDLL";
       case "price": return bars.length ? `Analisando ${bars.length} candles` : "Aguardando candles do pregão";
-      case "news": return "Fonte de notícias ainda não conectada";
+      case "news": return "Fonte de notícias/eventos ainda não conectada";
       case "strategy": return analysis?.state ?? "Aguardando histórico e faixa de abertura";
       case "backtest": return backtest?.status === "RESEARCH_ONLY" ? "Avaliação exploratória concluída" : "Aguardando histórico/custos confirmados";
-      case "risk": return missing === null ? "Aguardando leitura da configuração" : missing.length ? "Bloqueio ativo · há requisitos de risco pendentes" : "Limites configurados · ordens seguem bloqueadas";
-      case "positions": return "Reconciliação de conta não conectada";
+      case "risk": return paperMissing === null ? "Aguardando leitura da configuração" : paperMissing.length ? `BLOCKED · ${paperMissing.slice(0, 2).join("; ")}` : "Limites paper carregados · real bloqueado";
+      case "positions": return "Reconciliação de posições da corretora não conectada";
       case "execution": case "orders": return "Bloqueado · roteamento real desativado";
       case "ledger": return "Aguardando operações simuladas";
       default: return idle ? "Parado" : "Observando";
@@ -177,9 +201,11 @@ export function DashView({ connected = false }: { connected?: boolean }) {
     <article className="dash-card">
       <h2>Risco</h2>
       <dl>
-        <div><dt>Perda máxima por operação</dt><dd>A definir</dd></div>
-        <div><dt>Perda máxima diária</dt><dd>A definir</dd></div>
-        <div><dt>Exposição e margem</dt><dd>A definir</dd></div>
+        <div><dt>Perda máxima por operação</dt><dd>{config?.risk.maxLossPerTrade === null || !config ? "Pendente" : `R$ ${config.risk.maxLossPerTrade.toFixed(2)}`}</dd></div>
+        <div><dt>Perda máxima diária</dt><dd>{config?.risk.maxLossPerDay === null || !config ? "Pendente" : `R$ ${config.risk.maxLossPerDay.toFixed(2)}`}</dd></div>
+        <div><dt>Exposição máxima</dt><dd>{config?.risk.maxExposure === null || !config ? "Pendente" : `R$ ${config.risk.maxExposure.toFixed(2)}`}</dd></div>
+        <div><dt>Margem por contrato</dt><dd>{config?.instruments.find((i) => i.enabled)?.marginPerContract == null ? "Pendente" : `R$ ${config.instruments.find((i) => i.enabled)!.marginPerContract!.toFixed(2)}`}</dd></div>
+        <div><dt>Limite diário</dt><dd>{config ? `${config.risk.maxTradesPerDay} entradas · ${config.risk.maxContracts} contrato(s)` : "—"}</dd></div>
         <div><dt>Envio de ordens</dt><dd>Bloqueado</dd></div>
       </dl>
     </article>
@@ -264,28 +290,30 @@ export function DashView({ connected = false }: { connected?: boolean }) {
           {orders}
           <article className="dash-card">
             <h2>Posições e saldo</h2>
-            <dl>
-              <div><dt>Saldo confirmado pela corretora</dt><dd>—</dd></div>
-              <div><dt>Bloqueado como garantia</dt><dd>—</dd></div>
-              <div><dt>Saldo de simulação</dt><dd>—</dd></div>
-              <div><dt>Posições</dt><dd>Nenhuma</dd></div>
-            </dl>
+            <p className="dash-note">Reconciliação da corretora indisponível. Abaixo aparecem apenas posições do simulador.</p>
+            {paper?.state.length ? paper.state.map((row) => <dl key={row.instrument}>
+              <div><dt>{row.instrument} · posição paper</dt><dd>{row.position_side === 1 ? "Comprado" : row.position_side === -1 ? "Vendido" : row.pending_side ? "Entrada pendente" : "Zerado"}</dd></div>
+              <div><dt>Preço / stop</dt><dd>{row.entry_price ?? "—"} / {row.stop_price ?? "—"}</dd></div>
+              <div><dt>P&L realizado hoje</dt><dd>R$ {Number(row.realized_pnl_today).toFixed(2)}</dd></div>
+            </dl>) : <p className="dash-note">Nenhum estado paper gravado ainda.</p>}
           </article>
           <article className="dash-card">
             <h2>Resultado</h2>
             <dl>
-              <div><dt>Simulado</dt><dd>—</dd></div>
-              <div><dt>Real</dt><dd>—</dd></div>
+              <div><dt>P&L paper hoje</dt><dd>{paper?.state.length ? `R$ ${paper.state.reduce((sum, row) => sum + Number(row.realized_pnl_today), 0).toFixed(2)}` : "—"}</dd></div>
+              <div><dt>Resultado real</dt><dd>Indisponível · sem ordens reais</dd></div>
             </dl>
             <p className="dash-note">Os dois nunca são somados.</p>
           </article>
           <article className="dash-card">
             <h2>Custos e tributos</h2>
             <dl>
-              <div><dt>Corretagem e emolumentos</dt><dd>—</dd></div>
-              <div><dt>Conversão cambial</dt><dd>—</dd></div>
-              <div><dt>Estimativa de IR (day trade)</dt><dd>—</dd></div>
+              <div><dt>Corretagem / contrato / lado</dt><dd>{!config || config.costs.brokeragePerContract === null ? "Pendente" : `R$ ${config.costs.brokeragePerContract.toFixed(2)}`}</dd></div>
+              <div><dt>Emolumentos / contrato / lado</dt><dd>{!config || config.costs.exchangeFeesPerContract === null ? "Pendente" : `R$ ${config.costs.exchangeFeesPerContract.toFixed(2)}`}</dd></div>
+              <div><dt>Slippage</dt><dd>{config ? `${config.costs.slippageTicks} tick(s) por fill` : "—"}</dd></div>
+              <div><dt>IR estimado</dt><dd>{config ? `${(config.tax.dayTradeRate * 100).toFixed(0)}% sobre ganho mensal` : "—"}</dd></div>
             </dl>
+            <p className="dash-note">Confira custos e tributos com a nota da Genial e um contador. O backtest não desconta IR.</p>
           </article>
         </section>}
 

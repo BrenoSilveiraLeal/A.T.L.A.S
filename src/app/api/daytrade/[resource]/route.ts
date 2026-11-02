@@ -173,6 +173,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
             onConflict: "owner_id,instrument,strategy_version,bar_at", ignoreDuplicates: true,
           });
           if (observationError) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar as observações da estratégia.");
+          await recordHeartbeat(db, ownerId, "price", "WORKING", `${allBars.length} candles M1 validados e carregados para leitura.`);
           await recordHeartbeat(db, ownerId, "strategy", "WORKING", `${observations.length} candle(s) fechado(s) analisado(s); observação de pesquisa, sem ordens.`);
         }
       }
@@ -181,6 +182,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
         const paperMissing = paperReadiness(config);
         const { data: settings, error: settingsError } = await db.from("dt_settings").select("halted").eq("owner_id", ownerId).maybeSingle();
         if (settingsError) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler a trava da simulaÃ§Ã£o.");
+        const riskBlocked = paperMissing.length > 0 || settings?.halted === true;
+        await recordHeartbeat(db, ownerId, "risk", riskBlocked ? "BLOCKED" : "WORKING", riskBlocked
+          ? `Paper sem entradas: ${paperMissing.join("; ") || "parada manual ativa"}.`
+          : "Limites verificados pelo motor paper; nenhuma autoridade de ordem real.");
         const feePerSide = config.costs.brokeragePerContract !== null && config.costs.exchangeFeesPerContract !== null
           ? config.costs.brokeragePerContract + config.costs.exchangeFeesPerContract : null;
         for (const closed of [...body.closedBars].sort((a, b) => a.bucketAt.localeCompare(b.bucketAt))) {
@@ -205,7 +210,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
             await appendJournal(db, ownerId, [{ at: closed.bucketAt, desk: "execution", state: blocked ? "BLOCKED" : "WORKING", message: `Paper ${paperAction} em ${instrument.symbol}; nenhuma ordem real foi enviada.` }]);
           }
         }
-        await recordHeartbeat(db, ownerId, "execution", "WORKING", paperMissing.length || settings?.halted
+        await recordHeartbeat(db, ownerId, "execution", paperMissing.length || settings?.halted ? "BLOCKED" : "WORKING", paperMissing.length || settings?.halted
           ? `Paper trading bloqueado: ${paperMissing.join("; ") || "parada manual ativa"}.`
           : "Paper trading ativo; fills simulados e roteamento de ordens reais desativado.");
       }
