@@ -16,10 +16,12 @@ export const instrumentSchema = z.object({
   enabled: z.boolean(),
   /** The tradable contract's symbol at the broker (the current series), not a continuous series. */
   symbol: z.string().regex(/^[A-Z0-9$]{3,12}$/).nullable(),
+  expiresOn: z.string().date().nullable().optional(),
   tickSize: money,
   pointValue: money,
   marginPerContract: money,
   verified: z.boolean(),
+  specificationSource: z.string().url().optional(),
 });
 
 export const dashConfigSchema = z.object({
@@ -57,6 +59,7 @@ export function readiness(config: DashConfig): string[] {
     if (!i.symbol) missing.push(`${i.id}: símbolo do contrato vigente`);
     if (i.tickSize === null || i.pointValue === null) missing.push(`${i.id}: tamanho do tick e valor do ponto`);
     if (i.marginPerContract === null) missing.push(`${i.id}: margem por contrato`);
+    if (i.expiresOn && new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) >= i.expiresOn) missing.push(`${i.id}: contract expired; update the active contract symbol`);
     if (!i.verified) missing.push(`${i.id}: especificação conferida em fonte oficial`);
   }
   if (!config.session.open || !config.session.lastEntry || !config.session.flatBy || !config.session.verified) missing.push("Horários da sessão (abertura, última entrada, zeragem) conferidos");

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Building, Building2, LayoutGrid, OctagonX, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 import { officeById } from "@/core/building";
+import { CandleChart } from "@/components/candle-chart";
+import type { MinuteBar, DeskSignal } from "@/core/daytrade/analysis";
 import { DATA_LABEL, DESKS, deskState, INITIAL_STATUS, MARKET_LABEL, ORDER_STATES, SECTORS, type DashStatus } from "@/core/daytrade/desks";
 
 const Dash3D = dynamic(() => import("./dash-3d").then((m) => m.Dash3D), {
@@ -13,8 +15,9 @@ const Dash3D = dynamic(() => import("./dash-3d").then((m) => m.Dash3D), {
 const TABS = [
   { id: "office", label: "Escritório", icon: Building2, note: "A mesa de day trade e o que cada agente está fazendo." },
   { id: "panel", label: "Painel", icon: LayoutGrid, note: "Sessão, corretora, ordens, saldo, resultado e custos." },
-  { id: "desks", label: "Equipe", icon: Users, note: "Os setores do DASH, quem trabalha em cada um e o que cada um faz (funções a implementar)." },
+  { id: "desks", label: "Equipe", icon: Users, note: "Responsabilidades, atividade atual e integrações que ainda aguardam configuração." },
   { id: "risk", label: "Risco", icon: ShieldCheck, note: "Os limites e as regras que valem para toda ordem." },
+  { id: "charts", label: "Gráficos", icon: LayoutGrid, note: "Candles de 1 minuto do ProfitDLL e análise transparente, sem ordens." },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -33,6 +36,11 @@ export function DashView({ connected = false }: { connected?: boolean }) {
   const [missing, setMissing] = useState<string[] | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [bars, setBars] = useState<MinuteBar[]>([]);
+  const [analysis, setAnalysis] = useState<DeskSignal | null>(null);
+  const [backtest, setBacktest] = useState<{ status: string; trades?: number; netPnl?: number; winRate?: number | null; profitFactor?: number | null; maxDrawdown?: number } | null>(null);
+  const [backtestBusy, setBacktestBusy] = useState(false);
+  const [chartMessage, setChartMessage] = useState("Conecte o coletor ProfitDLL e configure um contrato ativo para receber candles.");
   const [tab, setTab] = useState<Tab>("office");
   // With the database: the office's state from /api/daytrade/status (dt_* tables), every 30 s.
   useEffect(() => {
@@ -50,6 +58,31 @@ export function DashView({ connected = false }: { connected?: boolean }) {
     const timer = window.setInterval(load, 30000);
     return () => { alive = false; window.clearInterval(timer); };
   }, [connected]);
+  useEffect(() => {
+    if (!connected || tab !== "charts") return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/daytrade/bars", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar os candles.");
+        if (alive) { setBars(data.bars); setAnalysis(data.analysis); setChartMessage(data.bars.length ? "Feed ProfitDLL somente leitura." : "Nenhum candle salvo ainda. O histórico começa quando o gateway for executado durante o pregão."); }
+      } catch (error) { if (alive) setChartMessage(error instanceof Error ? error.message : "Falha ao carregar candles."); }
+    };
+    void load(); const timer = window.setInterval(load, 15000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [connected, tab]);
+  async function runBacktest() {
+    setBacktestBusy(true);
+    try {
+      const response = await fetch("/api/daytrade/backtest", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Falha ao avaliar o histórico.");
+      setBacktest(data);
+    } catch (error) {
+      setBacktest({ status: error instanceof Error ? error.message : "Falha ao avaliar o histórico." });
+    } finally { setBacktestBusy(false); }
+  }
   /** The DASH kill switch (only the DASH; the DAWN office is not touched). */
   async function toggleHalt() {
     setBusy(true); setMessage("");
@@ -63,6 +96,22 @@ export function DashView({ connected = false }: { connected?: boolean }) {
   }
   const idle = deskState(status) === "IDLE";
   const current = TABS.find((t) => t.id === tab)!;
+  const activity = (id: string) => {
+    switch (id) {
+      case "chief": return "Aguardando plano de sessão e gates completos";
+      case "supervisor": return halted ? "Parada ativa" : "Monitoramento automático ainda não conectado";
+      case "feed": return status.data === "REAL" ? "Feed ProfitDLL ativo · somente leitura" : "Aguardando conexão do ProfitDLL";
+      case "price": return bars.length ? `Analisando ${bars.length} candles` : "Aguardando candles do pregão";
+      case "news": return "Fonte de notícias ainda não conectada";
+      case "strategy": return analysis?.state ?? "Aguardando histórico e faixa de abertura";
+      case "backtest": return backtest?.status === "RESEARCH_ONLY" ? "Avaliação exploratória concluída" : "Aguardando histórico/custos confirmados";
+      case "risk": return missing === null ? "Aguardando leitura da configuração" : missing.length ? "Bloqueio ativo · há requisitos de risco pendentes" : "Limites configurados · ordens seguem bloqueadas";
+      case "positions": return "Reconciliação de conta não conectada";
+      case "execution": case "orders": return "Bloqueado · roteamento real desativado";
+      case "ledger": return "Aguardando operações simuladas";
+      default: return idle ? "Parado" : "Observando";
+    }
+  };
 
   const session = (
     <article className="dash-card">
@@ -98,7 +147,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
         {DESKS.filter((d) => d.sector === sector.id).map((d) => (
           <li key={d.id}>
             <b>{d.person.name}</b><span><strong>{d.role}</strong><small>{d.job}</small></span>
-            <em>{idle ? "Parada · sem feed" : "Observando"}</em>
+            <em>{activity(d.id)}</em>
           </li>
         ))}
       </ul>
@@ -205,6 +254,40 @@ export function DashView({ connected = false }: { connected?: boolean }) {
         </section>}
 
         {tab === "desks" && <section className="dash-grid" aria-label="Mesas do DASH">{desks}</section>}
+
+        {tab === "charts" && <section className="dash-grid" aria-label="Gráficos e análise do DASH">
+          <article className="dash-card wide">
+            <h2>WIN · candles de 1 minuto</h2>
+            {bars.length ? <CandleChart timeframe="minute" ticker="WIN" bars={bars.map((b) => ({ timestamp: b.bucket_at, open: String(b.open), high: String(b.high), low: String(b.low), close: String(b.close), adjustedClose: null, volume: b.volume }))} /> : <p className="dash-note">{chartMessage}</p>}
+            <p className="dash-note">{chartMessage} Sem candles históricos: análise e backtest ficam indisponíveis, não se completam com dados inventados.</p>
+          </article>
+          <article className="dash-card">
+            <h2>Hipótese de estratégia · ORB + VWAP + EMA</h2>
+            <dl>
+              <div><dt>Estado</dt><dd>{analysis?.state ?? "Sem dados"}</dd></div>
+              <div><dt>Candles observados</dt><dd>{analysis?.metrics.bars ?? 0}</dd></div>
+              <div><dt>VWAP</dt><dd>{analysis?.metrics.vwap?.toFixed(2) ?? "—"}</dd></div>
+              <div><dt>Faixa inicial</dt><dd>{analysis?.metrics.openingLow?.toFixed(2) ?? "—"} – {analysis?.metrics.openingHigh?.toFixed(2) ?? "—"}</dd></div>
+              <div><dt>EMA 9 / 21</dt><dd>{analysis?.metrics.emaFast?.toFixed(2) ?? "—"} / {analysis?.metrics.emaSlow?.toFixed(2) ?? "—"}</dd></div>
+            </dl>
+            <p className="dash-note">{analysis?.explanation ?? "Aguardando feed"} Estratégia candidata sem validação; “observar” não significa comprar ou vender.</p>
+          </article>
+          <article className="dash-card">
+            <h2>Validação</h2>
+            <button type="button" className="button secondary" onClick={() => void runBacktest()} disabled={!connected || backtestBusy}>
+              {backtestBusy ? "Avaliando histórico…" : "Executar avaliação fora da amostra"}
+            </button>
+            {backtest?.status === "RESEARCH_ONLY" || backtest?.status === "NO_TRADES" ? <dl>
+              <div><dt>Estado</dt><dd>{backtest.status}</dd></div>
+              <div><dt>Operações fora da amostra</dt><dd>{backtest.trades}</dd></div>
+              <div><dt>Resultado líquido</dt><dd>R$ {backtest.netPnl?.toFixed(2)}</dd></div>
+              <div><dt>Acerto</dt><dd>{backtest.winRate === null || backtest.winRate === undefined ? "—" : `${(backtest.winRate * 100).toFixed(1)}%`}</dd></div>
+              <div><dt>Fator de lucro</dt><dd>{backtest.profitFactor?.toFixed(2) ?? "—"}</dd></div>
+              <div><dt>Drawdown máximo</dt><dd>R$ {backtest.maxDrawdown?.toFixed(2)}</dd></div>
+            </dl> : <p className="dash-note">{backtest?.status === "INSUFFICIENT_DATA" ? "Histórico fora da amostra insuficiente; acumule ao menos 20 pregões completos, com 6 no período de avaliação." : backtest?.status === "COSTS_NOT_CONFIGURED" ? "Informe corretagem e emolumentos por contrato com base na sua nota para avaliar resultado líquido." : backtest?.status && backtest.status !== "COSTS_NOT_CONFIGURED" ? backtest.status : "A avaliação usa até 20.000 candles e só é executada quando solicitada. Precisa de custos confirmados da conta."}</p>}
+            <p className="dash-note">Resultado hipotético exploratório, não previsão nem validação para dinheiro real. Ordens permanecem bloqueadas.</p>
+          </article>
+        </section>}
 
         {tab === "risk" && <section className="dash-grid" aria-label="Risco do DASH">
           {risk}

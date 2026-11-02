@@ -7,6 +7,7 @@ import { runCycle } from "@/core/daytrade/cycle";
 import { roomLimits } from "@/core/daytrade/config";
 import { DESKS } from "@/core/daytrade/desks";
 import { required } from "@/lib/env";
+import { analyzeOpeningRange, backtestCandidate, type MinuteBar } from "@/core/daytrade/analysis";
 
 export const runtime = "nodejs";
 
@@ -16,11 +17,27 @@ export const runtime = "nodejs";
  * Scheduler (CRON_SECRET): POST cycle (one cycle of the desk; with the idle workers it only writes the
  * journal) and heartbeat (a worker reports in). No route here sends an order to a broker.
  */
-export async function GET(_request: Request, { params }: { params: Promise<{ resource: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ resource: string }> }) {
   try {
     const { resource } = await params;
     const { user } = await requireOwner();
     const db = adminClient();
+    if (resource === "bars" || resource === "backtest") {
+      const config = dashConfig();
+      const symbol = new URL(request.url).searchParams.get("instrument") ?? config.instruments.find((i) => i.enabled)?.symbol;
+      if (!symbol || !config.instruments.some((i) => i.enabled && i.symbol === symbol)) throw new ApiError(422, "INSTRUMENT_NOT_READY", "Selecione um contrato habilitado no DASH.");
+      const { data, error } = await db.from("dt_market_bars").select("bucket_at,open,high,low,close,volume")
+        .eq("owner_id", user.id).eq("instrument", symbol).eq("timeframe", "1m").order("bucket_at", { ascending: false }).limit(resource === "backtest" ? 20000 : 600);
+      if (error) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler os candles do DASH.");
+      const bars = (data ?? []).reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) })) as MinuteBar[];
+      const contract = config.instruments.find((i) => i.symbol === symbol)!;
+      if (resource === "backtest") {
+        if (!config.costs.verified || config.costs.brokeragePerContract === null || config.costs.exchangeFeesPerContract === null || contract.pointValue === null || contract.tickSize === null)
+          return json({ status: "COSTS_NOT_CONFIGURED", researchOnly: true });
+        return json(backtestCandidate(bars, contract.pointValue, contract.tickSize, config.costs.brokeragePerContract + config.costs.exchangeFeesPerContract, config.costs.slippageTicks));
+      }
+      return json({ instrument: symbol, timeframe: "1m", bars, analysis: analyzeOpeningRange(bars), source: "PROFITDLL_DAYTRADE" });
+    }
     if (resource === "status") return json(await loadDashStatus(db, user.id));
     if (resource === "config") { const c = dashConfig(); return json({ config: c, limits: roomLimits(c) }); }
     if (resource === "journal") return json({ rows: await loadDashRecords(db, user.id, "dt_journal") });
@@ -40,8 +57,14 @@ const quoteSchema = z.object({
   provider: z.literal("PROFITDLL_DAYTRADE"), instrument: z.string().regex(/^[A-Z0-9$]{3,12}$/),
   last: z.number().finite().positive(), bid: z.number().finite().positive().nullable(), ask: z.number().finite().positive().nullable(),
   exchangeAt: z.string().datetime({ offset: true }), receivedAt: z.string().datetime({ offset: true }), sequence: z.number().int().nonnegative().nullable().default(null),
+  bar: z.object({ bucketAt: z.string().datetime({ offset: true }), open: z.number().positive(), high: z.number().positive(), low: z.number().positive(), close: z.number().positive(), volume: z.number().int().nonnegative() }).strict().optional(),
+  closedBars: z.array(z.object({ bucketAt: z.string().datetime({ offset: true }), open: z.number().positive(), high: z.number().positive(), low: z.number().positive(), close: z.number().positive(), volume: z.number().int().nonnegative() }).strict()).max(10).default([]),
 }).strict().superRefine((q, ctx) => {
   if (q.bid !== null && q.ask !== null && q.bid > q.ask) ctx.addIssue({ code: "custom", path: ["bid"], message: "Livro inconsistente." });
+  if (q.bar && (q.bar.high < Math.max(q.bar.open, q.bar.close, q.bar.low) || q.bar.low > Math.min(q.bar.open, q.bar.close, q.bar.high) || q.bar.close !== q.last)) ctx.addIssue({ code: "custom", path: ["bar"], message: "Inconsistent current candle." });
+  q.closedBars.forEach((bar, index) => {
+    if (bar.high < Math.max(bar.open, bar.close, bar.low) || bar.low > Math.min(bar.open, bar.close, bar.high)) ctx.addIssue({ code: "custom", path: ["closedBars", index], message: "Inconsistent closed candle." });
+  });
 });
 
 export async function POST(request: Request, { params }: { params: Promise<{ resource: string }> }) {
@@ -68,6 +91,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
       const config = dashConfig();
       const instrument = config.instruments.find((i) => i.enabled && i.symbol === body.instrument);
       if (!instrument || !instrument.verified) throw new ApiError(422, "INSTRUMENT_NOT_READY", "Contrato não está habilitado e verificado na configuração do DASH.");
+      if (instrument.expiresOn && new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) >= instrument.expiresOn) throw new ApiError(422, "CONTRACT_EXPIRED", "Contract expired; update the symbol before collecting quotes.");
       const received = Date.parse(body.receivedAt), exchange = Date.parse(body.exchangeAt), now = Date.now();
       if (Math.abs(now - received) > config.data.maxDelayMs || received < exchange || received - exchange > config.data.maxDelayMs)
         throw new ApiError(422, "QUOTE_STALE", "Cotação fora da janela de atraso permitida.");
@@ -78,6 +102,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
         throw new ApiError(409, "QUOTE_OUT_OF_ORDER", "Cotação repetida ou fora de ordem foi descartada.");
       const { error } = await db.from("dt_market_quotes").upsert({ owner_id: ownerId, instrument: instrument.symbol, provider: body.provider, last: body.last, bid: body.bid, ask: body.ask, exchange_at: body.exchangeAt, received_at: body.receivedAt, sequence: body.sequence }, { onConflict: "owner_id,instrument" });
       if (error) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar a cotação.");
+      const bars = [...body.closedBars, ...(body.bar ? [body.bar] : [])];
+      for (const bar of bars) {
+        const bucket = Date.parse(bar.bucketAt);
+        if (!Number.isFinite(bucket) || bucket % 60_000 !== 0 || bucket > now || now - bucket > 120_000) throw new ApiError(422, "BAR_INVALID", "O candle precisa pertencer ao minuto atual ou imediatamente anterior.");
+      }
+      if (bars.length) {
+        const { error: barError } = await db.from("dt_market_bars").upsert(bars.map((bar) => ({ owner_id: ownerId, instrument: instrument.symbol, provider: body.provider, timeframe: "1m", bucket_at: bar.bucketAt, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, updated_at: new Date().toISOString() })), { onConflict: "owner_id,instrument,timeframe,bucket_at" });
+        if (barError) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar os candles.");
+      }
       await recordHeartbeat(db, ownerId, "feed", "WORKING", "Cotação ProfitDLL recebida; somente leitura.");
       return json({ ok: true, instrument: instrument.symbol, receivedAt: body.receivedAt });
     }

@@ -53,6 +53,7 @@ class Tick:
     ticker: str
     exchange: str
     price: float
+    quantity: int
     sequence: int
     exchange_at: datetime
 
@@ -165,7 +166,7 @@ class ProfitFeed:
                 raw = trade.TradeDate
                 exchange_at = datetime(raw.wYear, raw.wMonth, raw.wDay, raw.wHour, raw.wMinute,
                                        raw.wSecond, raw.wMilliseconds * 1000, tzinfo=LOCAL_TZ).astimezone(timezone.utc)
-                tick = Tick(ticker, exchange, float(trade.Price), int(trade.TradeNumber), exchange_at)
+                tick = Tick(ticker, exchange, float(trade.Price), max(0, int(trade.Quantity)), int(trade.TradeNumber), exchange_at)
                 if tick.price <= 0:
                     return
                 self.events.put_nowait(tick)
@@ -218,12 +219,12 @@ class ProfitFeed:
             self.dll_dir.close()
 
 
-def send_snapshot(tick: Tick, endpoint: str, secret: str) -> None:
+def send_snapshot(tick: Tick, endpoint: str, secret: str, bar: dict[str, object], closed_bars: list[dict[str, object]]) -> None:
     received_at = datetime.now(timezone.utc)
     payload = json.dumps({
         "provider": "PROFITDLL_DAYTRADE", "instrument": tick.ticker, "last": tick.price,
         "bid": None, "ask": None, "exchangeAt": tick.exchange_at.isoformat(),
-        "receivedAt": received_at.isoformat(), "sequence": tick.sequence,
+        "receivedAt": received_at.isoformat(), "sequence": tick.sequence, "bar": bar, "closedBars": closed_bars[-10:],
     }, separators=(",", ":")).encode("utf-8")
     request = Request(endpoint, data=payload, method="POST", headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {secret}",
@@ -252,23 +253,39 @@ def main() -> None:
         feed.subscribe()
         print(f"ProfitDLL Market Data conectado; assinatura {ticker}/{exchange}; roteamento desativado.")
         last_tick_key: tuple[int, datetime] | None = None
+        current_bar: dict[str, object] | None = None
+        last_sent = 0.0
         while True:
             tick = feed.events.get()
+            batch = [tick]
             # Drain bursts and relay only the newest tick, outside the DLL callback thread.
             while True:
                 try:
-                    candidate = feed.events.get_nowait()
-                    if candidate.exchange_at >= tick.exchange_at:
-                        tick = candidate
+                    batch.append(feed.events.get_nowait())
                 except queue.Empty:
                     break
             if not feed.is_ready():
                 continue
+            batch.sort(key=lambda item: (item.exchange_at, item.sequence))
+            tick = batch[-1]
+            closed_bars: list[dict[str, object]] = []
+            for item in batch:
+                minute = item.exchange_at.replace(second=0, microsecond=0)
+                if current_bar is None or current_bar["bucketAt"] != minute.isoformat():
+                    if current_bar is not None:
+                        closed_bars.append(current_bar)
+                    current_bar = {"bucketAt": minute.isoformat(), "open": item.price, "high": item.price, "low": item.price, "close": item.price, "volume": item.quantity}
+                else:
+                    current_bar["high"] = max(float(current_bar["high"]), item.price)
+                    current_bar["low"] = min(float(current_bar["low"]), item.price)
+                    current_bar["close"] = item.price
+                    current_bar["volume"] = int(current_bar["volume"]) + item.quantity
             tick_key = (tick.sequence, tick.exchange_at)
-            if tick_key == last_tick_key:
+            if tick_key == last_tick_key or time.monotonic() - last_sent < 1.0:
                 continue
-            send_snapshot(tick, endpoint, secret)
+            send_snapshot(tick, endpoint, secret, current_bar, closed_bars)
             last_tick_key = tick_key
+            last_sent = time.monotonic()
     except KeyboardInterrupt:
         print("Encerrando coletor somente leitura.")
     finally:

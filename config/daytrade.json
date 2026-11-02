@@ -6,11 +6,13 @@
       "id": "WIN",
       "name": "Mini Índice Bovespa",
       "enabled": true,
-      "symbol": null,
-      "tickSize": null,
-      "pointValue": null,
+      "symbol": "WINZ26",
+      "expiresOn": "2026-12-16",
+      "tickSize": 5,
+      "pointValue": 0.2,
       "marginPerContract": null,
-      "verified": false
+      "verified": true,
+      "specificationSource": "https://www.b3.com.br/pt_br/produtos-e-servicos/negociacao/renda-variavel/futuro-mini-de-ibovespa.htm"
     },
     {
       "id": "WDO",
@@ -25,7 +27,7 @@
   ],
   "session": {
     "timezone": "America/Sao_Paulo",
-    "open": null,
+    "open": "09:00",
     "lastEntry": null,
     "flatBy": null,
     "verified": false

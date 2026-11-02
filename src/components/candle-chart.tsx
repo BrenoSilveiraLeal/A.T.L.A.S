@@ -9,10 +9,12 @@ export function CandleChart({
   ticker,
   bars,
   markers = [],
+  timeframe = "daily",
 }: {
   ticker: string;
   bars: HistoricalBar[];
   markers?: ChartMarker[];
+  timeframe?: "daily" | "minute";
 }) {
   const [range, setRange] = useState(60);
   const data = bars.slice(-range);
@@ -34,16 +36,14 @@ export function CandleChart({
   return (
     <figure className="candle-chart">
       <div className="section-heading">
-        <h2>{ticker} · Histórico diário</h2>
+        <h2>{ticker} · {timeframe === "minute" ? "Candles de 1 minuto" : "Histórico diário"}</h2>
         <label className="chart-range">
           Período
           <select
             value={range}
             onChange={(e) => setRange(Number(e.target.value))}
           >
-            <option value={20}>20 pregões</option>
-            <option value={60}>60 pregões</option>
-            <option value={100}>100 pregões</option>
+            {timeframe === "minute" ? <><option value={60}>60 minutos</option><option value={180}>180 minutos</option><option value={360}>360 minutos</option></> : <><option value={20}>20 pregões</option><option value={60}>60 pregões</option><option value={100}>100 pregões</option></>}
           </select>
         </label>
       </div>
@@ -138,10 +138,7 @@ export function CandleChart({
           {data[data.length - 1].timestamp.slice(0, 10)}
         </text>
       </svg>
-      <figcaption>
-        EOD · OHLCV bruto da brapi. Candles do dia corrente são excluídos. Não é
-        um feed de execução.{markers.length > 0 && " ▲ notícia que pode fazer subir · ▼ pode fazer cair · ◆ atenção (passe o mouse para ler)."}
-      </figcaption>
+      <figcaption>{timeframe === "minute" ? "OHLCV agregado do feed ProfitDLL. Candles em tempo real, somente leitura." : "EOD · OHLCV bruto da brapi. Candles do dia corrente são excluídos. Não é um feed de execução."}{markers.length > 0 && " ▲ notícia · ▼ notícia · ◆ atenção (passe o mouse para ler)."}</figcaption>
       <details>
         <summary>Ver dados em tabela</summary>
         <div className="table-scroll">

@@ -38,7 +38,7 @@ function checked<T>(result: { data: T | null; error: { message: string } | null 
 /** The bridge's own execution switch, read from its local config (only that one line). */
 export async function bridgeExecution(): Promise<boolean | null> {
   try {
-    const text = await readFile(process.env.ATLAS_GATEWAY_ENV_PATH ?? "C:/atlas-data/gateway.env", "utf8");
+    const text = await readFile(/* turbopackIgnore: true */ process.env.ATLAS_GATEWAY_ENV_PATH ?? "C:/atlas-data/gateway.env", "utf8");
     const line = text.split(/\r?\n/).find((l) => l.startsWith("ATLAS_MT5_ENABLE_EXECUTION="));
     return line ? line.split("=")[1].trim().toLowerCase() === "true" : false;
   } catch { return null; }

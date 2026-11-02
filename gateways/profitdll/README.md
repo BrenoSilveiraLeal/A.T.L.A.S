@@ -5,8 +5,8 @@ This gateway is the selected adapter for DASH. It is a separate Windows x64 proc
 ## Current status
 
 - Provider ID in `config/daytrade.json`: `PROFITDLL_DAYTRADE`.
-- The application-side read-only quote intake is implemented at `POST /api/daytrade/quote`; it is protected by a dedicated PROFITDLL_INGEST_SECRET, separate from scheduler credentials, validates the configured verified contract and freshness, and stores only the latest quote in `dt_market_quotes`. The Supabase migration is applied to the ATLAS project.
-- `gateway.py` is a read-only Windows x64 consumer. It uses the documented Market Data initialization, keeps callbacks short, translates trades while native pointers are valid, waits for login/feed/activation states, then sends latest trades over HTTPS to the quote endpoint. It never loads OMS order functions.
+- The application-side read-only quote intake is implemented at `POST /api/daytrade/quote`; it is protected by a dedicated PROFITDLL_INGEST_SECRET, separate from scheduler credentials, validates the configured verified contract and freshness, and stores the latest quote in `dt_market_quotes` and 1-minute OHLCV bars in `dt_market_bars`. Both tables have owner-scoped RLS; only the service role writes. The Supabase migration is applied to the ATLAS project.
+- `gateway.py` is a read-only Windows x64 consumer. It uses the documented Market Data initialization, keeps callbacks short, translates trades while native pointers are valid, waits for login/feed/activation states, aggregates ticks into 1-minute OHLCV bars and relays rate-limited quote snapshots and bars over HTTPS. It never loads OMS order functions.
 - DASH order submission remains blocked in the application. The official licensed DLL runtime must be installed locally before connecting.
 
 ## Integration order
@@ -29,4 +29,15 @@ This gateway is the selected adapter for DASH. It is a separate Windows x64 proc
 
 ## Local gateway configuration
 
-Keep the vendor package outside the repository. Never place the activation key, credentials, or ingest secret in Git or browser code. Store the ingest secret in the private gateway environment and the Vercel server environment; use a distinct value from CRON_SECRET. Match PROFITDLL_TICKER exactly to the verified instrument symbol in config/daytrade.json; both remain unset until the broker/Nelogica confirms the active contract.
+Keep the vendor package outside the repository. Never place the activation key, credentials, or ingest secret in Git or browser code. Store the ingest secret in the private gateway environment and the Vercel server environment; use a distinct value from CRON_SECRET. The current read-only contract is WINZ26 (expires 16/12/2026), with B3 public tick/value specs recorded in `config/daytrade.json`. The endpoint rejects new quotes after expiry. Before rolling the contract, confirm the new expiry and update the symbol in the config and local `.env.local`; never reuse an expired symbol. Market Data entitlement and Nelogica activation remain required.
+
+## Quick start after obtaining the official package
+
+1. Download the **ProfitDLL Windows x64** package from Nelogica's official logged-in area. Do not use DLLs from third-party mirrors. Extract it to a private local folder and point `PROFITDLL_RUNTIME_DIR` at the folder containing `ProfitDLL.dll`.
+2. Install Python 3 for Windows x64 if it is not already installed.
+3. Open PowerShell at the repository and run `./gateways/profitdll/run-gateway.ps1`. The script checks the configured contract and local runtime, then asks for the activation key and Nelogica credentials in hidden prompts.
+4. Keep the collector running during the market session. The dashboard's **Gráficos** tab polls the 1-minute candles and strategy observation from `/api/daytrade/bars`.
+
+The chart history begins when the collector first runs; it does not backfill candles from before installation. This pipeline is read-only: the integration uses Market Data initialization and does not load ProfitDLL OMS/order functions. Real orders remain disabled.
+
+The configured WINZ26 symbol should be rolled before its 16/12/2026 expiry. The B3 WIN schedule is 09:00–18:25 from 03/11/2026; the contract's expiry day closes at 18:00. Check the [B3 circular 050/2026](https://www.b3.com.br/data/files/99/B7/82/67/8A631A103BBB511AAC094EA8/OC%20050-2026-VNC%20NOVOS%20HORARIOS%20DE%20NEGOCIACAO_PT.pdf).
