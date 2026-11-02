@@ -42,8 +42,9 @@
 .dash-banner { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 14px; border-radius: 14px; font-size: 13px; color: #ffe3b0;
   background: rgba(255, 179, 71, 0.1); border: 1px solid rgba(255, 179, 71, 0.3); max-width: none; }
 .dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-.dash-card { padding: 16px 18px; border-radius: 18px; background: var(--d-card); border: 1px solid var(--d-line); }
+.dash-card { min-width: 0; padding: 16px 18px; border-radius: 18px; background: var(--d-card); border: 1px solid var(--d-line); }
 .dash-card.wide { grid-column: span 2; }
+.dash-card.wide:has(.candle-chart) { padding: 12px 16px 16px; }
 .dash-card h2 { margin: 0 0 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--d-muted); }
 .dash-card dl { margin: 0; display: grid; gap: 8px; }
 .dash-card dl div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
@@ -65,6 +66,12 @@
 @media (max-width: 700px) {
   .dash-grid { grid-template-columns: minmax(0, 1fr); }
   .dash-card.wide { grid-column: auto; }
+  .dash-card.wide:has(.candle-chart) { padding: 10px 12px 14px; }
+  .dash-frame .candle-chart { min-width: 0; width: 100%; }
+  .dash-frame .candle-chart .section-heading { align-items: center; }
+  .dash-frame .candle-chart .section-heading h2 { font-size: 15px; }
+  .dash-frame .candle-chart svg { width: 100%; height: auto; }
+  .dash-frame .candle-chart figcaption { font-size: 11px; line-height: 1.5; }
   .dash-orders { grid-template-columns: repeat(2, 1fr); }
   .dash3d-canvas { aspect-ratio: 4 / 5; min-height: 320px; }
   .dash-desks li { grid-template-columns: 48px 1fr; }

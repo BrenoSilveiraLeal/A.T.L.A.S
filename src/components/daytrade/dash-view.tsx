@@ -321,9 +321,8 @@ export function DashView({ connected = false }: { connected?: boolean }) {
 
         {tab === "charts" && <section className="dash-grid" aria-label="Gráficos e análise do DASH">
           <article className="dash-card wide">
-            <h2>WIN · candles de 1 minuto</h2>
             {bars.length ? <CandleChart timeframe="minute" ticker="WIN" bars={bars.map((b) => ({ timestamp: b.bucket_at, open: String(b.open), high: String(b.high), low: String(b.low), close: String(b.close), adjustedClose: null, volume: b.volume }))} /> : <p className="dash-note">{chartMessage}</p>}
-            <p className="dash-note">{chartMessage} Sem candles históricos: análise e backtest ficam indisponíveis, não se completam com dados inventados.</p>
+            {bars.length > 0 && <p className="dash-note">{chartMessage} Os candles representam dados observados; períodos sem feed não são preenchidos.</p>}
           </article>
           <article className="dash-card">
             <h2>Hipótese de estratégia · ORB + VWAP + EMA</h2>

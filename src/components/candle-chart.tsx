@@ -31,14 +31,18 @@ export function CandleChart({
   const data = bars.slice(-range);
   if (!data.length)
     return <p>Histórico indisponível. Nenhum candle foi criado.</p>;
-  const width = compact ? 360 : 720,
-    height = 300,
-    left = 58,
-    right = 12,
-    top = 16,
-    floor = 215;
-  const low = Math.min(...data.map((bar) => Number(bar.low))),
-    high = Math.max(...data.map((bar) => Number(bar.high)));
+  const width = compact ? 390 : 720,
+    height = compact ? 260 : 300,
+    left = compact ? 50 : 58,
+    right = compact ? 14 : 12,
+    top = compact ? 18 : 16,
+    floor = compact ? 184 : 215;
+  const rawLow = Math.min(...data.map((bar) => Number(bar.low))),
+    rawHigh = Math.max(...data.map((bar) => Number(bar.high)));
+  // Give the wicks breathing room so candles never touch the top or bottom grid line.
+  const padding = (rawHigh - rawLow || Math.max(rawHigh * 0.01, 1)) * (compact ? 0.08 : 0.04);
+  const low = rawLow - padding,
+    high = rawHigh + padding;
   const span = high - low || Math.max(high * 0.01, 1);
   const y = (price: string | number) =>
     top + ((high - Number(price)) / span) * (floor - top);
@@ -74,13 +78,14 @@ export function CandleChart({
               y1={top + t * (floor - top)}
               y2={top + t * (floor - top)}
               stroke="var(--line)"
+              strokeOpacity={compact ? 0.72 : 1}
             />
             <text
               x={left - 8}
               y={top + t * (floor - top) + 4}
               textAnchor="end"
               fill="var(--muted)"
-              fontSize="10"
+              fontSize={compact ? "9" : "10"}
             >
               {(high - t * span).toFixed(2)}
             </text>
@@ -115,9 +120,9 @@ export function CandleChart({
               />
               <rect
                 x={x - step * 0.28}
-                y={270 - (bar.volume / volume) * 35}
+                y={(compact ? 232 : 270) - (bar.volume / volume) * (compact ? 24 : 35)}
                 width={Math.max(1, step * 0.56)}
-                height={Math.max(0, (bar.volume / volume) * 35)}
+                height={Math.max(0, (bar.volume / volume) * (compact ? 24 : 35))}
                 fill={color}
                 opacity=".45"
               />
@@ -139,14 +144,14 @@ export function CandleChart({
             </path>
           );
         })}
-        <text x={left} y={height - 8} fill="var(--muted)" fontSize="10">
+        <text x={left} y={height - 8} fill="var(--muted)" fontSize={compact ? "9" : "10"}>
           {axisLabel(data[0].timestamp)}
         </text>
         <text
           x={width - right}
           y={height - 8}
           fill="var(--muted)"
-          fontSize="10"
+          fontSize={compact ? "9" : "10"}
           textAnchor="end"
         >
           {axisLabel(data[data.length - 1].timestamp)}
