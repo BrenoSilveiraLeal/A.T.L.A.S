@@ -172,7 +172,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
     <article className="dash-card">
       <h2>Sinais</h2>
       <p className="dash-big">{status.signals}</p>
-      <p className="dash-note">Sinais em análise. Um sinal pode ser recusado; a sessão pode terminar sem operar.</p>
+      <p className="dash-note">{status.signal === "WATCH_LONG" ? "Última observação: candidata compradora." : status.signal === "WATCH_SHORT" ? "Última observação: candidata vendedora." : "Nenhum sinal candidato na última barra fechada."} É pesquisa, não ordem; a configuração e o risco ainda podem bloquear o paper.</p>
     </article>
   );
   const orders = (

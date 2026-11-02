@@ -83,11 +83,12 @@ export interface DashStatus {
   broker: string | null;
   instrument: string | null;
   signals: number;
+  signal: "WATCH_LONG" | "WATCH_SHORT" | null;
   orders: Record<(typeof ORDER_STATES)[number]["id"], number>;
 }
 
 export const INITIAL_STATUS: DashStatus = {
-  mode: "SIMULATED", market: "UNVERIFIED", data: "NONE", broker: null, instrument: null, signals: 0,
+  mode: "SIMULATED", market: "UNVERIFIED", data: "NONE", broker: null, instrument: null, signals: 0, signal: null,
   orders: { PROPOSED: 0, SENT: 0, ACCEPTED: 0, REJECTED: 0, PARTIAL: 0, FILLED: 0 },
 };
 

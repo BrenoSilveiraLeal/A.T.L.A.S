@@ -23,14 +23,22 @@ const day = (at = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "A
 /** The office as the dashboard shows it: from the tables, or "nothing yet" where they are empty. */
 export async function loadDashStatus(db: Db, ownerId: string) {
   const config = dashConfig();
-  const [settings, session, orders, heartbeats, quotes] = await Promise.all([
+  const activeInstrument = config.instruments.find((instrument) => instrument.enabled && instrument.symbol);
+  const signalQuery = activeInstrument?.symbol
+    ? db.from("dt_strategy_observations").select("state")
+      .eq("owner_id", ownerId).eq("instrument", activeInstrument.symbol).eq("strategy_version", "opening-range-vwap-v1")
+      .gte("bar_at", `${day()}T00:00:00-03:00`).order("bar_at", { ascending: false }).limit(1).maybeSingle()
+    : Promise.resolve({ data: null, error: null });
+  const [settings, session, orders, heartbeats, quotes, latestSignal] = await Promise.all([
     db.from("dt_settings").select("mode, halted, halt_reason").eq("owner_id", ownerId).maybeSingle(),
     db.from("dt_sessions").select("status, opened_at, closed_at").eq("owner_id", ownerId).eq("day", day()).maybeSingle(),
     db.from("dt_orders").select("state, simulated").eq("owner_id", ownerId).gte("created_at", `${day()}T00:00:00-03:00`),
     db.from("dt_heartbeats").select("desk, state, detail, at").eq("owner_id", ownerId),
     db.from("dt_market_quotes").select("instrument, provider, last, bid, ask, exchange_at, received_at, sequence").eq("owner_id", ownerId),
+    signalQuery,
   ]);
   for (const r of [settings, session, orders, heartbeats, quotes]) if (r.error) throw new ApiError(500, "DASH_READ_FAILED", "Não foi possível ler o DASH.");
+  if (latestSignal.error) throw new ApiError(500, "DASH_READ_FAILED", "Não foi possível ler o sinal mais recente do DASH.");
   const counts = Object.fromEntries(ORDER_STATES.map((s) => [s.id, 0])) as DashStatus["orders"];
   for (const o of orders.data ?? []) if (o.state in counts) counts[o.state as keyof DashStatus["orders"]] += 1;
   const now = Date.now();
@@ -48,6 +56,8 @@ export async function loadDashStatus(db: Db, ownerId: string) {
     data: freshQuote ? "REAL" : "NONE",
     broker: freshQuote ? "ProfitDLL" : null,
     instrument: freshQuote?.instrument ?? config.instruments.find((i) => i.enabled)?.symbol ?? null,
+    signals: latestSignal.data?.state === "WATCH_LONG" || latestSignal.data?.state === "WATCH_SHORT" ? 1 : 0,
+    signal: latestSignal.data?.state === "WATCH_LONG" || latestSignal.data?.state === "WATCH_SHORT" ? latestSignal.data.state : null,
     orders: counts,
   };
   return { status, halted: settings.data?.halted ?? false, haltReason: settings.data?.halt_reason ?? null, heartbeats: heartbeats.data ?? [], quotes: quotes.data ?? [], missing: readiness(config), paperMissing: paperReadiness(config) };
