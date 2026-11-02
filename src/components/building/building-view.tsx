@@ -2,13 +2,15 @@
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hammer, Info, LocateFixed, Moon, Sun } from "lucide-react";
+import { Hammer, Info, LocateFixed, Moon, Sun, Volume2, VolumeX } from "lucide-react";
 import { officeOnFloor, OFFICES, parseFloor, STATUS_LABEL } from "@/core/building";
 import type { BuildingApi } from "./building-3d";
+import { useCitySound } from "./city-sound";
 
 /** The office floor entered last; the map highlights it. */
 const LAST_OFFICE = "atlas-last-office";
 const NIGHT = "atlas-building-night";
+const SOUND = "atlas-city-sound";
 /** Time for the camera to fly to the floor before the office opens. */
 const FLY_MS = 1700;
 
@@ -46,6 +48,9 @@ export function BuildingView() {
   const [failed, setFailed] = useState(false);
   const api = useRef<BuildingApi | null>(null);
   const flat = failed;
+  // The city's sound, on unless turned off (remembered in the browser).
+  const [sound, setSound] = useState(() => { try { return localStorage.getItem(SOUND) !== "off"; } catch { return true; } });
+  useCitySound(sound && !flat, night);
 
   const go = useCallback((floor: number | null) => {
     const office = floor !== null ? officeOnFloor(floor) : null;
@@ -64,6 +69,7 @@ export function BuildingView() {
   }, [router, flat]);
   const remember = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* storage blocked */ } };
   const toggleNight = () => setNight((n) => { remember(NIGHT, n ? "0" : "1"); return !n; });
+  const toggleSound = () => setSound((s) => { remember(SOUND, s ? "off" : "on"); return !s; });
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(""), 4000);
@@ -90,6 +96,9 @@ export function BuildingView() {
           {!flat && <button type="button" className="pill" onClick={toggleNight} aria-pressed={night} title={night ? "Mudar para dia" : "Mudar para noite"}>
             {night ? <Moon size={15} /> : <Sun size={15} />} {night ? "Noite" : "Dia"}
           </button>}
+          {!flat && <button type="button" className="round" onClick={toggleSound} aria-pressed={sound}
+            aria-label={sound ? "Desligar o som da cidade" : "Ligar o som da cidade"} title={sound ? "Som da cidade ligado" : "Som da cidade desligado"}>
+            {sound ? <Volume2 size={17} /> : <VolumeX size={17} />}</button>}
           {!flat && <button type="button" className="round" onClick={() => api.current?.reset()} aria-label="Centralizar o prédio" title="Centralizar"><LocateFixed size={17} /></button>}
           {/* Owner, 01/11/2026: the "i" hides and shows the list of offices, to see the city. */}
           <button type="button" className={`round ${showList ? "" : "active"}`} onClick={() => setShowList((s) => !s)} aria-pressed={!showList}
