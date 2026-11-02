@@ -9,7 +9,7 @@ export default async function DashPage() {
     try {
       await requireOwner();
     } catch (error) {
-      if (error instanceof ApiError && [401, 403].includes(error.status)) redirect("/login");
+      if (error instanceof ApiError && [401, 403].includes(error.status)) redirect("/login?next=%2Fdaytrade");
       throw error;
     }
   }

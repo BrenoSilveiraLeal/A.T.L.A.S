@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 
-export function Login({ configured }: { configured: boolean }) {
+export function Login({ configured, next }: { configured: boolean; next: string }) {
   const router = useRouter();
   const [step, setStep] = useState("login"),
     [factorId, setFactorId] = useState("");
@@ -33,7 +33,7 @@ export function Login({ configured }: { configured: boolean }) {
       if (!response.ok) throw new Error(data.error);
       if (data.ok) {
         setSecret("");
-        router.push("/predio");
+        router.push(next);
         router.refresh();
       } else {
         setStep(data.next);
@@ -48,7 +48,7 @@ export function Login({ configured }: { configured: boolean }) {
   }
   return (
     <main className="login-screen">
-      <Link className="brand" href="/app">
+      <Link className="brand" href="/predio">
         <span className="brand-mark">A</span>ATLAS
       </Link>
       <section className="login-panel">

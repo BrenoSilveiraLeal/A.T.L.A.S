@@ -14,7 +14,7 @@ export default async function AppLayout({
       await requireOwner();
     } catch (error) {
       if (error instanceof ApiError && [401, 403].includes(error.status))
-        redirect("/login");
+        redirect("/login?next=%2Fapp");
       throw error;
     }
   }
