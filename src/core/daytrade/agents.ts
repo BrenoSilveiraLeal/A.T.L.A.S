@@ -36,6 +36,7 @@ export type Vote = "APPROVE" | "REJECT" | "ABSTAIN";
 export interface RoomVote { desk: DeskId; vote: Vote; reason: string }
 export interface RiskLimits { maxLossPerTrade: number; maxLossPerDay: number; maxOpenPositions: number; maxExposure: number }
 export interface RiskDecision { approved: boolean; reasons: string[] }
+export interface StrategyApproval { id: string | null; version: string | null; approved: boolean }
 export interface OrderRequest { proposalId: string; instrument: string; side: "BUY" | "SELL"; quantity: number; type: "LIMIT" | "MARKET"; price: number | null; stop: number }
 export type OrderState = "PROPOSED" | "SENT" | "ACCEPTED" | "REJECTED" | "PARTIAL" | "FILLED" | "CANCELLED";
 export interface OrderUpdate { orderId: string; state: OrderState; filledQuantity: number; averagePrice: number | null; at: string; brokerMessage: string | null }
@@ -48,7 +49,7 @@ export interface Heartbeat { desk: DeskId; at: string; state: DeskRunState; deta
 
 export type DeskRunState = "IDLE" | "WORKING" | "BLOCKED" | "ERROR";
 export interface DeskResult<Out> { state: DeskRunState; output: Out | null; reason: string }
-export interface DeskContext { status: DashStatus; now: string; limits: RiskLimits | null }
+export interface DeskContext { status: DashStatus; now: string; limits: RiskLimits | null; strategyApproval?: StrategyApproval }
 /** One desk's job: one step of work on what it received. Implementations go in the other computer's workers. */
 export interface DeskWorker<In, Out> { desk: DeskId; step(input: In, context: DeskContext): DeskResult<Out> }
 
@@ -72,6 +73,49 @@ export interface DeskContracts {
 export function notImplemented<D extends DeskId>(desk: D): DeskWorker<DeskContracts[D]["in"], DeskContracts[D]["out"]> {
   return { desk, step: () => ({ state: "IDLE", output: null, reason: "Ainda não implementado: o DASH está em modo simulado, sem feed e sem corretora." }) };
 }
+/** The chief is the final deterministic gate; a missing or ambiguous fact means REJECT. */
+export const chiefWorker: DeskWorker<DeskContracts["chief"]["in"], DeskContracts["chief"]["out"]> = {
+  desk: "chief",
+  step: (input, context) => {
+    if (!input || !Array.isArray(input.proposals) || input.proposals.length === 0) {
+      return { state: "IDLE", output: null, reason: "Nenhuma proposta recebida para a chefia." };
+    }
+    const incomingVotes = Array.isArray(input.votes) ? input.votes : [];
+    const votesByDesk = new Map<DeskId, number>();
+    for (const vote of incomingVotes) votesByDesk.set(vote.desk, (votesByDesk.get(vote.desk) ?? 0) + 1);
+    const duplicateVotes = [...votesByDesk.values()].some((count) => count !== 1);
+    const approval = context.strategyApproval;
+    const decisions: RoomVote[] = input.proposals.map((proposal) => {
+      const reasons: string[] = [];
+      if (context.status.mode !== "SIMULATED") reasons.push("A chefia só pode aprovar o ciclo simulado atual.");
+      if (context.status.market !== "OPEN") reasons.push("Sessão não confirmada como aberta.");
+      if (context.status.data !== "REAL" || context.status.broker !== "ProfitDLL") reasons.push("Feed ProfitDLL real e fresco indisponível.");
+      if (!context.status.instrument || context.status.instrument !== proposal.signal.instrument) reasons.push("A proposta não corresponde ao contrato ativo.");
+      if (!context.limits || !Number.isFinite(context.limits.maxLossPerTrade) || context.limits.maxLossPerTrade <= 0 ||
+        !Number.isFinite(context.limits.maxLossPerDay) || context.limits.maxLossPerDay <= 0 ||
+        !Number.isInteger(context.limits.maxOpenPositions) || context.limits.maxOpenPositions < 0 ||
+        !Number.isFinite(context.limits.maxExposure) || context.limits.maxExposure <= 0 ||
+        !Number.isFinite(proposal.maxLoss) || proposal.maxLoss < 0 || proposal.maxLoss > context.limits.maxLossPerTrade ||
+        !Number.isInteger(proposal.quantity) || proposal.quantity <= 0) reasons.push("Limites ou tamanho de risco inválidos ou incompletos.");
+      if (!approval?.approved || !approval.id || !approval.version) reasons.push("Estratégia ainda não aprovada e versionada na configuração.");
+      else if (proposal.signal.strategyVersion !== approval.version) reasons.push("A versão do sinal não corresponde à estratégia aprovada.");
+      if (proposal.proposedBy !== "strategy") reasons.push("A proposta não veio do setor de estratégia.");
+      if (duplicateVotes || incomingVotes.some((vote) => !ROOM.includes(vote.desk) || vote.desk === "chief")) reasons.push("Votos da sala ausentes, duplicados ou inválidos.");
+      const riskVotes = incomingVotes.filter((vote) => vote.desk === "risk");
+      if (riskVotes.length !== 1 || riskVotes[0].vote !== "APPROVE") reasons.push("Risco não aprovou a proposta de forma única.");
+      if (incomingVotes.some((vote) => vote.vote === "REJECT")) reasons.push("Outro setor recusou a proposta.");
+      return { desk: "chief", vote: reasons.length ? "REJECT" : "APPROVE", reason: reasons.join(" ") || "Estratégia, sessão, feed, contrato e risco conferidos." };
+    });
+    return {
+      state: "WORKING",
+      output: decisions,
+      reason: decisions.every((vote) => vote.vote === "APPROVE")
+        ? `${decisions.length} proposta(s) aprovadas pela chefia.`
+        : `${decisions.filter((vote) => vote.vote === "REJECT").length} proposta(s) recusadas: ${decisions.filter((vote) => vote.vote === "REJECT").map((vote) => vote.reason).join(" ").slice(0, 240)}`,
+    };
+  },
+};
+
 /**
  * The supervisor can observe health and request a pause, but it cannot approve or send orders.
  * Explicit worker errors and an open session without a fresh live feed trigger the kill switch.
@@ -80,6 +124,7 @@ export function notImplemented<D extends DeskId>(desk: D): DeskWorker<DeskContra
 export const supervisorWorker: DeskWorker<Heartbeat[], DeskContracts["supervisor"]["out"]> = {
   desk: "supervisor",
   step: (heartbeats, context) => {
+    if (!Array.isArray(heartbeats)) return { state: "IDLE", output: null, reason: "Nenhum heartbeat recebido para supervisão." };
     const findings: string[] = [];
     const failures = heartbeats.filter((heartbeat) => heartbeat.state === "ERROR");
     for (const heartbeat of failures) findings.push(`${heartbeat.desk}: ${heartbeat.detail || "erro reportado pelo setor"}`);
@@ -99,7 +144,7 @@ export const supervisorWorker: DeskWorker<Heartbeat[], DeskContracts["supervisor
 };
 
 export const WORKERS: { [D in DeskId]: DeskWorker<DeskContracts[D]["in"], DeskContracts[D]["out"]> } = {
-  chief: notImplemented("chief"), supervisor: supervisorWorker, feed: notImplemented("feed"), price: notImplemented("price"),
+  chief: chiefWorker, supervisor: supervisorWorker, feed: notImplemented("feed"), price: notImplemented("price"),
   news: notImplemented("news"), strategy: notImplemented("strategy"), backtest: notImplemented("backtest"), risk: notImplemented("risk"),
   positions: notImplemented("positions"), execution: notImplemented("execution"), orders: notImplemented("orders"), ledger: notImplemented("ledger"),
 };

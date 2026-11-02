@@ -1,5 +1,5 @@
 import type { DashStatus, DeskId } from "./desks";
-import { maySend, POWERS, reviewProposal, ROOM, WORKERS, type DeskContext, type DeskResult, type MarketEvent, type OrderRequest, type RiskLimits, type RoomVote, type TradeProposal } from "./agents";
+import { maySend, POWERS, reviewProposal, ROOM, WORKERS, type DeskContext, type DeskResult, type MarketEvent, type OrderRequest, type RiskLimits, type RoomVote, type StrategyApproval, type TradeProposal } from "./agents";
 
 /**
  * One cycle of the DASH desk, in the order of the flow (agents.ts PIPELINE): data, news, strategy,
@@ -19,6 +19,8 @@ export interface CycleInput {
   lossToday: number;
   /** Money per point of the contract (config); null while unverified, and then no trade passes the room. */
   pointValue: number | null;
+  /** Only a configured, explicitly approved strategy version may be considered by the chief. */
+  strategyApproval?: StrategyApproval;
 }
 export interface JournalEntry { at: string; desk: DeskId | "cycle"; state: DeskResult<unknown>["state"] | "SKIPPED"; message: string }
 export interface CycleResult { journal: JournalEntry[]; proposals: TradeProposal[]; votes: RoomVote[]; send: OrderRequest[]; simulated: OrderRequest[] }
@@ -37,7 +39,7 @@ function orderMatchesProposal(order: OrderRequest, proposal: TradeProposal): boo
 
 export function runCycle(input: CycleInput, workers = WORKERS): CycleResult {
   const journal: JournalEntry[] = [], at = input.now;
-  const context: DeskContext = { status: input.status, now: input.now, limits: input.limits };
+  const context: DeskContext = { status: input.status, now: input.now, limits: input.limits, strategyApproval: input.strategyApproval };
   const log = (desk: JournalEntry["desk"], state: JournalEntry["state"], message: string) => journal.push({ at, desk, state, message });
   const result: CycleResult = { journal, proposals: [], votes: [], send: [], simulated: [] };
   const step = <D extends DeskId>(desk: D, input_: Parameters<(typeof workers)[D]["step"]>[0]) => {
@@ -63,15 +65,16 @@ export function runCycle(input: CycleInput, workers = WORKERS): CycleResult {
     const maxLoss = input.pointValue === null ? Infinity : Math.abs(signal.entry - signal.stop) * input.pointValue * quantity;
     const proposal: TradeProposal = { signal, quantity, maxLoss, proposedBy: "strategy" };
     result.proposals.push(proposal);
-    const chief = (step("chief", { proposals: [proposal], votes: result.votes }) as RoomVote[] | null) ?? [];
     const risk = step("risk", { proposal, positions: input.positions, lossToday: input.lossToday }) as { approved: boolean; reasons: string[] } | null;
     const votes: RoomVote[] = [
       ...ROOM.filter((d) => d !== "chief" && d !== "risk").map((desk): RoomVote => ({ desk, vote: "ABSTAIN", reason: "sem voto" })),
       { desk: "risk", vote: risk?.approved ? "APPROVE" : "REJECT", reason: risk?.reasons.join(" ") ?? "Risco não respondeu." },
-      ...chief.filter((v) => v.desk === "chief"),
     ];
     result.votes.push(...votes);
-    const decision = reviewProposal(proposal, votes, context);
+    const chief = (step("chief", { proposals: [proposal], votes }) as RoomVote[] | null) ?? [];
+    const chiefVotes = chief.filter((v) => v.desk === "chief");
+    result.votes.push(...chiefVotes);
+    const decision = reviewProposal(proposal, [...votes, ...chiefVotes], context);
     log("chief", decision.approved ? "WORKING" : "BLOCKED", decision.approved ? "Aprovada na sala de análise." : decision.reasons.join(" "));
     if (!decision.approved) continue;
     const order = step("execution", { proposal, decision }) as OrderRequest | null;

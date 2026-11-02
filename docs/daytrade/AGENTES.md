@@ -46,10 +46,10 @@ Guia para implementar os agentes do DASH em outro computador. O código está em
 | Preço e estratégia | `opening-range-vwap-v1` calcula faixa inicial, VWAP e EMA em candle fechado e grava uma observação idempotente. |
 | Pesquisa | Backtest walk-forward em sessões completas, com fills no candle seguinte, fricção por lado e pregão corrente excluído; não aprova a estratégia automaticamente. |
 | Risco e execução paper | RPC Postgres transacional, um contrato, uma posição por vez; sinal do fechamento preenche no próximo candle; custo/risk config pendente bloqueia entradas. |
-| Notícias, supervisão, chefia e reconciliação com conta | Ainda sem workers ativos; não participam nem autorizam ordens reais. |
+| Noticias e reconciliacao com conta | Workers ainda nao implementados; sem fonte de noticias nem consulta de posicoes da corretora. |
 | Roteamento real ProfitDLL | Desativado: não há chamadas OMS no gateway nem endpoint de envio. |
 
-Apenas os setores listados na tabela de implementação executam trabalho real (ingestão, análise, pesquisa e paper). Os demais workers ainda respondem `IDLE` com o motivo; não inventam dados nem autorizam ordens.
+Ingestao, preco, estrategia candidata e paper sao o caminho ativo de mercado. Supervisao e chefia executam guardas deterministicas no ciclo; a chefia exige mercado confirmado, ProfitDLL fresco, contrato correspondente, risco aprovado e versao de estrategia explicitamente aprovada. Noticias, reconciliacao, ordens e ledger ainda aguardam workers. Nenhum worker ativa roteamento real.
 
 ## Fluxo de uma operação
 

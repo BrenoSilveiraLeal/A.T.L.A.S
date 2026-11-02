@@ -227,7 +227,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
       const supervisorDetail = office.halted ? "Kill switch ativo; liberação manual necessária." : supervisor.reason;
       await recordHeartbeat(db, ownerId, "supervisor", supervisorState, supervisorDetail);
       const result = runCycle({ status: office.status, limits: roomLimits(config), now, halted: office.halted || pause || office.missing.length > 0,
-        events: [], positions: [], lossToday: 0, pointValue: instrument?.verified ? instrument.pointValue : null });
+        events: [], positions: [], lossToday: 0, pointValue: instrument?.verified ? instrument.pointValue : null, strategyApproval: config.strategy });
       result.journal.unshift({ at: now, desk: "supervisor", state: supervisorState, message: supervisorDetail });
       if (office.missing.length) result.journal.push({ at: new Date().toISOString(), desk: "cycle", state: "SKIPPED", message: `Configuração incompleta: ${office.missing.join("; ")}.` });
       await appendJournal(db, ownerId, result.journal);
