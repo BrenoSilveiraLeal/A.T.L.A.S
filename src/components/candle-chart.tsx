@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { HistoricalBar } from "@/providers/types";
 
 /** A news day on the chart: ▲ above the candle (pode subir) or ▼ below (pode cair). */
@@ -16,11 +16,22 @@ export function CandleChart({
   markers?: ChartMarker[];
   timeframe?: "daily" | "minute";
 }) {
-  const [range, setRange] = useState(60);
+  const [range, setRange] = useState(timeframe === "minute" ? 30 : 20);
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 640px)");
+    const update = () => {
+      setCompact(media.matches);
+      if (media.matches) setRange((current) => Math.min(current, 60));
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const data = bars.slice(-range);
   if (!data.length)
     return <p>Histórico indisponível. Nenhum candle foi criado.</p>;
-  const width = 720,
+  const width = compact ? 360 : 720,
     height = 300,
     left = 58,
     right = 12,
@@ -33,6 +44,9 @@ export function CandleChart({
     top + ((high - Number(price)) / span) * (floor - top);
   const step = (width - left - right) / data.length;
   const volume = Math.max(...data.map((bar) => bar.volume), 1);
+  const axisLabel = (timestamp: string) => timeframe === "minute"
+    ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).format(new Date(timestamp))
+    : timestamp.slice(0, 10);
   return (
     <figure className="candle-chart">
       <div className="section-heading">
@@ -43,14 +57,14 @@ export function CandleChart({
             value={range}
             onChange={(e) => setRange(Number(e.target.value))}
           >
-            {timeframe === "minute" ? <><option value={60}>60 minutos</option><option value={180}>180 minutos</option><option value={360}>360 minutos</option></> : <><option value={20}>20 pregões</option><option value={60}>60 pregões</option><option value={100}>100 pregões</option></>}
+            {timeframe === "minute" ? <><option value={30}>30 minutos</option><option value={60}>60 minutos</option>{!compact && <option value={180}>180 minutos</option>}</> : <><option value={20}>20 pregões</option><option value={60}>60 pregões</option>{!compact && <option value={100}>100 pregões</option>}</>}
           </select>
         </label>
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`Candles diários reais de ${ticker}, de ${data[0].timestamp.slice(0, 10)} a ${data[data.length - 1].timestamp.slice(0, 10)}. Preços brutos, sem ajuste de eventos corporativos.`}
+        aria-label={`${timeframe === "minute" ? "Candles de um minuto" : "Candles diários"} de ${ticker}, de ${data[0].timestamp} a ${data[data.length - 1].timestamp}.`}
       >
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
           <g key={t}>
@@ -126,7 +140,7 @@ export function CandleChart({
           );
         })}
         <text x={left} y={height - 8} fill="var(--muted)" fontSize="10">
-          {data[0].timestamp.slice(0, 10)}
+          {axisLabel(data[0].timestamp)}
         </text>
         <text
           x={width - right}
@@ -135,7 +149,7 @@ export function CandleChart({
           fontSize="10"
           textAnchor="end"
         >
-          {data[data.length - 1].timestamp.slice(0, 10)}
+          {axisLabel(data[data.length - 1].timestamp)}
         </text>
       </svg>
       <figcaption>{timeframe === "minute" ? "OHLCV agregado do feed ProfitDLL. Candles em tempo real, somente leitura." : "EOD · OHLCV bruto da brapi. Candles do dia corrente são excluídos. Não é um feed de execução."}{markers.length > 0 && " ▲ notícia · ▼ notícia · ◆ atenção (passe o mouse para ler)."}</figcaption>

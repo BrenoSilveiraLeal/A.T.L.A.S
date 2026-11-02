@@ -43,6 +43,15 @@
   min-height: 30px;
   font-size: 10px;
 }
+@media (max-width: 640px) {
+  .candle-chart { min-width: 0; margin-top: 18px; }
+  .candle-chart .section-heading { align-items: center; gap: 8px; margin-bottom: 12px; }
+  .candle-chart .section-heading h2 { min-width: 0; font-size: 14px; line-height: 1.35; }
+  .candle-chart .chart-range { display: flex; align-items: center; gap: 6px; flex: none; font-size: 10px; }
+  .candle-chart .chart-range select { max-width: 124px; padding: 5px 6px; }
+  .candle-chart figcaption { font-size: 11px; line-height: 1.5; }
+  .candle-chart details { font-size: 12px; }
+}
 * {
   box-sizing: border-box;
 }
