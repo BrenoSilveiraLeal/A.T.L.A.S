@@ -2,7 +2,7 @@
 
 **DASH** significa **Day-trading Analysis & Strategy Hub** (*Centro de Análise e Estratégia de Day Trade*). É o nome do novo escritório de day trade dentro do produto ATLAS.
 
-**Estado desta etapa:** plano e leitura do repositório, sem implementação funcional do DASH. A execução real continua bloqueada. Este documento descreve o repositório observado em 31/10/2026 e registra a linha de base local.
+**Estado em 02/11/2026:** UI DASH e proteções básicas existem; execução real continua bloqueada. Provedor escolhido: ProfitDLL, em processo Windows isolado. A ponte MT5 do DAWN permanece independente e inalterada.
 
 ## Objetivo e fronteiras
 
@@ -13,7 +13,7 @@ Compartilhamento planejado com ATLAS:
 - aplicação Next.js e implantação web;
 - sessão Supabase Auth e identidade do proprietário, com MFA/AAL2 nas operações sensíveis;
 - mesmo projeto Supabase, usando tabelas próprias `dt_*` e políticas próprias;
-- utilitários puros e comprovadamente compatíveis, como valores decimais, calendário, leitura de notícias e a ponte MT5, depois de validados para futuros.
+- utilitários puros e comprovadamente compatíveis, como valores decimais, calendário e leitura de notícias. O DASH terá um gateway ProfitDLL próprio; não reutilizar a ponte MT5 do DAWN para futuros.
 
 O DASH terá estados, dados, estratégias, pesquisa, processos, risco, kill switch, journal e ledger próprios. O compartilhamento do projeto Supabase não significa compartilhar tabelas ou saldos. O ledger de ações, o ledger de Paper Trading e o ledger do DASH precisam permanecer identificáveis e separados.
 
@@ -25,9 +25,9 @@ flowchart LR
     api["/api/daytrade/* · API autenticada"]
   end
   api --> db[("Supabase existente · tabelas dt_* próprias")]
-  subgraph windows[Processos isolados no Windows]
-    swing["MT5 Swing · perfil existente"]
-    dtgw["MT5 Day Trade · segunda instância/porta"]
+  subgraph windows[Processos isolados no Windows x64]
+    swing["MT5 Swing · DAWN existente"]
+    dtgw["Gateway ProfitDLL DASH"]
     recorder["Coletor de ticks e candles"]
     engine["Motor determinístico · SIMULADO por padrão"]
     guard["Guarda de risco independente"]
@@ -35,13 +35,13 @@ flowchart LR
   recorder --> dtgw
   engine --> dtgw
   guard --> dtgw
-  dtgw --> mt5["Terminal MT5 Day Trade"]
+  dtgw --> profit["ProfitDLL · Market Data / OMS"]
   dtgw --> db
   engine --> db
   guard --> db
 ```
 
-O desenho é uma proposta, não uma infraestrutura já instalada. A conectividade entre hospedagem web e gateway local, segredos, reinício de processos, armazenamento de dados e implantação em Windows/VPS ainda precisam ser definidos e validados. A Vercel não executa o terminal MT5.
+O desenho é uma proposta, não uma infraestrutura já instalada. A documentação Nelogica exige DLL nativa Windows x64, licença ativa, código de ativação e callbacks; a Vercel não carrega a DLL. A conectividade entre hospedagem web e gateway, segredos, reinício do processo e persistência ainda precisam ser definidos e validados. Primeiro conectar somente Market Data; roteamento exige que a conta esteja habilitada pela corretora.
 
 ## O que existe e pode ser reutilizado, com limites
 
@@ -54,7 +54,7 @@ O desenho é uma proposta, não uma infraestrutura já instalada. A conectividad
 | IR e datas | `src/core/tax.ts`, `src/core/b3-calendar.ts` | Reutilizar helpers somente depois de confirmar compatibilidade | `tax.ts` já separa resultados de day trade de ações e operações comuns, mas sua entrada é `TaxFill` de ticker/quantidade/preço; não modela ajuste diário, futuros, margem ou especificidades fiscais dos minicontratos. `b3-calendar.ts` é um guard conservador para ações à vista, tem janela 10:05–16:50 e lista 2027 provisória; não é um calendário operacional confirmado para WIN/WDO. |
 | Estratégia/risco/OMS | `src/core/risk.ts`, `src/core/oms.ts`, `src/core/executor.ts`, `src/lib/executor.ts`, `src/providers/execution-gateway.ts` | Referência para contratos, auditoria, idempotência e estados de falha | O domínio de risco valida `assetClass === "EQUITY"`, lotes de ações e ordens LIMIT/STOP_LIMIT; OMS e executor atuais são do fluxo de ações. Não conectar o motor DASH diretamente a eles sem separar domínio, persistência, identidade de conta e invariantes de futuros. |
 | IA de notícias | `src/core/news-ai.ts`, `src/lib/news-ai.ts` | Reusar leitura de manchetes e configuração de provedor após limitar permissões | A implementação atual gera etiquetas de contexto de ações e grava no banco. Não é um agente trader e não deve ganhar acesso a credenciais, gateway ou escrita de ordens. DASH só poderá usar IA para reduzir risco/bloquear entradas e redigir relatório, com fontes e schema validados. |
-| Ponte MT5 | `gateways/mt5/gateway.py`, `gateways/mt5/probe.py`, `gateways/mt5/README.md`, `gateways/mt5/test_gateway.py`, `gateways/mt5/test_genial.py` | Estender o código compartilhado e manter compatibilidade do perfil Swing | O gateway atual valida exclusivamente ações à vista B3 e permite apenas LIMIT/DAY, sem stop na posição. Não está pronto para contratos futuros ou execução de DASH. |
+| Gateway DASH | `gateways/profitdll/README.md` (plano) | Implementar processo x64 separado, primeiro somente leitura, em conformidade com o SDK licenciado | Ainda não há SDK, binding, callbacks, feed nem roteamento implementados. Não alterar `gateways/mt5/`: ele continua atendendo ao DAWN e não aceita futuros. |
 | Interface visual | `src/components/shell.tsx`, estilos em `src/app/globals.css`, páginas em `src/app/app/` | Reutilizar tokens/componentes neutros, quando adequado | A interface não comprova estado de mercado, preenchimento ou lucratividade. DASH deve mostrar `PENDING`/vazio quando não houver dado persistido, ter responsividade e respeitar movimento reduzido. |
 | Testes e CI | `vitest.config.ts`, `tests/`, `gateways/mt5/test_*.py`, `.github/workflows/ci.yml`, `package.json` | Usar Vitest/PGlite para banco e MT5 falso em testes Python; CI já prepara Python 3.13 | Linha de base: 629 testes Vitest passaram, 15 foram ignorados; 69 testes Python passaram. Novos testes devem ser aditivos; não editar testes de ações para fazer DASH passar. |
 
@@ -104,7 +104,7 @@ Nomes, organização e runtime serão confirmados contra o código durante a eta
 | Tema | Plano do DASH | Estado observado em 31/10/2026 | Efeito para as próximas etapas |
 | --- | --- | --- | --- |
 | Nome/escritório | DASH, dentro do produto Atlas | Não há páginas, componentes ou diretório `daytrade/` | Implementar rotas próprias quando a etapa de UI chegar; nesta etapa só registra-se o nome. |
-| Perfil MT5 Day Trade | Segunda instância capaz de futuros e execução controlada | `GENIAL_DAY_TRADE` já aparece em `gateways/mt5/gateway.py` e no README, mas `submit` é recusado com `DAY_TRADE_ENVIRONMENT_SUBMIT_UNSUPPORTED`; a allowlist de instrumentos aceita só `B3_CASH_EQUITY` | Existe um perfil nominal de leitura, não um gateway de futuros. Qualquer extensão requer desenho específico e não pode alterar Swing. |
+| Gateway ProfitDLL | ProfitDLL para market data B3 e, se conta autorizada, roteamento via OMS | Escolha registrada em `config/daytrade.json`; o SDK não está instalado no repositório e nenhum processo ProfitDLL existe ainda | Começar pelo modo de Market Data; obter SDK/manual/licença oficiais, mapear callbacks e saúde, depois provar conta/capacidades e reconciliação. O roteamento continuará bloqueado até passar essas etapas. |
 | Ordens protegidas | Stop obrigatório registrado na corretora | O contrato e as validações atuais só aceitam ordem pendente LIMIT/DAY; sem SL/TP no fluxo | Definir suporte a ordem/posição protegida, confirmação pós-fill, fallback de zeragem e testes MT5 falso antes de considerar operação real. |
 | Ledger e schema | Tabelas novas `dt_*`, kill switch e ledger DASH próprios | A fundação atual tem tabelas públicas de ações, executor, paper, ledger e estados globais; migrations são aplicadas por ordem e testadas em PGlite | Criar migrations aditivas isoladas. Testar política e RPC com os papéis Auth simulados já usados em `tests/database.test.ts`. |
 | Calendário/dados | Tick, M1, calendário de futuros, sessão e contrato vigente | Dados atuais são principalmente ações, candles diários e fontes destinadas à análise; o calendário local é para ações; não existe coletor MT5 intraday DASH | Provar disponibilidade/horário/símbolo WIN$ e contrato vigente; não misturar série contínua de pesquisa com símbolo de ordem. |
@@ -112,7 +112,7 @@ Nomes, organização e runtime serão confirmados contra o código durante a eta
 | IR | Extender `src/core/tax.ts` sem regressão de ações | `tax.ts` já separa operações comuns e day trade de ações, com carry separado; não representa ajuste diário dos futuros | Modelagem fiscal de futuros é trabalho separado, com fonte oficial/contador e testes de regressão da lógica atual. |
 | Agentes/IA | Traders, mesa e relatório pós-pregão | Agentes atuais são do domínio de ações; `news-ai` retorna etiquetas de contexto e não escolhe ordens | Não reaproveitar personalidade/autoridade de agente existente como decisor; motor DASH deve ser determinístico e compartilhar apenas dados/relatórios limitados. |
 | Autorização | Mesmo proprietário/MFA/AAL2 | `requireOwner()` confere proprietário UUID e AAL2 por padrão; bypass local existe apenas no loopback de desenvolvimento | Confirmar comportamento de `/daytrade` e `/api/daytrade/*` nos testes de acesso; rotas de escrita devem usar BFF e validação estrita. |
-| Deploy | Mesmo frontend Vercel e processos MT5 no Windows/VPS | App roda Next/Vercel; gateway MT5 roda em Windows e não é hospedado pela Vercel. Execução atual está bloqueada; processos fora do PC não foram homologados | Definir transporte privado, supervisão, backup e comportamento em queda antes de qualquer etapa operacional. |
+| Deploy | Mesmo frontend Vercel e processo ProfitDLL em Windows/VPS | App roda Next/Vercel; ProfitDLL é uma DLL nativa e não é hospedada pela Vercel. Nenhum processo ProfitDLL está instalado. Execução atual está bloqueada. | Definir transporte privado, supervisão, backup e comportamento em queda antes de qualquer etapa operacional. |
 | CI e dependências | Adicionar pytest/ruff ao CI se Python disponível | CI já configura Python 3.13 e executa unittest para a ponte; `package.json` não possui scripts DASH/Pytest/Ruff | Acrescentar dependências/scripts só quando houver código Python DASH; pin de versões e lockfile/requirements são necessários. |
 
 ## Linha de base local

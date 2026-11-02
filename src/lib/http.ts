@@ -27,6 +27,14 @@ export function checkCron(request: Request) {
   if (a.length !== b.length || !timingSafeEqual(a, b))
     throw new ApiError(401, "CRON_UNAUTHORIZED", "Scheduler não autorizado.");
 }
+/** Dedicated credential for the private read-only ProfitDLL gateway. Never reuse CRON_SECRET. */
+export function checkProfitDllGateway(request: Request) {
+  const expected = `Bearer ${required("PROFITDLL_INGEST_SECRET")}`;
+  const actual = request.headers.get("authorization") ?? "";
+  const a = Buffer.from(actual), b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b))
+    throw new ApiError(401, "GATEWAY_UNAUTHORIZED", "Gateway ProfitDLL não autorizado.");
+}
 export async function readBody(request: Request) {
   if (!request.headers.get("content-type")?.includes("application/json"))
     throw new ApiError(415, "JSON_REQUIRED", "Envie JSON.");

@@ -23,6 +23,18 @@ export interface CycleInput {
 export interface JournalEntry { at: string; desk: DeskId | "cycle"; state: DeskResult<unknown>["state"] | "SKIPPED"; message: string }
 export interface CycleResult { journal: JournalEntry[]; proposals: TradeProposal[]; votes: RoomVote[]; send: OrderRequest[]; simulated: OrderRequest[] }
 
+/** Execution may format an approved proposal, but it cannot change its economics or identity. */
+function orderMatchesProposal(order: OrderRequest, proposal: TradeProposal): boolean {
+  return order.proposalId === proposal.signal.id &&
+    order.instrument === proposal.signal.instrument &&
+    order.side === proposal.signal.side &&
+    order.quantity === proposal.quantity &&
+    Number.isFinite(order.stop) && order.stop === proposal.signal.stop &&
+    (order.type === "LIMIT"
+      ? typeof order.price === "number" && Number.isFinite(order.price) && order.price > 0
+      : order.type === "MARKET" && order.price === null);
+}
+
 export function runCycle(input: CycleInput, workers = WORKERS): CycleResult {
   const journal: JournalEntry[] = [], at = input.now;
   const context: DeskContext = { status: input.status, now: input.now, limits: input.limits };
@@ -64,7 +76,15 @@ export function runCycle(input: CycleInput, workers = WORKERS): CycleResult {
     if (!decision.approved) continue;
     const order = step("execution", { proposal, decision }) as OrderRequest | null;
     if (!order) continue;
+    if (!orderMatchesProposal(order, proposal)) {
+      log("execution", "BLOCKED", "Ordem recusada: não corresponde à proposta aprovada.");
+      continue;
+    }
     const verdict = maySend(decision, input.status);
+    if (input.status.mode === "LIVE") {
+      log("execution", "BLOCKED", verdict.reason);
+      continue;
+    }
     log("execution", verdict.send ? "WORKING" : "BLOCKED", verdict.reason);
     // Only the execution desk may send (POWERS), and only what maySend allows; the rest is recorded as simulated.
     if (verdict.send && POWERS.execution.sendOrders) result.send.push(order); else result.simulated.push(order);

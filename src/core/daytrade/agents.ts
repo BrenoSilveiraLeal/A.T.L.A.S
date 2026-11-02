@@ -108,14 +108,35 @@ export interface RoomDecision { approved: boolean; reasons: string[] }
  */
 export function reviewProposal(proposal: TradeProposal, votes: readonly RoomVote[], context: Pick<DeskContext, "status" | "limits">): RoomDecision {
   const reasons: string[] = [];
-  const voteOf = (desk: DeskId) => votes.find((v) => v.desk === desk)?.vote ?? "ABSTAIN";
+  const voteCounts = new Map<DeskId, number>();
+  for (const vote of votes) {
+    if (!ROOM.includes(vote.desk)) {
+      reasons.push("Voto de uma mesa fora da sala de análise.");
+      continue;
+    }
+    voteCounts.set(vote.desk, (voteCounts.get(vote.desk) ?? 0) + 1);
+  }
+  if ([...voteCounts.values()].some((count) => count !== 1)) reasons.push("Votos duplicados: proposta recusada.");
+  const voteOf = (desk: DeskId) => {
+    const matching = votes.filter((v) => v.desk === desk);
+    return matching.length === 1 ? matching[0].vote : "ABSTAIN";
+  };
   if (context.status.data === "NONE") reasons.push("Sem dado confiável.");
   if (context.status.market !== "OPEN") reasons.push("Mercado não confirmado como aberto.");
   if (!context.limits) reasons.push("Limites de risco não definidos.");
-  else if (proposal.maxLoss > context.limits.maxLossPerTrade) reasons.push("Perda máxima acima do limite por operação.");
+  else if (!Number.isFinite(context.limits.maxLossPerTrade) || context.limits.maxLossPerTrade <= 0 ||
+    !Number.isFinite(context.limits.maxLossPerDay) || context.limits.maxLossPerDay <= 0 ||
+    !Number.isInteger(context.limits.maxOpenPositions) || context.limits.maxOpenPositions < 0 ||
+    !Number.isFinite(context.limits.maxExposure) || context.limits.maxExposure <= 0) reasons.push("Limites de risco inválidos.");
+  else if (!Number.isFinite(proposal.maxLoss) || proposal.maxLoss < 0 || proposal.maxLoss > context.limits.maxLossPerTrade) reasons.push("Perda máxima acima do limite por operação ou inválida.");
   const { signal } = proposal;
-  if (!(proposal.quantity > 0)) reasons.push("Quantidade inválida.");
+  if (!Number.isInteger(proposal.quantity) || proposal.quantity <= 0) reasons.push("Quantidade inválida.");
+  if (!/^[A-Z0-9$]{1,16}$/.test(signal.instrument) || !signal.strategyVersion.trim() ||
+    !Number.isFinite(signal.entry) || signal.entry <= 0 || !Number.isFinite(signal.stop) || signal.stop <= 0 ||
+    (signal.target !== null && (!Number.isFinite(signal.target) || signal.target <= 0)) || !Number.isFinite(Date.parse(signal.createdAt)))
+    reasons.push("Sinal contém campos inválidos.");
   if (signal.side === "BUY" ? !(signal.stop < signal.entry) : !(signal.stop > signal.entry)) reasons.push("Stop ausente ou do lado errado.");
+  if (signal.target !== null && (signal.side === "BUY" ? !(signal.target > signal.entry) : !(signal.target < signal.entry))) reasons.push("Alvo do lado errado do preço de entrada.");
   if (voteOf("risk") !== "APPROVE") reasons.push("Risco não aprovou.");
   if (voteOf("chief") !== "APPROVE") reasons.push("Chefe não aprovou.");
   for (const v of votes) if (ROOM.includes(v.desk) && v.vote === "REJECT" && v.desk !== "risk" && v.desk !== "chief") reasons.push(`${v.desk} recusou: ${v.reason}`);
@@ -128,7 +149,6 @@ export function reviewProposal(proposal: TradeProposal, votes: readonly RoomVote
  */
 export function maySend(decision: RoomDecision, status: DashStatus): { send: boolean; reason: string } {
   if (!decision.approved) return { send: false, reason: "Proposta não aprovada na sala de análise." };
-  if (status.mode !== "LIVE") return { send: false, reason: "Modo simulado: a ordem é só registrada, nada é enviado." };
-  if (!status.broker) return { send: false, reason: "Nenhuma corretora conectada." };
-  return { send: true, reason: "Aprovada e em modo real." };
+  if (status.mode === "LIVE") return { send: false, reason: "Envio real do DASH ainda não foi homologado nem habilitado." };
+  return { send: false, reason: "Modo simulado: a ordem é só registrada, nada é enviado." };
 }

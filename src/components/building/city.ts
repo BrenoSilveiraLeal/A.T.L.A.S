@@ -704,10 +704,29 @@ export function buildCity({ mobile = false, seed = 7 }: { mobile?: boolean; seed
     }
   }
   const onStreet = (k: number, alongZ: boolean, p: number) => (runs.get(`${alongZ}${k}`) ?? []).some(([a, b]) => p >= a && p <= b);
+  // Yellow dashes keep a matching clear gap on both sides of every pedestrian crossing.
+  const DASH_LENGTH = 4.5, DASH_GAP = 4.5, CROSSING_CLEARANCE = 18;
+  const centeredDashes = (s: (typeof streets)[number], from: number, to: number) => {
+    const length = to - from, count = Math.floor((length + DASH_GAP) / (DASH_LENGTH + DASH_GAP));
+    if (count < 1) return;
+    const painted = count * DASH_LENGTH + (count - 1) * DASH_GAP, margin = (length - painted) / 2;
+    for (let i = 0; i < count; i++) {
+      const p = from + margin + DASH_LENGTH / 2 + i * (DASH_LENGTH + DASH_GAP);
+      if (s.alongZ) marks.box(s.line, ROAD_TOP, p, 0.3, 0.06, DASH_LENGTH);
+      else marks.box(p, ROAD_TOP, s.line, DASH_LENGTH, 0.06, 0.3);
+    }
+  };
   for (const s of streets) {
+    let from = s.from;
+    for (let m = -reach - 2; m <= reach + 2; m++) {
+      const crossing = (m - 0.5) * PITCH;
+      const gapStart = Math.max(s.from, crossing - CROSSING_CLEARANCE), gapEnd = Math.min(s.to, crossing + CROSSING_CLEARANCE);
+      if (gapStart > from) centeredDashes(s, from, gapStart);
+      from = Math.max(from, gapEnd);
+      if (from >= s.to) break;
+    }
+    centeredDashes(s, from, s.to);
     for (let p = s.from; p < s.to; p += 9) {
-      const nearCrossing = Math.abs(((p + PITCH / 2) % PITCH + PITCH) % PITCH - PITCH / 2) > PITCH / 2 - 14;
-      if (!nearCrossing) { if (s.alongZ) marks.box(s.line, ROAD_TOP, p, 0.3, 0.06, 4.5); else marks.box(p, ROAD_TOP, s.line, 4.5, 0.06, 0.3); }
       if (random() < 0.1) cars.push([s.alongZ ? s.line + (random() < 0.5 ? -3 : 3) : p, s.alongZ ? p : s.line + (random() < 0.5 ? -3 : 3), s.alongZ ? 0 : Math.PI / 2, s.from, s.to]);
     }
   }

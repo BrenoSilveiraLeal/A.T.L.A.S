@@ -133,7 +133,7 @@ create table public.dt_journal (
 );
 
 -- Append-only: the ledger and the journal are never changed or erased.
-create function public.dt_append_only() returns trigger language plpgsql as $$
+create function public.dt_append_only() returns trigger language plpgsql set search_path = '' as $$
 begin
   raise exception 'dt append-only: % is never updated or deleted', tg_table_name;
 end $$;

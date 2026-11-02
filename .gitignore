@@ -24,3 +24,5 @@ __pycache__/
 
 # Claude Code local settings (personal permissions)
 .claude/settings.local.json
+
+gateways/profitdll/runtime/

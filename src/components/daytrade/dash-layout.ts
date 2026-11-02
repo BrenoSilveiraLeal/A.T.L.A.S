@@ -81,7 +81,7 @@ export const POSTERS: [number, number, number, number, string, string, string, s
 ];
 
 /** The video wall, on the analysis room's glass, facing the trading floor. */
-export const VIDEO_WALL = { x: -6, z: ROOM_FRONT + 0.35, w: 9, h: 2.5, y: 0.65 };
+export const VIDEO_WALL = { x: -6, z: ROOM_FRONT + 0.35, w: 9, h: 2.5, y: 0.25 };
 
 /** The supervisor's round: past every island, stopping now and then to check. */
 export const PATROL: [number, number][] = [[-12, -2.6], [6.6, -2.6], [6.6, 3.2], [-12, 3.2], [-12, 8.2], [6.6, 8.2], [6.6, -2.6]];

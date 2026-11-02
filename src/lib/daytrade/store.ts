@@ -23,25 +23,34 @@ const day = (at = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "A
 /** The office as the dashboard shows it: from the tables, or "nothing yet" where they are empty. */
 export async function loadDashStatus(db: Db, ownerId: string) {
   const config = dashConfig();
-  const [settings, session, orders, heartbeats] = await Promise.all([
+  const [settings, session, orders, heartbeats, quotes] = await Promise.all([
     db.from("dt_settings").select("mode, halted, halt_reason").eq("owner_id", ownerId).maybeSingle(),
     db.from("dt_sessions").select("status, opened_at, closed_at").eq("owner_id", ownerId).eq("day", day()).maybeSingle(),
     db.from("dt_orders").select("state, simulated").eq("owner_id", ownerId).gte("created_at", `${day()}T00:00:00-03:00`),
     db.from("dt_heartbeats").select("desk, state, detail, at").eq("owner_id", ownerId),
+    db.from("dt_market_quotes").select("instrument, provider, last, bid, ask, exchange_at, received_at, sequence").eq("owner_id", ownerId),
   ]);
-  for (const r of [settings, session, orders, heartbeats]) if (r.error) throw new ApiError(500, "DASH_READ_FAILED", "Não foi possível ler o DASH.");
+  for (const r of [settings, session, orders, heartbeats, quotes]) if (r.error) throw new ApiError(500, "DASH_READ_FAILED", "Não foi possível ler o DASH.");
   const counts = Object.fromEntries(ORDER_STATES.map((s) => [s.id, 0])) as DashStatus["orders"];
   for (const o of orders.data ?? []) if (o.state in counts) counts[o.state as keyof DashStatus["orders"]] += 1;
-  const fresh = (heartbeats.data ?? []).find((h) => h.desk === "feed" && h.state === "WORKING" && Date.now() - Date.parse(h.at) < config.data.staleAfterMs);
+  const now = Date.now();
+  const freshQuote = (quotes.data ?? []).find((q) => {
+    const receivedAt = Date.parse(q.received_at);
+    const exchangeAt = Date.parse(q.exchange_at);
+    return q.provider === "PROFITDLL_DAYTRADE" && Number.isFinite(receivedAt) && Number.isFinite(exchangeAt) &&
+      receivedAt <= now + config.data.maxDelayMs && now - receivedAt >= 0 && now - receivedAt < config.data.staleAfterMs &&
+      receivedAt >= exchangeAt && receivedAt - exchangeAt <= config.data.maxDelayMs;
+  });
   const status: DashStatus = {
     ...INITIAL_STATUS,
     mode: "SIMULATED",
     market: session.data?.status === "OPEN" ? "OPEN" : session.data?.status === "CLOSED" ? "CLOSED" : "UNVERIFIED",
-    data: fresh ? "SIMULATED" : "NONE",
-    instrument: config.instruments.find((i) => i.enabled)?.symbol ?? null,
+    data: freshQuote ? "REAL" : "NONE",
+    broker: freshQuote ? "ProfitDLL" : null,
+    instrument: freshQuote?.instrument ?? config.instruments.find((i) => i.enabled)?.symbol ?? null,
     orders: counts,
   };
-  return { status, halted: settings.data?.halted ?? false, haltReason: settings.data?.halt_reason ?? null, heartbeats: heartbeats.data ?? [], missing: readiness(config) };
+  return { status, halted: settings.data?.halted ?? false, haltReason: settings.data?.halt_reason ?? null, heartbeats: heartbeats.data ?? [], quotes: quotes.data ?? [], missing: readiness(config) };
 }
 
 /** Kill switch of the DASH only (it never touches the stocks office). */

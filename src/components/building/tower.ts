@@ -57,14 +57,23 @@ export function logoSign(w: number, h: number, withName = true) {
   const canvas = document.createElement("canvas");
   canvas.width = 1024; canvas.height = Math.round((1024 * h) / w);
   const g = canvas.getContext("2d")!, ch = canvas.height;
-  const mark = ch * 0.86, mx = withName ? ch * 0.07 : (canvas.width - mark) / 2, my = ch * 0.07, r = mark * 0.24;
+  const mark = ch * 0.86, my = (ch - mark) / 2, r = mark * 0.24;
+  const gap = ch * 0.12, textArea = canvas.width - mark - gap - ch * 0.12;
+  let textSize = ch * 0.92;
+  g.font = `800 ${Math.round(textSize)}px Manrope Variable, sans-serif`;
+  while (g.measureText("ATLAS").width > textArea && textSize > ch * 0.5) {
+    textSize -= 1;
+    g.font = `800 ${Math.round(textSize)}px Manrope Variable, sans-serif`;
+  }
+  const textWidth = withName ? g.measureText("ATLAS").width : 0;
+  const mx = withName ? (canvas.width - (mark + gap + textWidth)) / 2 : (canvas.width - mark) / 2;
   g.fillStyle = ATLAS_GREEN;
   g.beginPath(); g.roundRect(mx, my, mark, mark, r); g.fill();
   g.fillStyle = "#ffffff"; g.font = `800 ${Math.round(mark * 0.72)}px Manrope Variable, sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
   g.fillText("A", mx + mark / 2, my + mark * 0.54);
   if (withName) {
-    g.fillStyle = "#1d3557"; g.font = `800 ${Math.round(ch * 0.62)}px Manrope Variable, sans-serif`; g.textAlign = "left";
-    g.fillText("ATLAS", mx + mark + ch * 0.18, ch * 0.54);
+    g.fillStyle = "#1d3557"; g.font = `800 ${Math.round(textSize)}px Manrope Variable, sans-serif`; g.textAlign = "left";
+    g.fillText("ATLAS", mx + mark + gap, ch / 2);
   }
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4;
   return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false }));
@@ -158,9 +167,13 @@ export function lobby(m: TowerMaterials) {
   g.add(new THREE.Mesh(canopy.geometry(), m.white), new THREE.Mesh(posts.geometry(), m.green), new THREE.Mesh(planters.geometry(), m.stone));
   bushes(g, m, flowers);
   addPalms(g, [[-20, 0.3, pd / 2 + 4, 0.95], [20, 0.3, pd / 2 + 4, 0.95], [-26, 0.3, pd / 2 + 2, 0.85], [26, 0.3, pd / 2 + 2, 0.85]]);
-  // The big sign on a white board standing proud of the slab edges (they used to run across it).
-  const board = new THREE.Mesh(new THREE.BoxGeometry(19.2, 4.8, 0.25), m.white); board.position.set(0, floorLevel(1) + 3.6, pd / 2 + 0.55); g.add(board);
-  const sign = logoSign(18, 4); sign.position.set(0, floorLevel(1) + 3.6, pd / 2 + 0.69); g.add(sign);
+  // Center the complete plaque on the podium facade's centerline. The logo artwork centers its
+  // mark and name together inside the board, so the sign and its backing stay aligned as a unit.
+  const plaque = new THREE.Group();
+  plaque.position.set(0, floorLevel(1) + 3.6, pd / 2 + 0.55);
+  const board = new THREE.Mesh(new THREE.BoxGeometry(19.2, 4.8, 0.25), m.white); plaque.add(board);
+  const sign = logoSign(18, 4); sign.position.z = 0.14; plaque.add(sign);
+  g.add(plaque);
   const small = logoSign(7, 1.55); small.position.set(0, 5.15, pd / 2 + 7.01); g.add(small);
   for (const x of [-23, 23]) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 10, 8), m.white); pole.position.set(x, 5.3, pd / 2 + 7); g.add(pole);

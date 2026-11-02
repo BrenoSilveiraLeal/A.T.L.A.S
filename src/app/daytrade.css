@@ -28,6 +28,8 @@
 .dash-mode.live { background: rgba(255, 93, 125, 0.16); color: #ff9db1; border: 1px solid rgba(255, 93, 125, 0.4); }
 
 .dash3d { position: relative; border-radius: 22px; overflow: hidden; border: 1px solid var(--d-line); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35); background: #9fd0f2; }
+.dash3d:fullscreen { width: 100vw; height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
+.dash3d:fullscreen .dash3d-canvas { width: 100%; height: 100%; min-height: 0; max-height: none; aspect-ratio: auto; }
 .dash3d-canvas { width: 100%; aspect-ratio: 16 / 8; min-height: 380px; max-height: 70vh; touch-action: none; }
 .dash3d-canvas canvas { display: block; width: 100%; height: 100%; }
 .dash3d-labels { position: absolute; inset: 0; cursor: grab; }

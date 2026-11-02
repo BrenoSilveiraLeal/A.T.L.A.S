@@ -1,5 +1,5 @@
 {
-  "$comment": "DASH (day trade) settings. Edit here; the app validates this file (src/core/daytrade/config.ts). Values marked null are not verified yet: fill them only from official B3/Genial sources or the broker note, never from guesses. While anything needed is null, the desks stay idle and nothing trades.",
+  "$comment": "DASH (day trade) settings. Edit here; the app validates this file (src/core/daytrade/config.ts). Values marked null are not verified yet: fill them only from official B3/Nelogica/broker sources or the broker note, never from guesses. While anything needed is null, the desks stay idle and nothing trades.",
   "mode": "SIMULATED",
   "instruments": [
     {
@@ -56,8 +56,8 @@
     "staleAfterMs": 10000
   },
   "gateway": {
-    "providerId": "GENIAL_MT5_DAYTRADE",
-    "note": "Segunda instância do MT5, com porta, perfil, conta, terminal, journal e halt file próprios (docs/daytrade/ARQUITETURA.md). URL, token e conta ficam no .env (DASH_GATEWAY_*), nunca aqui."
+    "providerId": "PROFITDLL_DAYTRADE",
+    "note": "Gateway dedicado ProfitDLL em processo Windows x64; começar somente leitura (Market Data). Roteamento fica bloqueado até SDK/licença, habilitação da conta na corretora e salvaguardas serem validados. DLL, códigos de ativação, logins e tokens nunca entram no Git."
   },
   "strategy": {
     "id": null,

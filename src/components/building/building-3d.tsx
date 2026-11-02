@@ -64,8 +64,9 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     // Softer than before (owner, 01/11/2026: "de dia fica tudo muito claro e esbranquiçado").
     renderer.toneMappingExposure = 0.82;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = !mobile;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // The building map is a small architectural overview: avoid large cast shadows obscuring
+    // crosswalks, streets, and the tower plaza.
+    renderer.shadowMap.enabled = false;
     el.appendChild(renderer.domElement);
     const labels = new CSS2DRenderer();
     labels.domElement.className = "building3d-labels";
@@ -76,13 +77,10 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     scene.fog = new THREE.Fog(SKY, 1400, 5200);
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    // Warm, sunny light with soft shadows: the toy-city look of a life simulator (moonlight at night).
+    // Warm, sunny light with even ground illumination (moonlight at night).
     const sky = new THREE.HemisphereLight(0xe3f3ff, 0x8a7d62, 0.6); scene.add(sky);
     const sun = new THREE.DirectionalLight(0xfff0d2, 2.0);
-    sun.position.set(-90, 160, 110); sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -110, right: 110, top: 110, bottom: -110, near: 10, far: 420 });
-    sun.shadow.bias = -0.0006;
+    sun.position.set(-90, 160, 110);
     scene.add(sun);
 
     const camera = new THREE.PerspectiveCamera(32, 1, 1, 7000);

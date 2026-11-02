@@ -4,14 +4,14 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { LocateFixed, PersonStanding } from "lucide-react";
+import { LocateFixed, Maximize2, Minimize2, Moon, PersonStanding, Sun } from "lucide-react";
 import { ELEVATOR, officeById, TOWER, windowBays } from "@/core/building";
 import { tradingDay } from "@/core/b3-calendar";
 import { DESKS, deskState, MARKET_LABEL, DATA_LABEL, SECTORS, sectorOf, type DashStatus } from "@/core/daytrade/desks";
 import { lookFor, type PersonLook } from "@/core/people";
 import { makePerson, posterTexture, S, SEAT_Y, type Person } from "@/components/office-3d";
 import { DASH_FLOOR, RECEPTION, PARTITIONS, POSTERS, deskAt, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "./dash-layout";
-import { Mass } from "@/components/building/city";
+import { Mass, NIGHT_SKY, prefersNight, roundedRect, setNight as applyNight, SKY } from "@/components/building/city";
 import { buildSurroundings, SHAFT } from "@/components/building/tower";
 
 /** This office's floor in the ATLAS tower. */
@@ -32,12 +32,20 @@ function screen(w: number, h: number) {
  * the entrance is. The screens only show what is known: with no feed and no account they say so.
  * Drag to turn, wheel to zoom; or walk the room in first person, as in the dividends office.
  */
-export function Dash3D({ status }: { status: DashStatus }) {
+export function Dash3D({ status, halted = false }: { status: DashStatus; halted?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
-  const api = useRef<{ reset: () => void; status: (s: DashStatus) => void; walk: (on: boolean) => void } | null>(null);
+  const api = useRef<{ reset: () => void; status: (s: DashStatus, halted: boolean) => void; walk: (on: boolean) => void; night: (on: boolean) => void } | null>(null);
   const [failed, setFailed] = useState(false);
   const [walking, setWalking] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [night, setNightMode] = useState(() => prefersNight());
   const initial = useRef(status);
+  const initialHalted = useRef(halted);
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === host.current?.parentElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   useEffect(() => {
     const el = host.current;
@@ -54,6 +62,11 @@ export function Dash3D({ status }: { status: DashStatus }) {
     const labels = new CSS2DRenderer(); labels.domElement.className = "dash3d-labels"; el.appendChild(labels.domElement);
 
     const scene = new THREE.Scene();
+    const displayMeshes: THREE.Mesh[] = [];
+    const registerDisplay = <T extends THREE.Mesh>(display: T) => { displayMeshes.push(display); return display; };
+    const setDisplaysPowered = (on: boolean) => {
+      for (const display of displayMeshes) (display.material as THREE.MeshBasicMaterial).color.setScalar(on ? 1 : 0);
+    };
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     const surroundings = buildSurroundings(scene, { floor: FLOOR, mobile });
@@ -64,6 +77,16 @@ export function Dash3D({ status }: { status: DashStatus }) {
     sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 22, bottom: -22, near: 1, far: 90 }); sun.shadow.bias = -0.0004;
     scene.add(sun);
     if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; renderer.toneMappingExposure = 0.95; }
+    const applyDashLighting = (on: boolean) => {
+      const color = on ? NIGHT_SKY : SKY;
+      scene.background = new THREE.Color(color);
+      if (scene.fog instanceof THREE.Fog) scene.fog.color.setHex(color);
+      applyNight(scene, on ? 1 : 0);
+      sky.intensity = on ? 0.6 : 0.7; sun.intensity = on ? 0.55 : 1.8;
+      sun.color.set(on ? 0x9fb4ff : 0xfff0d2);
+      scene.environmentIntensity = on ? 0.5 : 0.4;
+      renderer.toneMappingExposure = on ? 0.95 : 0.85;
+    };
 
     const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 6000);
     const home = new THREE.Vector3(0, 30, 34);
@@ -87,7 +110,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
     const white = matte("#f4f6f8", 0.5), metal = new THREE.MeshStandardMaterial({ color: 0x2b2e34, roughness: 0.35, metalness: 0.6 });
 
     // Floor: light polished concrete, as a modern open office.
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), matte(DASH_FLOOR, 0.6)); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+    const floor = new THREE.Mesh(new THREE.ShapeGeometry(roundedRect(W, D, 4), 10), matte(DASH_FLOOR, 0.6)); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 
     // Walls: glass all round with white frames; low at the front so the room is seen from outside.
     const glass = new THREE.MeshPhysicalMaterial({ color: 0xd8f1ff, transparent: true, opacity: 0.2, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
@@ -132,14 +155,14 @@ export function Dash3D({ status }: { status: DashStatus }) {
     };
     // The video wall on the analysis room's glass, facing the trading floor.
     const wallMesh = new THREE.Mesh(new THREE.PlaneGeometry(VIDEO_WALL.w, VIDEO_WALL.h), new THREE.MeshBasicMaterial({ map: wallScreen.texture, toneMapped: false }));
-    wallMesh.position.set(VIDEO_WALL.x, VIDEO_WALL.y + VIDEO_WALL.h / 2, VIDEO_WALL.z); scene.add(wallMesh);
+    wallMesh.position.set(VIDEO_WALL.x, VIDEO_WALL.y + VIDEO_WALL.h / 2, VIDEO_WALL.z); scene.add(registerDisplay(wallMesh));
     add(new THREE.Mesh(new THREE.BoxGeometry(VIDEO_WALL.w + 0.3, VIDEO_WALL.h + 0.3, 0.15), metal)).position.set(VIDEO_WALL.x, VIDEO_WALL.y + VIDEO_WALL.h / 2, VIDEO_WALL.z - 0.1);
 
     // Only when walking (owner, 02/11/2026: "quando estou andando dentro do escritório tem que mostrar um
     // teto"): the ceiling with light panels, as in the DAWN office; seen from above it would hide the room.
     const inside = new THREE.Group(); inside.visible = false; scene.add(inside);
     {
-      const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, D), matte("#ecebe7", 0.9));
+      const ceiling = new THREE.Mesh(new THREE.ShapeGeometry(roundedRect(W, D, 4), 10), matte("#ecebe7", 0.9));
       ceiling.rotation.x = Math.PI / 2; ceiling.position.y = H; inside.add(ceiling);
       const panels = new Mass();
       for (let x = -20; x <= 20; x += 6) for (let z = -10; z <= 10; z += 5) panels.box(x, H - 0.03, z, 1.8, 0.03, 0.6);
@@ -163,9 +186,11 @@ export function Dash3D({ status }: { status: DashStatus }) {
         accent.position.set((r.x0 + r.x1) / 2, H / 2, -D / 2 + 0.1); add(accent);
         for (const [a, b] of [[r.x0 + 0.08, r.door - 0.7], [r.door + 0.7, r.x1 - 0.08]]) fronts.box((a + b) / 2, 0, ROOM_FRONT, b - a, H, 0.05, false);
         for (const x of [r.x0 + 0.07, r.door - 0.7, r.door + 0.7, r.x1 - 0.07]) mullions.box(x, 0, ROOM_FRONT, 0.08, H, 0.1, false);
-        const name = screen(512, 96); name.g.fillStyle = r.color; name.g.font = "bold 46px sans-serif"; name.g.textBaseline = "middle"; name.g.fillText(r.name, 18, 50); name.texture.needsUpdate = true;
+        const name = screen(512, 96); name.g.fillStyle = r.color; name.g.font = "bold 46px sans-serif"; name.g.textAlign = "center"; name.g.textBaseline = "middle"; name.g.fillText(r.name, 256, 48); name.texture.needsUpdate = true;
         const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.49), new THREE.MeshBasicMaterial({ map: name.texture, transparent: true, toneMapped: false }));
-        sign.position.set(r.door - 0.7 - 1.4, 2.5, ROOM_FRONT + 0.04); scene.add(sign);
+        // Centre each room name over the actual glass panel to the left of its doorway.
+        const panelStart = r.x0 + 0.08, panelEnd = r.door - 0.7;
+        sign.position.set((panelStart + panelEnd) / 2, 2.5, ROOM_FRONT + 0.04); scene.add(sign);
       }
       partitions.box(ROOMS[ROOMS.length - 1].x1, 0, -D / 2 + depth / 2, 0.14, H, depth, false);
       mullions.box((ROOMS[0].x0 + ROOMS[ROOMS.length - 1].x1) / 2, H - 0.06, ROOM_FRONT, ROOMS[ROOMS.length - 1].x1 - ROOMS[0].x0, 0.08, 0.1);
@@ -232,7 +257,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
       for (let n = 0; n < 2; n++) {
         const s = screen(512, 300), offset = (n - 0.5) * 0.66;
         const mon = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.37), new THREE.MeshBasicMaterial({ map: s.texture, toneMapped: false }));
-        mon.position.set(offset, 1.12, 0.26); mon.rotation.y = Math.PI; g.add(mon);
+        mon.position.set(offset, 1.12, 0.26); mon.rotation.y = Math.PI; g.add(registerDisplay(mon));
         const back = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.4, 0.03), screenBack); back.position.set(offset, 1.12, 0.28); g.add(back);
         const stand = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.05), metal); stand.position.set(offset, 0.88, 0.3); g.add(stand);
         monitors.push({ draw: (st) => {
@@ -261,7 +286,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
       if (b.kind === "glow") {
         const s = screen(768, Math.round((768 * b.h) / b.w));
         const plane = new THREE.Mesh(new THREE.PlaneGeometry(b.w, b.h), new THREE.MeshBasicMaterial({ map: s.texture, toneMapped: false }));
-        plane.position.set(b.x, y + b.h / 2, b.z + 0.05); scene.add(plane);
+        plane.position.set(b.x, y + b.h / 2, b.z + 0.05); scene.add(registerDisplay(plane));
         add(new THREE.Mesh(new THREE.BoxGeometry(b.w + 0.12, b.h + 0.12, 0.06), metal)).position.set(b.x, y + b.h / 2, b.z);
         roomScreens.push({ draw: (st) => {
           const c = s.g, w = s.g.canvas.width, h = s.g.canvas.height; c.fillStyle = "#070b12"; c.fillRect(0, 0, w, h);
@@ -301,7 +326,9 @@ export function Dash3D({ status }: { status: DashStatus }) {
       block(p.x, p.z, Math.max(p.w, 0.3), Math.max(p.d, 0.3));
     }
     // Framed posters on the side walls, as in the DAWN office.
-    for (const [x, y, z, turn, title, subtitle, background, accent] of POSTERS) {
+    for (const [x, , z, turn, title, subtitle, background, accent] of POSTERS) {
+      // Wall-mounted frames sit at the vertical centre of the usable wall (floor to ceiling).
+      const y = H / 2;
       const poster = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.62), new THREE.MeshStandardMaterial({ map: posterTexture(title, subtitle, background, accent), roughness: 0.6 }));
       poster.position.set(x, y, z); poster.rotation.y = turn; scene.add(poster);
       const frame = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.72, 0.04), matte("#1b1e24", 0.4)); frame.position.set(x - Math.sin(turn) * 0.03, y, z - Math.cos(turn) * 0.03); frame.rotation.y = turn; scene.add(frame);
@@ -317,8 +344,12 @@ export function Dash3D({ status }: { status: DashStatus }) {
       for (const [x, z] of [[15.9, -8.2], [17.5, -8.2], [19.1, -8.2], [15.9, -10.6], [17.5, -10.6], [19.1, -10.6]]) {
         const stool = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.75, 14), matte("#2b2e34", 0.5)); stool.position.set(x, 0.375, z); add(stool);
       }
-      const dash = screen(512, 256); dash.g.fillStyle = "#0f1626"; dash.g.font = "800 150px sans-serif"; dash.g.textAlign = "center"; dash.g.textBaseline = "middle"; dash.g.fillText("DASH", 256, 112);
-      dash.g.font = "bold 26px sans-serif"; dash.g.fillText("Day-trading Analysis & Strategy Hub", 256, 214); dash.texture.needsUpdate = true;
+      const dash = screen(512, 256);
+      dash.g.fillStyle = "#d8893f"; dash.g.fillRect(0, 0, 512, 256);
+      dash.g.textAlign = "center"; dash.g.textBaseline = "middle"; dash.g.fillStyle = "#fffaf2";
+      dash.g.font = "800 142px sans-serif"; dash.g.fillText("DASH", 256, 103);
+      dash.g.font = "bold 25px sans-serif"; dash.g.fillText("Day-trading Analysis & Strategy Hub", 256, 205);
+      dash.texture.needsUpdate = true;
       const logo = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.2), new THREE.MeshBasicMaterial({ map: dash.texture, transparent: true }));
       logo.position.set(-23.6, 1.7, 6.5); logo.rotation.y = Math.PI / 2; scene.add(logo);
     }
@@ -378,14 +409,16 @@ export function Dash3D({ status }: { status: DashStatus }) {
 
     // Weekends and B3 holidays (owner, 02/11/2026: "sábados, domingos e feriados, quando a bolsa está
     // fechada, eles também não ficam no escritório"): nobody comes in; checked again every 30 s.
-    let open = true, openCheck = 30;
+    let open = false, openCheck = 30, currentStatus = initial.current, currentHalted = initialHalted.current;
+    const shouldBeOpen = () => tradingDay(new Date()) && !currentHalted && currentStatus.market !== "CLOSED";
     const staffed = (on: boolean) => {
       open = on;
+      setDisplaysPowered(on);
       for (const p of people) p.person.group.traverse((o) => { if (o === p.person.group || o instanceof CSS2DObject) o.visible = on; });
     };
-    staffed(tradingDay(new Date()));
+    staffed(shouldBeOpen());
 
-    const sync = (s: DashStatus) => { drawWall(s); monitors.forEach((m) => m.draw(s)); roomScreens.forEach((m) => m.draw(s)); };
+    const sync = (s: DashStatus) => { currentStatus = s; drawWall(s); monitors.forEach((m) => m.draw(s)); roomScreens.forEach((m) => m.draw(s)); const on = shouldBeOpen(); if (on !== open) staffed(on); };
     sync(initial.current);
 
     // First person (as in the dividends office): from the elevator, W A S D or the arrows to walk,
@@ -432,7 +465,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
       }
       camera.rotation.set(walk.pitch, walk.yaw, 0, "YXZ");
     };
-    api.current = { reset, status: sync, walk: firstPerson };
+    api.current = { reset, status: (s, isHalted) => { currentHalted = isHalted; sync(s); }, walk: firstPerson, night: applyDashLighting };
 
     const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h); labels.setSize(w, h); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
@@ -449,7 +482,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
         if (k >= 1) { entry.at = -1; controls.maxDistance = 70; controls.enabled = true; }
       }
       openCheck -= dt;
-      if (openCheck <= 0) { openCheck = 30; const on = tradingDay(new Date()); if (on !== open) staffed(on); }
+      if (openCheck <= 0) { openCheck = 30; const on = shouldBeOpen(); if (on !== open) staffed(on); }
       if (!reduced) {
         surroundings.userData.update?.(dt);
         if (open) { for (const p of people) if (!p.walker) pose(p.person, "type", t, p.phase); walkRound(dt, t); }
@@ -472,7 +505,7 @@ export function Dash3D({ status }: { status: DashStatus }) {
     };
   }, []);
 
-  useEffect(() => { api.current?.status(status); }, [status]);
+  useEffect(() => { api.current?.status(status, halted); }, [status, halted]);
   useEffect(() => { api.current?.walk(walking); }, [walking]);
 
   if (failed) return <div className="dash3d dash3d-failed" role="status">O 3D não está disponível neste aparelho. O painel abaixo mostra o estado da mesa.</div>;
@@ -484,8 +517,21 @@ export function Dash3D({ status }: { status: DashStatus }) {
           aria-label={walking ? "Sair do modo andar" : "Andar pela sala do DASH"} title={walking ? "Sair do modo andar" : "Andar pela sala"}>
           <PersonStanding size={18} />
         </button>
+        <button type="button" className="icon-button secondary" onClick={() => setNightMode((on) => {
+          const next = !on; try { localStorage.setItem("atlas-building-night", next ? "1" : "0"); } catch { /* storage blocked */ }
+          api.current?.night(next); return next;
+        })} aria-pressed={night} aria-label={night ? "Mudar escritório para dia" : "Mudar escritório para noite"} title={night ? "Mudar para dia" : "Mudar para noite"}>
+          {night ? <Moon size={18} /> : <Sun size={18} />}
+        </button>
         <button type="button" className="icon-button secondary" onClick={() => { setWalking(false); api.current?.reset(); }} aria-label="Centralizar a sala" title="Centralizar">
           <LocateFixed size={18} />
+        </button>
+        <button type="button" className="icon-button secondary" onClick={() => {
+          const root = host.current?.parentElement;
+          if (document.fullscreenElement === root) void document.exitFullscreen();
+          else void root?.requestFullscreen();
+        }} aria-pressed={fullscreen} aria-label={fullscreen ? "Sair da tela cheia" : "Maximizar escritório"} title={fullscreen ? "Sair da tela cheia" : "Maximizar escritório"}>
+          {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
         </button>
       </div>
       {walking && <div className="office3d-fp-hint" role="status">

@@ -42,6 +42,7 @@ export function BuildingView() {
   });
   const [entering, setEntering] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
+  const [showHelp, setShowHelp] = useState(true);
   const [showList, setShowList] = useState(true);
   // The flat (2D) section is gone (owner, 01/11/2026: "tira essa tela horrível"): without 3D, the
   // list of offices is the map.
@@ -51,6 +52,12 @@ export function BuildingView() {
   // The city's sound, on unless turned off (remembered in the browser).
   const [sound, setSound] = useState(() => { try { return localStorage.getItem(SOUND) !== "off"; } catch { return true; } });
   useCitySound(sound && !flat, night);
+
+  // Keep the exploration tip visible briefly, then leave the map unobstructed.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowHelp(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const go = useCallback((floor: number | null) => {
     const office = floor !== null ? officeOnFloor(floor) : null;
@@ -132,7 +139,7 @@ export function BuildingView() {
           {notice ? <p className="building-hint notice" role="status">{notice}</p>
             : entering ? <p className="building-hint" role="status">Entrando em {officeOnFloor(entering)?.name}…</p>
             : failed ? <p className="building-hint" role="status">O 3D não está disponível neste aparelho; escolha o escritório na lista.</p>
-            : !flat && <p className="building-hint">Arraste para explorar · roda ou pinça para aproximar · clique num escritório para entrar</p>}
+            : !flat && showHelp && <p className="building-hint">Arraste para explorar · roda ou pinça para aproximar · clique num escritório para entrar</p>}
           <div className="building-signature" aria-hidden="true"><span className="brand-mark">A</span><strong>ATLAS</strong></div>
         </footer>
       </div>
