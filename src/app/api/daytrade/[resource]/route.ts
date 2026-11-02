@@ -4,7 +4,7 @@ import { checkCron, checkOrigin, checkProfitDllGateway, failure, json, readBody 
 import { adminClient } from "@/lib/supabase";
 import { appendJournal, dashConfig, loadDashRecords, loadDashStatus, recordHeartbeat, setHalt } from "@/lib/daytrade/store";
 import { runCycle } from "@/core/daytrade/cycle";
-import { readiness, roomLimits } from "@/core/daytrade/config";
+import { paperReadiness, roomLimits } from "@/core/daytrade/config";
 import { DESKS } from "@/core/daytrade/desks";
 import { required } from "@/lib/env";
 import { analyzeOpeningRange, backtestCandidate, type MinuteBar } from "@/core/daytrade/analysis";
@@ -26,10 +26,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ reso
       const config = dashConfig();
       const symbol = new URL(request.url).searchParams.get("instrument") ?? config.instruments.find((i) => i.enabled)?.symbol;
       if (!symbol || !config.instruments.some((i) => i.enabled && i.symbol === symbol)) throw new ApiError(422, "INSTRUMENT_NOT_READY", "Selecione um contrato habilitado no DASH.");
-      const { data, error } = await db.from("dt_market_bars").select("bucket_at,open,high,low,close,volume")
-        .eq("owner_id", user.id).eq("instrument", symbol).eq("timeframe", "1m").order("bucket_at", { ascending: false }).limit(resource === "backtest" ? 20000 : 600);
-      if (error) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler os candles do DASH.");
-      const bars = (data ?? []).reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) })) as MinuteBar[];
+      const pageSize = 1000, maximum = resource === "backtest" ? 20000 : 600;
+      const descendingRows: Array<{ bucket_at: string; open: number | string; high: number | string; low: number | string; close: number | string; volume: number | string }> = [];
+      const completedBefore = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();
+      for (let offset = 0; offset < maximum; offset += pageSize) {
+        let query = db.from("dt_market_bars").select("bucket_at,open,high,low,close,volume")
+          .eq("owner_id", user.id).eq("instrument", symbol).eq("timeframe", "1m")
+          .order("bucket_at", { ascending: false }).range(offset, offset + Math.min(pageSize, maximum - offset) - 1);
+        if (resource === "backtest") query = query.lt("bucket_at", completedBefore);
+        const { data, error } = await query;
+        if (error) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler os candles do DASH.");
+        descendingRows.push(...(data ?? []));
+        if ((data?.length ?? 0) < pageSize) break;
+      }
+      const bars = descendingRows.reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) })) as MinuteBar[];
       const contract = config.instruments.find((i) => i.symbol === symbol)!;
       if (resource === "backtest") {
         if (!config.costs.verified || config.costs.brokeragePerContract === null || config.costs.exchangeFeesPerContract === null || contract.pointValue === null || contract.tickSize === null)
@@ -39,13 +49,21 @@ export async function GET(request: Request, { params }: { params: Promise<{ reso
       return json({ instrument: symbol, timeframe: "1m", bars, analysis: analyzeOpeningRange(bars), source: "PROFITDLL_DAYTRADE" });
     }
     if (resource === "status") return json(await loadDashStatus(db, user.id));
-    if (resource === "config") { const c = dashConfig(); return json({ config: c, limits: roomLimits(c) }); }
+    if (resource === "config") { const c = dashConfig(); return json({ config: c, limits: roomLimits(c), paperMissing: paperReadiness(c) }); }
     if (resource === "journal") return json({ rows: await loadDashRecords(db, user.id, "dt_journal") });
     if (resource === "observations") {
       const { data, error } = await db.from("dt_strategy_observations").select("instrument,strategy_version,bar_at,state,entry,stop,explanation,blocked_reasons,created_at")
         .eq("owner_id", user.id).order("bar_at", { ascending: false }).limit(100);
       if (error) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler as observaÃ§Ãµes da estratÃ©gia.");
       return json({ rows: data ?? [] });
+    }
+    if (resource === "paper") {
+      const [state, fills] = await Promise.all([
+        db.from("dt_paper_state").select("instrument,session_day,position_side,entry_price,stop_price,pending_side,trades_today,realized_pnl_today,last_bar_at,updated_at").eq("owner_id", user.id),
+        db.from("dt_paper_fills").select("instrument,strategy_version,bar_at,action,side,quantity,price,fees,gross_pnl,net_pnl,reason,created_at").eq("owner_id", user.id).order("bar_at", { ascending: false }).limit(100),
+      ]);
+      if (state.error || fills.error) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler a simulaÃ§Ã£o futura do DASH.");
+      return json({ state: state.data ?? [], fills: fills.data ?? [] });
     }
     if (resource === "ledger") return json({ rows: await loadDashRecords(db, user.id, "dt_ledger") });
     if (resource === "orders") return json({ rows: await loadDashRecords(db, user.id, "dt_orders") });
@@ -99,6 +117,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
       if (!instrument || !instrument.verified) throw new ApiError(422, "INSTRUMENT_NOT_READY", "Contrato não está habilitado e verificado na configuração do DASH.");
       if (instrument.expiresOn && new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) >= instrument.expiresOn) throw new ApiError(422, "CONTRACT_EXPIRED", "Contract expired; update the symbol before collecting quotes.");
       const received = Date.parse(body.receivedAt), exchange = Date.parse(body.exchangeAt), now = Date.now();
+      const bars = [...body.closedBars, ...(body.bar ? [body.bar] : [])];
+      const seenBuckets = new Set<string>();
+      for (const bar of bars) {
+        const bucket = Date.parse(bar.bucketAt);
+        if (!Number.isFinite(bucket) || bucket % 60_000 !== 0 || bucket > now || now - bucket > 120_000)
+          throw new ApiError(422, "BAR_INVALID", "O candle precisa pertencer ao minuto atual ou imediatamente anterior.");
+        if (seenBuckets.has(bar.bucketAt)) throw new ApiError(422, "BAR_DUPLICATE", "O lote contém candles duplicados.");
+        seenBuckets.add(bar.bucketAt);
+        if (instrument.tickSize !== null && [bar.open, bar.high, bar.low, bar.close].some((price) => Math.abs(price / instrument.tickSize! - Math.round(price / instrument.tickSize!)) > 1e-8))
+          throw new ApiError(422, "BAR_TICK_INVALID", "Os preços do candle não respeitam o tick configurado para o contrato.");
+      }
+      if (instrument.tickSize !== null && [body.last, body.bid, body.ask].filter((price): price is number => price !== null)
+        .some((price) => Math.abs(price / instrument.tickSize! - Math.round(price / instrument.tickSize!)) > 1e-8))
+        throw new ApiError(422, "QUOTE_TICK_INVALID", "Quote price is not aligned to the configured contract tick.");
+      if (body.bar && body.closedBars.some((bar) => Date.parse(bar.bucketAt) >= Date.parse(body.bar!.bucketAt)))
+        throw new ApiError(422, "BAR_ORDER_INVALID", "Candles fechados precisam anteceder o candle em formação.");
       if (Math.abs(now - received) > config.data.maxDelayMs || received < exchange || received - exchange > config.data.maxDelayMs)
         throw new ApiError(422, "QUOTE_STALE", "Cotação fora da janela de atraso permitida.");
       const { data: previous, error: previousError } = await db.from("dt_market_quotes").select("exchange_at, sequence").eq("owner_id", ownerId).eq("instrument", instrument.symbol).maybeSingle();
@@ -108,11 +142,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
         throw new ApiError(409, "QUOTE_OUT_OF_ORDER", "Cotação repetida ou fora de ordem foi descartada.");
       const { error } = await db.from("dt_market_quotes").upsert({ owner_id: ownerId, instrument: instrument.symbol, provider: body.provider, last: body.last, bid: body.bid, ask: body.ask, exchange_at: body.exchangeAt, received_at: body.receivedAt, sequence: body.sequence }, { onConflict: "owner_id,instrument" });
       if (error) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar a cotação.");
-      const bars = [...body.closedBars, ...(body.bar ? [body.bar] : [])];
-      for (const bar of bars) {
-        const bucket = Date.parse(bar.bucketAt);
-        if (!Number.isFinite(bucket) || bucket % 60_000 !== 0 || bucket > now || now - bucket > 120_000) throw new ApiError(422, "BAR_INVALID", "O candle precisa pertencer ao minuto atual ou imediatamente anterior.");
-      }
+      let allBars: MinuteBar[] = [];
       if (bars.length) {
         const { error: barError } = await db.from("dt_market_bars").upsert(bars.map((bar) => ({ owner_id: ownerId, instrument: instrument.symbol, provider: body.provider, timeframe: "1m", bucket_at: bar.bucketAt, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, updated_at: new Date().toISOString() })), { onConflict: "owner_id,instrument,timeframe,bucket_at" });
         if (barError) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar os candles.");
@@ -124,9 +154,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
             .eq("owner_id", ownerId).eq("instrument", instrument.symbol).eq("timeframe", "1m")
             .order("bucket_at", { ascending: false }).limit(600);
           if (historyError) throw new ApiError(500, "DASH_READ_FAILED", "Não foi possível carregar o histórico para análise.");
-          const allBars = (history ?? []).reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) })) as MinuteBar[];
-          const blockedReasons = readiness(config);
-          const observations = [...body.closedBars].sort((a, b) => a.bucketAt.localeCompare(b.bucketAt)).map((closed) => {
+          allBars = (history ?? []).reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) })) as MinuteBar[];
+          const paperMissing = paperReadiness(config);
+          const orderedClosedBars = [...body.closedBars].sort((a, b) => a.bucketAt.localeCompare(b.bucketAt));
+          const observations = orderedClosedBars.map((closed) => {
             const prefix = allBars.filter((bar) => Date.parse(bar.bucket_at) <= Date.parse(closed.bucketAt));
             const analysis = analyzeOpeningRange(prefix, closed.bucketAt);
             const long = analysis.state === "WATCH_LONG", short = analysis.state === "WATCH_SHORT";
@@ -135,7 +166,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
               bar_at: closed.bucketAt, state: analysis.state,
               entry: long || short ? closed.close : null,
               stop: long ? analysis.metrics.openingLow : short ? analysis.metrics.openingHigh : null,
-              explanation: analysis.explanation, blocked_reasons: blockedReasons,
+              explanation: analysis.explanation, blocked_reasons: paperMissing,
             };
           });
           const { error: observationError } = await db.from("dt_strategy_observations").upsert(observations, {
@@ -146,6 +177,38 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
         }
       }
       await recordHeartbeat(db, ownerId, "feed", "WORKING", "Cotação ProfitDLL recebida; somente leitura.");
+      if (body.closedBars.length) {
+        const paperMissing = paperReadiness(config);
+        const { data: settings, error: settingsError } = await db.from("dt_settings").select("halted").eq("owner_id", ownerId).maybeSingle();
+        if (settingsError) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler a trava da simulaÃ§Ã£o.");
+        const feePerSide = config.costs.brokeragePerContract !== null && config.costs.exchangeFeesPerContract !== null
+          ? config.costs.brokeragePerContract + config.costs.exchangeFeesPerContract : null;
+        for (const closed of [...body.closedBars].sort((a, b) => a.bucketAt.localeCompare(b.bucketAt))) {
+          const prefix = allBars.filter((bar) => Date.parse(bar.bucket_at) <= Date.parse(closed.bucketAt));
+          const signal = analyzeOpeningRange(prefix, closed.bucketAt);
+          const stop = signal.state === "WATCH_LONG" ? signal.metrics.openingLow : signal.state === "WATCH_SHORT" ? signal.metrics.openingHigh : null;
+          const { data: paperResult, error: paperError } = await db.rpc("dt_apply_paper_bar", { p_event: {
+            owner_id: ownerId, instrument: instrument.symbol, strategy_version: "opening-range-vwap-v1",
+            bar_at: closed.bucketAt, open: closed.open, high: closed.high, low: closed.low, close: closed.close,
+            signal: signal.state, stop, enabled: paperMissing.length === 0 && !settings?.halted,
+            point_value: instrument.pointValue, tick_size: instrument.tickSize, fee_per_side: feePerSide,
+            slippage_ticks: config.costs.slippageTicks, max_loss_per_trade: config.risk.maxLossPerTrade,
+            max_loss_per_day: config.risk.maxLossPerDay, max_exposure: config.risk.maxExposure,
+            margin_per_contract: instrument.marginPerContract, max_trades_per_day: config.risk.maxTradesPerDay,
+            max_contracts: config.risk.maxContracts, max_open_positions: config.risk.maxOpenPositions,
+            last_entry: config.session.lastEntry, flat_by: config.session.flatBy,
+          } });
+          if (paperError) throw new ApiError(500, "DASH_WRITE_FAILED", "Falha ao atualizar o paper trading.");
+          const paperAction = (paperResult as { action?: string } | null)?.action;
+          if (paperAction && !["NO_ACTION", "DUPLICATE"].includes(paperAction)) {
+            const blocked = ["ENTRY_BLOCKED", "DATA_GAP_NO_ENTRY"].includes(paperAction);
+            await appendJournal(db, ownerId, [{ at: closed.bucketAt, desk: "execution", state: blocked ? "BLOCKED" : "WORKING", message: `Paper ${paperAction} em ${instrument.symbol}; nenhuma ordem real foi enviada.` }]);
+          }
+        }
+        await recordHeartbeat(db, ownerId, "execution", "WORKING", paperMissing.length || settings?.halted
+          ? `Paper trading bloqueado: ${paperMissing.join("; ") || "parada manual ativa"}.`
+          : "Paper trading ativo; fills simulados e roteamento de ordens reais desativado.");
+      }
       return json({ ok: true, instrument: instrument.symbol, receivedAt: body.receivedAt });
     }
     if (resource === "cycle") {

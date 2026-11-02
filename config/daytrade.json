@@ -42,6 +42,7 @@
     "stopRequired": true
   },
   "costs": {
+    "$comment": "Brokerage and exchange fees are entered per contract per side, from the Genial brokerage note. The simulator charges two sides for a round trip; slippageTicks applies adversely on each fill.",
     "brokeragePerContract": null,
     "exchangeFeesPerContract": null,
     "slippageTicks": 1,

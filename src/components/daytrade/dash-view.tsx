@@ -20,6 +20,10 @@ const TABS = [
   { id: "charts", label: "Gráficos", icon: LayoutGrid, note: "Candles de 1 minuto do ProfitDLL e análise transparente, sem ordens." },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
+type PaperData = {
+  state: Array<{ instrument: string; position_side: number; entry_price: string | null; stop_price: string | null; pending_side: number; trades_today: number; realized_pnl_today: string; last_bar_at: string | null }>;
+  fills: Array<{ instrument: string; bar_at: string; action: "ENTRY" | "EXIT"; side: "BUY" | "SELL"; price: string; fees: string; net_pnl: string | null; reason: string }>;
+};
 
 /**
  * The DASH office (owner, 01/11/2026: "crie o escritório do DASH para eu poder entrar e começar a
@@ -34,11 +38,13 @@ export function DashView({ connected = false }: { connected?: boolean }) {
   const [status, setStatus] = useState<DashStatus>(INITIAL_STATUS);
   const [halted, setHalted] = useState(false);
   const [missing, setMissing] = useState<string[] | null>(null);
+  const [paperMissing, setPaperMissing] = useState<string[] | null>(null);
+  const [paper, setPaper] = useState<PaperData | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [bars, setBars] = useState<MinuteBar[]>([]);
   const [analysis, setAnalysis] = useState<DeskSignal | null>(null);
-  const [backtest, setBacktest] = useState<{ status: string; trades?: number; netPnl?: number; winRate?: number | null; profitFactor?: number | null; maxDrawdown?: number } | null>(null);
+  const [backtest, setBacktest] = useState<{ status: string; trades?: number; netPnl?: number; winRate?: number | null; profitFactor?: number | null; maxDrawdown?: number; walkForwardFolds?: number; trainingDays?: number; evaluationDays?: number } | null>(null);
   const [backtestBusy, setBacktestBusy] = useState(false);
   const [chartMessage, setChartMessage] = useState("Conecte o coletor ProfitDLL e configure um contrato ativo para receber candles.");
   const [tab, setTab] = useState<Tab>("office");
@@ -51,13 +57,27 @@ export function DashView({ connected = false }: { connected?: boolean }) {
         const response = await fetch("/api/daytrade/status", { cache: "no-store" });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Falha ao ler o DASH.");
-        if (alive) { setStatus(data.status); setHalted(data.halted); setMissing(data.missing); }
+        if (alive) { setStatus(data.status); setHalted(data.halted); setMissing(data.missing); setPaperMissing(data.paperMissing); }
       } catch (error) { if (alive) setMessage(error instanceof Error ? error.message : "Falha ao ler o DASH."); }
     };
     void load();
     const timer = window.setInterval(load, 30000);
     return () => { alive = false; window.clearInterval(timer); };
   }, [connected]);
+  useEffect(() => {
+    if (!connected || tab !== "panel") return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/daytrade/paper", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Falha ao ler a simulação paper.");
+        if (alive) setPaper(data);
+      } catch { if (alive) setPaper(null); }
+    };
+    void load(); const timer = window.setInterval(load, 15000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [connected, tab]);
   useEffect(() => {
     if (!connected || tab !== "charts") return;
     let alive = true;
@@ -210,7 +230,23 @@ export function DashView({ connected = false }: { connected?: boolean }) {
 
         {tab === "panel" && <section className="dash-grid" aria-label="Painel do DASH">
           <article className="dash-card wide">
-            <h2>O que falta para operar</h2>
+            <h2>Simulação futura (paper trading)</h2>
+            <p className="dash-note">Somente dinheiro fictício. O sinal confirmado no fechamento do candle só pode preencher no próximo candle; stops, custos e gaps seguem regras conservadoras. Nenhuma ordem sai para a Genial.</p>
+            {paperMissing === null ? <p className="dash-note">Aguardando configuração do DASH.</p> : paperMissing.length ? <ul className="dash-rules">{paperMissing.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="dash-note">Configuração disponível para simulação futura. A estratégia ainda precisa acumular dados paper; isso não habilita operação real.</p>}
+            {(paper?.state ?? []).map((row) => <dl key={row.instrument}>
+              <div><dt>Contrato</dt><dd>{row.instrument}</dd></div>
+              <div><dt>Posição simulada</dt><dd>{row.position_side === 1 ? "Comprado" : row.position_side === -1 ? "Vendido" : row.pending_side ? "Entrada aguardando próximo candle" : "Zerado"}</dd></div>
+              <div><dt>Preço / stop</dt><dd>{row.entry_price ?? "—"} / {row.stop_price ?? "—"}</dd></div>
+              <div><dt>Resultado líquido do dia</dt><dd>R$ {Number(row.realized_pnl_today).toFixed(2)}</dd></div>
+              <div><dt>Entradas do dia</dt><dd>{row.trades_today}</dd></div>
+              <div><dt>Último candle processado</dt><dd>{row.last_bar_at ? new Date(row.last_bar_at).toLocaleString("pt-BR") : "—"}</dd></div>
+            </dl>)}
+            {(paper?.fills.length ?? 0) > 0 && <ul className="dash-rules">{paper!.fills.slice(0, 8).map((fill, index) => <li key={`${fill.bar_at}-${fill.action}-${index}`}>
+              {new Date(fill.bar_at).toLocaleString("pt-BR")} · {fill.action === "ENTRY" ? "Entrada" : "Saída"} {fill.side} · {fill.price} · custos R$ {Number(fill.fees).toFixed(2)}{fill.net_pnl !== null ? ` · líquido R$ ${Number(fill.net_pnl).toFixed(2)}` : ""} · {fill.reason}
+            </li>)}</ul>}
+          </article>
+          <article className="dash-card wide">
+            <h2>Travas para operação real</h2>
             {missing === null ? <p className="dash-note">Sem banco conectado: veja config/daytrade.json e docs/daytrade/AGENTES.md.</p>
               : missing.length === 0 ? <p className="dash-note">Configuração completa; o DASH continua em modo simulado.</p>
               : <ul className="dash-rules">{missing.map((m) => <li key={m}>{m}</li>)}</ul>}
@@ -280,6 +316,8 @@ export function DashView({ connected = false }: { connected?: boolean }) {
             {backtest?.status === "RESEARCH_ONLY" || backtest?.status === "NO_TRADES" ? <dl>
               <div><dt>Estado</dt><dd>{backtest.status}</dd></div>
               <div><dt>Operações fora da amostra</dt><dd>{backtest.trades}</dd></div>
+              <div><dt>Pregões avaliados / blocos</dt><dd>{backtest.evaluationDays} / {backtest.walkForwardFolds}</dd></div>
+              <div><dt>Histórico anterior acumulado</dt><dd>{backtest.trainingDays} pregões</dd></div>
               <div><dt>Resultado líquido</dt><dd>R$ {backtest.netPnl?.toFixed(2)}</dd></div>
               <div><dt>Acerto</dt><dd>{backtest.winRate === null || backtest.winRate === undefined ? "—" : `${(backtest.winRate * 100).toFixed(1)}%`}</dd></div>
               <div><dt>Fator de lucro</dt><dd>{backtest.profitFactor?.toFixed(2) ?? "—"}</dd></div>

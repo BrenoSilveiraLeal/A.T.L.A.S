@@ -4,6 +4,8 @@
 
 **Estado em 02/11/2026:** UI DASH e proteções básicas existem; execução real continua bloqueada. Provedor escolhido: ProfitDLL, em processo Windows isolado. A ponte MT5 do DAWN permanece independente e inalterada.
 
+**Atualização de implementação:** o gateway `gateways/profitdll/gateway.py` é Market Data somente leitura; M1, observações, estado paper e fills estão nas tabelas próprias `dt_market_*`, `dt_strategy_observations` e `dt_paper_*`. O sinal paper é processado por candle fechado com preenchimento apenas no candle seguinte e uma função Postgres invoker transacional. Para operar o paper faltam DLL/licença/ativação local, nota de custos, limites e horários verificados. Notícias, chefe/supervisor automáticos, reconciliação de conta e roteamento OMS não estão implementados; ordem real permanece bloqueada.
+
 ## Objetivo e fronteiras
 
 O DASH será um módulo de day trade separado do escritório atual de ações à vista. O escopo planejado começa por WIN (mini-índice); WDO (mini-dólar) fica para uma fase posterior. A estratégia não é presumida lucrativa: pesquisa, custos, dados fora da amostra e validação podem reprovar todas as estratégias, mantendo o sistema em modo SIMULADO.

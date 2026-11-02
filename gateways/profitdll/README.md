@@ -40,4 +40,6 @@ Keep the vendor package outside the repository. Never place the activation key, 
 
 The chart history begins when the collector first runs; it does not backfill candles from before installation. This pipeline is read-only: the integration uses Market Data initialization and does not load ProfitDLL OMS/order functions. Real orders remain disabled.
 
-The configured WINZ26 symbol should be rolled before its 16/12/2026 expiry. The B3 WIN schedule is 09:00–18:25 from 03/11/2026; the contract's expiry day closes at 18:00. Check the [B3 circular 050/2026](https://www.b3.com.br/data/files/99/B7/82/67/8A631A103BBB511AAC094EA8/OC%20050-2026-VNC%20NOVOS%20HORARIOS%20DE%20NEGOCIACAO_PT.pdf).
+The DASH also has a separate forward paper simulator. It stays idle until the contract, session, margin, per-side costs and risk limits are verified in `config/daytrade.json`. It simulates next-minute fills in its own `dt_paper_*` tables; it never sends orders through ProfitDLL or changes ATLAS/DAWN positions.
+
+The configured WINZ26 symbol should be rolled before its 16/12/2026 expiry. The B3 WIN schedule is 09:00–18:25 from 03/11/2026; the contract's expiry day closes at 18:00. Check the [B3 circular 055/2026](https://www.b3.com.br/data/files/BE/16/C1/59/2F881A10F75B881AAC094EA8/OC%20055-2026-VNC%20NOVOS%20HORARIOS%20DE%20NEGOCIACAO_PT.pdf).

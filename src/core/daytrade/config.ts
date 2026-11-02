@@ -71,6 +71,21 @@ export function readiness(config: DashConfig): string[] {
   return missing;
 }
 
+/** Forward simulation needs verified instrument/risk/cost/session facts but not a live-approved strategy. */
+export function paperReadiness(config: DashConfig): string[] {
+  const missing = readiness(config).filter((item) => item !== "EstratÃ©gia versionada e aprovada em backtest e simulaÃ§Ã£o");
+  if (config.session.open !== "09:00") missing.push("HorÃ¡rio de abertura compatÃ­vel com a faixa inicial da estratÃ©gia (09:00)");
+  if (config.session.open && config.session.lastEntry && config.session.flatBy &&
+    !(config.session.open < config.session.lastEntry && config.session.lastEntry < config.session.flatBy))
+    missing.push("Ãšltima entrada e zeragem precisam estar em ordem apÃ³s a abertura");
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const expiresToday = config.instruments.some((instrument) => instrument.enabled && instrument.expiresOn === today);
+  const officialClose = today < "2026-11-03" || expiresToday ? "18:00" : "18:25";
+  if (config.session.flatBy && config.session.flatBy >= officialClose)
+    missing.push(`Zeragem precisa ocorrer antes do encerramento B3 das ${officialClose}`);
+  return missing;
+}
+
 /** The risk limits the analysis room uses (agents.ts RiskLimits), or null while any is missing. */
 export function roomLimits(config: DashConfig) {
   const { maxLossPerTrade, maxLossPerDay, maxExposure, maxOpenPositions } = config.risk;

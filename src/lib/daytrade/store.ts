@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import raw from "../../../config/daytrade.json";
-import { dashConfigSchema, readiness, type DashConfig } from "@/core/daytrade/config";
+import { dashConfigSchema, paperReadiness, readiness, type DashConfig } from "@/core/daytrade/config";
 import { INITIAL_STATUS, ORDER_STATES, type DashStatus } from "@/core/daytrade/desks";
 import type { JournalEntry } from "@/core/daytrade/cycle";
 import { ApiError } from "@/lib/auth";
@@ -50,7 +50,7 @@ export async function loadDashStatus(db: Db, ownerId: string) {
     instrument: freshQuote?.instrument ?? config.instruments.find((i) => i.enabled)?.symbol ?? null,
     orders: counts,
   };
-  return { status, halted: settings.data?.halted ?? false, haltReason: settings.data?.halt_reason ?? null, heartbeats: heartbeats.data ?? [], quotes: quotes.data ?? [], missing: readiness(config) };
+  return { status, halted: settings.data?.halted ?? false, haltReason: settings.data?.halt_reason ?? null, heartbeats: heartbeats.data ?? [], quotes: quotes.data ?? [], missing: readiness(config), paperMissing: paperReadiness(config) };
 }
 
 /** Kill switch of the DASH only (it never touches the stocks office). */

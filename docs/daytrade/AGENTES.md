@@ -36,6 +36,19 @@ Guia para implementar os agentes do DASH em outro computador. O código está em
   implementadas e testadas em `tests/daytrade-agents.test.ts`.
 - `src/components/daytrade/dash-layout.ts`: a planta da sala, compartilhada pela cena 3D e pelo mapa.
 
+## Caminho já executado pelo DASH
+
+`WORKERS` e `POST /api/daytrade/cycle` continuam sendo contratos do pipeline genérico e ainda não formam um operador completo. O caminho ativo de pesquisa é separado: `POST /api/daytrade/quote` valida o snapshot ProfitDLL, persiste M1, analisa candles fechados e chama `dt_apply_paper_bar`. O RPC simula entradas no candle seguinte, stop/gap/zeragem, custos e risco, e grava em `dt_paper_state` e `dt_paper_fills`, tudo separado do ledger de ações. A configuração incompleta ou o kill switch deixa o motor sem novas entradas.
+
+| Responsabilidade | Estado atual |
+|---|---|
+| Feed e validação | ProfitDLL local, somente leitura; valida origem, atraso, contrato, OHLCV, candle e tick antes da persistência. |
+| Preço e estratégia | `opening-range-vwap-v1` calcula faixa inicial, VWAP e EMA em candle fechado e grava uma observação idempotente. |
+| Pesquisa | Backtest cronológico 70/30 com fricção por lado e avaliação fora da amostra; não aprova a estratégia automaticamente. |
+| Risco e execução paper | RPC Postgres transacional, um contrato, uma posição por vez; sinal do fechamento preenche no próximo candle; custo/risk config pendente bloqueia entradas. |
+| Notícias, supervisão, chefia e reconciliação com conta | Ainda sem workers ativos; não participam nem autorizam ordens reais. |
+| Roteamento real ProfitDLL | Desativado: não há chamadas OMS no gateway nem endpoint de envio. |
+
 Hoje todo worker é `notImplemented`. Ele responde `IDLE` e diz o motivo, sem nunca inventar dado.
 
 ## Fluxo de uma operação

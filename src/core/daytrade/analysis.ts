@@ -45,22 +45,30 @@ export function analyzeOpeningRange(bars: MinuteBar[], generatedAt = new Date().
 
 export interface BacktestSummary {
   researchOnly: true; trades: number; netPnl: number; winRate: number | null; profitFactor: number | null;
-  maxDrawdown: number; outOfSampleTrades: number; status: "INSUFFICIENT_DATA" | "NO_TRADES" | "RESEARCH_ONLY";
+  maxDrawdown: number; outOfSampleTrades: number; walkForwardFolds: number; trainingDays: number; evaluationDays: number;
+  status: "INSUFFICIENT_DATA" | "NO_TRADES" | "RESEARCH_ONLY";
 }
 
-/** A conservative, chronological OOS sanity check. This is not parameter optimization or a forecast. */
+/** Anchored walk-forward evaluation of frozen rules; no parameter fitting or forecast. */
 export function backtestCandidate(bars: MinuteBar[], pointValue: number, tickSize: number, costPerSide: number, slippageTicks: number): BacktestSummary {
   const sorted = [...bars].sort((a, b) => a.bucket_at.localeCompare(b.bucket_at));
-  const split = Math.floor(sorted.length * 0.7), sample = sorted.slice(split);
-  const developmentDays = new Set(sorted.slice(0, split).map((b) => saoPauloDay(b.bucket_at))).size;
-  const evaluationDays = new Set(sample.map((b) => saoPauloDay(b.bucket_at))).size;
-  if (developmentDays < 14 || evaluationDays < 6) return { researchOnly: true, trades: 0, netPnl: 0, winRate: null, profitFactor: null, maxDrawdown: 0, outOfSampleTrades: 0, status: "INSUFFICIENT_DATA" };
-  // Frozen rules are screened on a separate chronological segment. No same-window fitting.
+  const allDays = new Map<string, MinuteBar[]>();
+  for (const bar of sorted) { const key = saoPauloDay(bar.bucket_at); allDays.set(key, [...(allDays.get(key) ?? []), bar]); }
+  const validDays = [...allDays.entries()].filter(([, day]) => day.some((b) => saoPauloMinute(b.bucket_at) >= "09:00" && saoPauloMinute(b.bucket_at) < "18:25"));
+  const initialTrainingDays = 14, evaluationBlockDays = 6;
+  const foldCount = Math.floor(Math.max(0, validDays.length - initialTrainingDays) / evaluationBlockDays);
+  const evaluationStart = initialTrainingDays;
+  const evaluationDays = foldCount * evaluationBlockDays;
+  if (foldCount < 1) return { researchOnly: true, trades: 0, netPnl: 0, winRate: null, profitFactor: null, maxDrawdown: 0, outOfSampleTrades: 0, walkForwardFolds: 0, trainingDays: Math.min(validDays.length, initialTrainingDays), evaluationDays: 0, status: "INSUFFICIENT_DATA" };
+  // Rules remain frozen. Each six-session evaluation block follows an expanding historical window.
   const roundTripFriction = 2 * (costPerSide + tickSize * pointValue * slippageTicks);
-  const daily = new Map<string, MinuteBar[]>();
-  for (const b of sample) { const key = saoPauloDay(b.bucket_at); if (saoPauloMinute(b.bucket_at) >= "09:00" && saoPauloMinute(b.bucket_at) < "18:25") daily.set(key, [...(daily.get(key) ?? []), b]); }
   const pnl: number[] = [];
-  for (const day of daily.values()) {
+  for (let fold = 0; fold < foldCount; fold++) {
+   const blockStart = evaluationStart + fold * evaluationBlockDays;
+   const trainingWindow = validDays.slice(0, blockStart);
+   if (trainingWindow.length < initialTrainingDays) continue;
+   for (const [, rawDay] of validDays.slice(blockStart, blockStart + evaluationBlockDays)) {
+    const day = rawDay.filter((b) => saoPauloMinute(b.bucket_at) >= "09:00" && saoPauloMinute(b.bucket_at) < "18:25");
     if (day.length < 30) continue;
     const opening = day.filter((b) => saoPauloMinute(b.bucket_at) >= "09:00" && saoPauloMinute(b.bucket_at) < "09:15");
     if (opening.length !== 15) continue;
@@ -79,9 +87,10 @@ export function backtestCandidate(bars: MinuteBar[], pointValue: number, tickSiz
       else if (side && ((side === 1 && (last.close < fast || last.close < vwap)) || (side === -1 && (last.close > fast || last.close > vwap)))) { exit = last.close; break; }
     }
     if (side) { if (!exit) exit = rest.at(-1)!.close; pnl.push(side * (exit - entry) * pointValue - roundTripFriction); }
+   }
   }
   const gains = pnl.filter((n) => n > 0).reduce((a, b) => a + b, 0), losses = -pnl.filter((n) => n < 0).reduce((a, b) => a + b, 0);
   let equity = 0, peak = 0, maxDrawdown = 0;
   for (const n of pnl) { equity += n; peak = Math.max(peak, equity); maxDrawdown = Math.max(maxDrawdown, peak - equity); }
-  return { researchOnly: true, trades: pnl.length, netPnl: pnl.reduce((a, b) => a + b, 0), winRate: pnl.length ? pnl.filter((n) => n > 0).length / pnl.length : null, profitFactor: losses ? gains / losses : gains ? null : 0, maxDrawdown, outOfSampleTrades: pnl.length, status: pnl.length ? "RESEARCH_ONLY" : "NO_TRADES" };
+  return { researchOnly: true, trades: pnl.length, netPnl: pnl.reduce((a, b) => a + b, 0), winRate: pnl.length ? pnl.filter((n) => n > 0).length / pnl.length : null, profitFactor: losses ? gains / losses : gains ? null : 0, maxDrawdown, outOfSampleTrades: pnl.length, walkForwardFolds: foldCount, trainingDays: evaluationStart + (foldCount - 1) * evaluationBlockDays, evaluationDays, status: pnl.length ? "RESEARCH_ONLY" : "NO_TRADES" };
 }
