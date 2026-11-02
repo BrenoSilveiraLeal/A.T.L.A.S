@@ -9,6 +9,7 @@ import { paperReadiness, roomLimits } from "@/core/daytrade/config";
 import { DESKS } from "@/core/daytrade/desks";
 import { required } from "@/lib/env";
 import { analyzeOpeningRange, backtestCandidate, type MinuteBar } from "@/core/daytrade/analysis";
+import { dayTradeSession } from "@/core/daytrade/session";
 
 export const runtime = "nodejs";
 
@@ -47,10 +48,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ reso
           return json({ status: "COSTS_NOT_CONFIGURED", researchOnly: true });
         return json(backtestCandidate(bars, contract.pointValue, contract.tickSize, config.costs.brokeragePerContract + config.costs.exchangeFeesPerContract, config.costs.slippageTicks, contract.expiresOn));
       }
-      return json({ instrument: symbol, timeframe: "1m", bars, analysis: analyzeOpeningRange(bars), source: "PROFITDLL_DAYTRADE" });
+      return json({ instrument: symbol, timeframe: "1m", bars, analysis: analyzeOpeningRange(bars, new Date().toISOString(), contract.expiresOn ?? null), source: "PROFITDLL_DAYTRADE" });
     }
     if (resource === "status") return json(await loadDashStatus(db, user.id));
-    if (resource === "config") { const c = dashConfig(); return json({ config: c, limits: roomLimits(c), paperMissing: paperReadiness(c) }); }
+    if (resource === "config") { const c = dashConfig(), status = await loadDashStatus(db, user.id); return json({ config: c, limits: roomLimits(c), paperMissing: status.paperMissing, market: status.status.market }); }
     if (resource === "journal") return json({ rows: await loadDashRecords(db, user.id, "dt_journal") });
     if (resource === "observations") {
       const { data, error } = await db.from("dt_strategy_observations").select("instrument,strategy_version,bar_at,state,entry,stop,explanation,blocked_reasons,created_at")
@@ -144,9 +145,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
       const { error } = await db.from("dt_market_quotes").upsert({ owner_id: ownerId, instrument: instrument.symbol, provider: body.provider, last: body.last, bid: body.bid, ask: body.ask, exchange_at: body.exchangeAt, received_at: body.receivedAt, sequence: body.sequence }, { onConflict: "owner_id,instrument" });
       if (error) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar a cotação.");
       let allBars: MinuteBar[] = [];
+      let sessionPaperAllowed = false;
       if (bars.length) {
         const { error: barError } = await db.from("dt_market_bars").upsert(bars.map((bar) => ({ owner_id: ownerId, instrument: instrument.symbol, provider: body.provider, timeframe: "1m", bucket_at: bar.bucketAt, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, updated_at: new Date().toISOString() })), { onConflict: "owner_id,instrument,timeframe,bucket_at" });
         if (barError) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível registrar os candles.");
+
+        const exchangeMinute = Math.floor(exchange / 60_000) * 60_000;
+        const hasCurrentBarProof = body.bar !== undefined && Date.parse(body.bar.bucketAt) === exchangeMinute;
+        if (hasCurrentBarProof) {
+          const session = dayTradeSession(new Date(exchange), config, instrument.expiresOn ?? null);
+          const nextState = session.state === "CLOSED" ? "CLOSED" : session.paperAllowed ? "OPEN" : "PAUSED";
+          const { data: previousSession, error: sessionReadError } = await db.from("dt_sessions").select("status, opened_at, closed_at")
+            .eq("owner_id", ownerId).eq("day", session.day).maybeSingle();
+          if (sessionReadError) throw new ApiError(500, "DASH_READ_FAILED", "Falha ao ler a sessao do DASH.");
+          const { error: sessionWriteError } = await db.from("dt_sessions").upsert({
+            owner_id: ownerId, day: session.day, status: nextState,
+            plan: { instrument: instrument.symbol, source: `B3-WIN-09:00-${session.close}`, open: session.open, close: session.close, reason: session.reason,
+              exchangeAt: body.exchangeAt, barAt: body.bar!.bucketAt, confirmedAt: body.receivedAt },
+            opened_at: nextState === "OPEN" ? previousSession?.opened_at ?? body.receivedAt : previousSession?.opened_at ?? null,
+            closed_at: nextState === "OPEN" ? null : previousSession?.status === "OPEN" ? body.receivedAt : previousSession?.closed_at ?? null,
+            close_reason: nextState === "OPEN" ? null : session.reason,
+          }, { onConflict: "owner_id,day" });
+          if (sessionWriteError) throw new ApiError(500, "DASH_WRITE_FAILED", "Falha ao confirmar a sessao do DASH.");
+          sessionPaperAllowed = session.paperAllowed && nextState === "OPEN";
+        }
 
         // Process completed minutes only. These idempotent records are research observations;
         // the ProfitDLL market-data gateway has no order-routing capability.
@@ -156,11 +178,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
             .order("bucket_at", { ascending: false }).limit(600);
           if (historyError) throw new ApiError(500, "DASH_READ_FAILED", "Não foi possível carregar o histórico para análise.");
           allBars = (history ?? []).reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) })) as MinuteBar[];
-          const paperMissing = paperReadiness(config);
+          const paperMissing = paperReadiness(config, instrument.expiresOn ?? null);
           const orderedClosedBars = [...body.closedBars].sort((a, b) => a.bucketAt.localeCompare(b.bucketAt));
           const observations = orderedClosedBars.map((closed) => {
             const prefix = allBars.filter((bar) => Date.parse(bar.bucket_at) <= Date.parse(closed.bucketAt));
-            const analysis = analyzeOpeningRange(prefix, closed.bucketAt);
+            const analysis = analyzeOpeningRange(prefix, closed.bucketAt, instrument.expiresOn ?? null);
             const long = analysis.state === "WATCH_LONG", short = analysis.state === "WATCH_SHORT";
             return {
               owner_id: ownerId, instrument: instrument.symbol, strategy_version: "opening-range-vwap-v1",
@@ -180,7 +202,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
       }
       await recordHeartbeat(db, ownerId, "feed", "WORKING", "Cotação ProfitDLL recebida; somente leitura.");
       if (body.closedBars.length) {
-        const paperMissing = paperReadiness(config);
+        const paperMissing = paperReadiness(config, instrument.expiresOn ?? null);
         const { data: settings, error: settingsError } = await db.from("dt_settings").select("halted").eq("owner_id", ownerId).maybeSingle();
         if (settingsError) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler a trava da simulaÃ§Ã£o.");
         const riskBlocked = paperMissing.length > 0 || settings?.halted === true;
@@ -191,12 +213,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
           ? config.costs.brokeragePerContract + config.costs.exchangeFeesPerContract : null;
         for (const closed of [...body.closedBars].sort((a, b) => a.bucketAt.localeCompare(b.bucketAt))) {
           const prefix = allBars.filter((bar) => Date.parse(bar.bucket_at) <= Date.parse(closed.bucketAt));
-          const signal = analyzeOpeningRange(prefix, closed.bucketAt);
+          const signal = analyzeOpeningRange(prefix, closed.bucketAt, instrument.expiresOn ?? null);
           const stop = signal.state === "WATCH_LONG" ? signal.metrics.openingLow : signal.state === "WATCH_SHORT" ? signal.metrics.openingHigh : null;
           const { data: paperResult, error: paperError } = await db.rpc("dt_apply_paper_bar", { p_event: {
             owner_id: ownerId, instrument: instrument.symbol, strategy_version: "opening-range-vwap-v1",
             bar_at: closed.bucketAt, open: closed.open, high: closed.high, low: closed.low, close: closed.close,
-            signal: signal.state, stop, enabled: paperMissing.length === 0 && !settings?.halted,
+            signal: signal.state, stop, enabled: paperMissing.length === 0 && !settings?.halted && sessionPaperAllowed,
             point_value: instrument.pointValue, tick_size: instrument.tickSize, fee_per_side: feePerSide,
             slippage_ticks: config.costs.slippageTicks, max_loss_per_trade: config.risk.maxLossPerTrade,
             max_loss_per_day: config.risk.maxLossPerDay, max_exposure: config.risk.maxExposure,

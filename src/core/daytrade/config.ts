@@ -53,7 +53,7 @@ export const dashConfigSchema = z.object({
 export type DashConfig = z.infer<typeof dashConfigSchema>;
 
 /** What is still missing before the desks may work, in plain words (empty: ready to simulate). */
-export function readiness(config: DashConfig): string[] {
+export function readiness(config: DashConfig, requireApprovedStrategy = true): string[] {
   const missing: string[] = [];
   for (const i of config.instruments.filter((x) => x.enabled)) {
     if (!i.symbol) missing.push(`${i.id}: símbolo do contrato vigente`);
@@ -67,22 +67,23 @@ export function readiness(config: DashConfig): string[] {
   if (config.risk.maxLossPerDay === null) missing.push("Perda máxima do dia");
   if (config.risk.maxExposure === null) missing.push("Exposição máxima");
   if (config.costs.brokeragePerContract === null || config.costs.exchangeFeesPerContract === null || !config.costs.verified) missing.push("Custos por contrato (corretagem e emolumentos) conferidos na nota");
-  if (!config.strategy.id || !config.strategy.version || !config.strategy.approved) missing.push("Estratégia versionada e aprovada em backtest e simulação");
+  if (requireApprovedStrategy && (!config.strategy.id || !config.strategy.version || !config.strategy.approved)) missing.push("Estrategia versionada e aprovada em backtest e simulacao");
   return missing;
 }
 
 /** Forward simulation needs verified instrument/risk/cost/session facts but not a live-approved strategy. */
-export function paperReadiness(config: DashConfig): string[] {
-  const missing = readiness(config).filter((item) => item !== "EstratÃ©gia versionada e aprovada em backtest e simulaÃ§Ã£o");
+export function paperReadiness(config: DashConfig, expiresOn = config.instruments.find((instrument) => instrument.enabled)?.expiresOn ?? null): string[] {
+  // Paper tests an unapproved research candidate; strategy approval is a later gate.
+  const missing = readiness(config, false);
   if (config.session.open !== "09:00") missing.push("HorÃ¡rio de abertura compatÃ­vel com a faixa inicial da estratÃ©gia (09:00)");
   if (config.session.open && config.session.lastEntry && config.session.flatBy &&
     !(config.session.open < config.session.lastEntry && config.session.lastEntry < config.session.flatBy))
     missing.push("Ãšltima entrada e zeragem precisam estar em ordem apÃ³s a abertura");
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-  const expiresToday = config.instruments.some((instrument) => instrument.enabled && instrument.expiresOn === today);
+  const expiresToday = expiresOn === today;
   const officialClose = today < "2026-11-03" || expiresToday ? "18:00" : "18:25";
   if (config.session.flatBy && config.session.flatBy >= officialClose)
-    missing.push(`Zeragem precisa ocorrer antes do encerramento B3 das ${officialClose}`);
+    missing.push(`Zeragem precisa ocorrer antes do encerramento dos futuros WIN as ${officialClose}`);
   return missing;
 }
 

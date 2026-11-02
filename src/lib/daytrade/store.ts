@@ -5,6 +5,7 @@ import { dashConfigSchema, paperReadiness, readiness, type DashConfig } from "@/
 import { INITIAL_STATUS, ORDER_STATES, type DashStatus } from "@/core/daytrade/desks";
 import type { JournalEntry } from "@/core/daytrade/cycle";
 import { ApiError } from "@/lib/auth";
+import { dayTradeSession } from "@/core/daytrade/session";
 
 /**
  * Server-side reads and writes of the DASH tables (supabase/migrations/*_daytrade_dash.sql). Every
@@ -31,7 +32,7 @@ export async function loadDashStatus(db: Db, ownerId: string) {
     : Promise.resolve({ data: null, error: null });
   const [settings, session, orders, heartbeats, quotes, latestSignal] = await Promise.all([
     db.from("dt_settings").select("mode, halted, halt_reason").eq("owner_id", ownerId).maybeSingle(),
-    db.from("dt_sessions").select("status, opened_at, closed_at").eq("owner_id", ownerId).eq("day", day()).maybeSingle(),
+    db.from("dt_sessions").select("status, plan, opened_at, closed_at").eq("owner_id", ownerId).eq("day", day()).maybeSingle(),
     db.from("dt_orders").select("state, simulated").eq("owner_id", ownerId).gte("created_at", `${day()}T00:00:00-03:00`),
     db.from("dt_heartbeats").select("desk, state, detail, at").eq("owner_id", ownerId),
     db.from("dt_market_quotes").select("instrument, provider, last, bid, ask, exchange_at, received_at, sequence").eq("owner_id", ownerId),
@@ -49,10 +50,13 @@ export async function loadDashStatus(db: Db, ownerId: string) {
       receivedAt <= now + config.data.maxDelayMs && now - receivedAt >= 0 && now - receivedAt < config.data.staleAfterMs &&
       receivedAt >= exchangeAt && receivedAt - exchangeAt <= config.data.maxDelayMs;
   });
+  const currentSession = dayTradeSession(new Date(), config, activeInstrument?.expiresOn ?? null);
+  const sessionConfirmed = session.data?.status === "OPEN" && currentSession.state === "OPEN" && currentSession.paperAllowed &&
+    freshQuote?.instrument === activeInstrument?.symbol;
   const status: DashStatus = {
     ...INITIAL_STATUS,
     mode: "SIMULATED",
-    market: session.data?.status === "OPEN" ? "OPEN" : session.data?.status === "CLOSED" ? "CLOSED" : "UNVERIFIED",
+    market: sessionConfirmed ? "OPEN" : session.data?.status === "CLOSED" || currentSession.state === "CLOSED" ? "CLOSED" : "UNVERIFIED",
     data: freshQuote ? "REAL" : "NONE",
     broker: freshQuote ? "ProfitDLL" : null,
     instrument: freshQuote?.instrument ?? config.instruments.find((i) => i.enabled)?.symbol ?? null,
@@ -60,7 +64,11 @@ export async function loadDashStatus(db: Db, ownerId: string) {
     signal: latestSignal.data?.state === "WATCH_LONG" || latestSignal.data?.state === "WATCH_SHORT" ? latestSignal.data.state : null,
     orders: counts,
   };
-  return { status, halted: settings.data?.halted ?? false, haltReason: settings.data?.halt_reason ?? null, heartbeats: heartbeats.data ?? [], quotes: quotes.data ?? [], missing: readiness(config), paperMissing: paperReadiness(config) };
+  const paperMissing = paperReadiness(config, activeInstrument?.expiresOn ?? null);
+  if (!sessionConfirmed) paperMissing.push(currentSession.state === "OPEN" && currentSession.paperAllowed
+    ? "Sessao do dia ainda nao foi confirmada por um candle atual do feed ProfitDLL."
+    : currentSession.reason);
+  return { status, halted: settings.data?.halted ?? false, haltReason: settings.data?.halt_reason ?? null, heartbeats: heartbeats.data ?? [], quotes: quotes.data ?? [], missing: readiness(config), paperMissing };
 }
 
 /** Kill switch of the DASH only (it never touches the stocks office). */

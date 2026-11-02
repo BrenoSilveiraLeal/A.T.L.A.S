@@ -19,12 +19,15 @@ const saoPauloDay = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone
 const saoPauloMinute = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
 
 /** Explainable research candidate only: opening-range breakout aligned with VWAP and EMA trend. */
-export function analyzeOpeningRange(bars: MinuteBar[], generatedAt = new Date().toISOString()): DeskSignal {
+export function analyzeOpeningRange(bars: MinuteBar[], generatedAt = new Date().toISOString(), expiresOn: string | null = null): DeskSignal {
   const sorted = [...bars].sort((a, b) => a.bucket_at.localeCompare(b.bucket_at));
   const emptyMetrics = { bars: sorted.length, vwap: null, openingHigh: null, openingLow: null, emaFast: null, emaSlow: null };
   if (sorted.length < 30) return { strategy: "opening-range-vwap-v1", state: "INSUFFICIENT_DATA", explanation: "Aguardando pelo menos 30 candles válidos de 1 minuto; nenhum sinal é emitido.", generatedAt, metrics: emptyMetrics };
   const date = saoPauloDay(sorted.at(-1)!.bucket_at);
-  const session = sorted.filter((bar) => saoPauloDay(bar.bucket_at) === date && saoPauloMinute(bar.bucket_at) >= "09:00" && saoPauloMinute(bar.bucket_at) < "18:25");
+  const sessionClose = date < "2026-11-03" || date === expiresOn ? "18:00" : "18:25";
+  const session = sorted.filter((bar) => saoPauloDay(bar.bucket_at) === date && saoPauloMinute(bar.bucket_at) >= "09:00" && saoPauloMinute(bar.bucket_at) < sessionClose);
+  if (session.some((bar, index) => index > 0 && Date.parse(bar.bucket_at) - Date.parse(session[index - 1].bucket_at) !== 60_000))
+    return { strategy: "opening-range-vwap-v1", state: "WAITING_FOR_OPENING_RANGE", explanation: "Dados de 1 minuto com lacunas; leitura de VWAP e medias pausada ate o feed ficar continuo.", generatedAt, metrics: { ...emptyMetrics, bars: session.length } };
   if (session.length < 30) return { strategy: "opening-range-vwap-v1", state: "WAITING_FOR_OPENING_RANGE", explanation: "A faixa inicial requer 30 minutos da sessão atual.", generatedAt, metrics: { ...emptyMetrics, bars: session.length } };
   const opening = session.filter((bar) => saoPauloMinute(bar.bucket_at) >= "09:00" && saoPauloMinute(bar.bucket_at) < "09:15");
   if (opening.length !== 15 || opening.some((bar, index) => index > 0 && Date.parse(bar.bucket_at) - Date.parse(opening[index - 1].bucket_at) !== 60_000)) return { strategy: "opening-range-vwap-v1", state: "WAITING_FOR_OPENING_RANGE", explanation: "A abertura 09:00–09:15 está incompleta; candles ausentes impedem a leitura da faixa.", generatedAt, metrics: { ...emptyMetrics, bars: session.length } };
