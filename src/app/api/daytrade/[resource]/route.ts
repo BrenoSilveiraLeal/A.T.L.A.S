@@ -4,6 +4,7 @@ import { checkCron, checkOrigin, checkProfitDllGateway, failure, json, readBody 
 import { adminClient } from "@/lib/supabase";
 import { appendJournal, dashConfig, loadDashRecords, loadDashStatus, recordHeartbeat, setHalt } from "@/lib/daytrade/store";
 import { runCycle } from "@/core/daytrade/cycle";
+import { supervisorWorker, type Heartbeat } from "@/core/daytrade/agents";
 import { paperReadiness, roomLimits } from "@/core/daytrade/config";
 import { DESKS } from "@/core/daytrade/desks";
 import { required } from "@/lib/env";
@@ -217,14 +218,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
       return json({ ok: true, instrument: instrument.symbol, receivedAt: body.receivedAt });
     }
     if (resource === "cycle") {
-      const config = dashConfig(), office = await loadDashStatus(db, ownerId);
+      const config = dashConfig(), office = await loadDashStatus(db, ownerId), now = new Date().toISOString();
       const instrument = config.instruments.find((i) => i.enabled);
-      const result = runCycle({ status: office.status, limits: roomLimits(config), now: new Date().toISOString(), halted: office.halted || office.missing.length > 0,
+      const supervisor = supervisorWorker.step(office.heartbeats as Heartbeat[], { status: office.status, now, limits: roomLimits(config) });
+      const pause = supervisor.output?.pause === true;
+      if (pause && !office.halted) await setHalt(db, ownerId, true, supervisor.reason.slice(0, 200));
+      const supervisorState = office.halted || pause ? "BLOCKED" : supervisor.state;
+      const supervisorDetail = office.halted ? "Kill switch ativo; liberação manual necessária." : supervisor.reason;
+      await recordHeartbeat(db, ownerId, "supervisor", supervisorState, supervisorDetail);
+      const result = runCycle({ status: office.status, limits: roomLimits(config), now, halted: office.halted || pause || office.missing.length > 0,
         events: [], positions: [], lossToday: 0, pointValue: instrument?.verified ? instrument.pointValue : null });
+      result.journal.unshift({ at: now, desk: "supervisor", state: supervisorState, message: supervisorDetail });
       if (office.missing.length) result.journal.push({ at: new Date().toISOString(), desk: "cycle", state: "SKIPPED", message: `Configuração incompleta: ${office.missing.join("; ")}.` });
       await appendJournal(db, ownerId, result.journal);
       // Nothing is sent from here: `send` stays empty in simulated mode (agents.ts maySend).
-      return json({ ok: true, journal: result.journal.length, proposals: result.proposals.length, simulated: result.simulated.length, sent: 0 });
+      return json({ ok: true, journal: result.journal.length, proposals: result.proposals.length, simulated: result.simulated.length, sent: 0, paused: office.halted || pause });
     }
     throw new ApiError(404, "NOT_FOUND", "Recurso do DASH desconhecido.");
   } catch (error) {

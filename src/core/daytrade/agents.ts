@@ -8,8 +8,9 @@
  *
  * The supervisor watches every desk's heartbeat; the chief opens and closes the session.
  *
- * Types and pure rules only (no I/O, no broker, no timers). Every worker starts as `notImplemented`,
- * which answers IDLE with the reason, never invented data. The rules that guard money — who may
+ * Types and pure rules only (no I/O, no broker, no timers). Unimplemented workers answer IDLE with
+ * the reason, never invented data; the supervisor worker is implemented as an observation-only guard.
+ * The rules that guard money — who may
  * send an order and when — are implemented here and tested (tests/daytrade-agents.test.ts), so a
  * worker written later cannot skip them.
  */
@@ -71,8 +72,34 @@ export interface DeskContracts {
 export function notImplemented<D extends DeskId>(desk: D): DeskWorker<DeskContracts[D]["in"], DeskContracts[D]["out"]> {
   return { desk, step: () => ({ state: "IDLE", output: null, reason: "Ainda não implementado: o DASH está em modo simulado, sem feed e sem corretora." }) };
 }
+/**
+ * The supervisor can observe health and request a pause, but it cannot approve or send orders.
+ * Explicit worker errors and an open session without a fresh live feed trigger the kill switch.
+ * Configuration BLOCKED states are reported for review because they are expected during setup.
+ */
+export const supervisorWorker: DeskWorker<Heartbeat[], DeskContracts["supervisor"]["out"]> = {
+  desk: "supervisor",
+  step: (heartbeats, context) => {
+    const findings: string[] = [];
+    const failures = heartbeats.filter((heartbeat) => heartbeat.state === "ERROR");
+    for (const heartbeat of failures) findings.push(`${heartbeat.desk}: ${heartbeat.detail || "erro reportado pelo setor"}`);
+    for (const heartbeat of heartbeats.filter((item) => item.state === "BLOCKED")) {
+      findings.push(`${heartbeat.desk} bloqueado: ${heartbeat.detail || "requer revisão"}`);
+    }
+    const feedUnavailable = context.status.market === "OPEN" && context.status.data !== "REAL";
+    if (feedUnavailable) findings.push("Mercado confirmado aberto sem cotação ProfitDLL fresca; novas entradas devem permanecer bloqueadas.");
+    if (context.limits === null) findings.push("Limites de risco incompletos; operação permanece bloqueada.");
+    const pause = failures.length > 0 || feedUnavailable;
+    return {
+      state: findings.length ? "BLOCKED" : "WORKING",
+      output: { pause, findings },
+      reason: findings.length ? findings.join(" ").slice(0, 300) : "Ronda concluída; sem falhas críticas nos setores observados.",
+    };
+  },
+};
+
 export const WORKERS: { [D in DeskId]: DeskWorker<DeskContracts[D]["in"], DeskContracts[D]["out"]> } = {
-  chief: notImplemented("chief"), supervisor: notImplemented("supervisor"), feed: notImplemented("feed"), price: notImplemented("price"),
+  chief: notImplemented("chief"), supervisor: supervisorWorker, feed: notImplemented("feed"), price: notImplemented("price"),
   news: notImplemented("news"), strategy: notImplemented("strategy"), backtest: notImplemented("backtest"), risk: notImplemented("risk"),
   positions: notImplemented("positions"), execution: notImplemented("execution"), orders: notImplemented("orders"), ledger: notImplemented("ledger"),
 };

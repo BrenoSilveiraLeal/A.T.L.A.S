@@ -102,3 +102,7 @@ O supervisor recebe o `Heartbeat` de cada mesa nas rondas. A chefia abre e encer
 - **Frente esquerda:** a recepção junto ao elevador, com a parede do DASH e uma mesinha de reunião.
 
 Nenhum dado é inventado: as telas mostram "sem dados" ou "aguardando" até cada worker existir.
+
+### Supervisao ativa do ciclo
+
+`POST /api/daytrade/cycle` executa a ronda do supervisor sobre os heartbeats persistidos. Um heartbeat em `ERROR`, ou uma sessao confirmada como aberta sem cotacao ProfitDLL fresca, aciona o kill switch do DASH e exige liberacao manual. Setores em `BLOCKED` e limites de risco pendentes aparecem nos achados, mas nao acionam parada automatica por serem condicoes esperadas durante a configuracao. A ronda registra seu proprio heartbeat e diario; nao envia ordens. Falhas operacionais continuam sem promover paper trading a execucao real.
