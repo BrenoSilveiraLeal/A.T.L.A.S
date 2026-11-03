@@ -8,14 +8,14 @@
 | Esquema proprio com RLS, persistencia de cotacoes, candles, observacoes e paper fills | supabase/migrations/20261102185514_daytrade_dash.sql e migrations seguintes em supabase/migrations/ |
 | Gateway ProfitDLL Windows x64 somente leitura | gateways/profitdll/gateway.py e gateways/profitdll/README.md |
 | API autenticada de quote/status, barras, backtest, estado paper e kill switch | src/app/api/daytrade/[resource]/route.ts |
-| Analise opening range, VWAP real por turnover e EMA; dois candidatos de backtest walk-forward com custos | src/core/daytrade/analysis.ts |
+| Analise opening range, VWAP real por turnover e EMA; três candidatos de backtest walk-forward com custos | src/core/daytrade/analysis.ts |
 | Workers deterministas de preco, estrategia, backtest, risco, chefia e supervisao | src/core/daytrade/agents.ts |
-| Motor paper transacional, um contrato/posicao, stops, gaps, custos e limites | RPC dt_apply_paper_bar nas migrations daytrade_paper_* |
+| Motor paper transacional, limite global de posicoes, stops, gaps, custos e capital ajustado pelo P&L realizado | RPC dt_apply_paper_bar nas migrations daytrade_paper_* |
 | Dashboard e setores do escritorio | src/components/daytrade/dash-view.tsx, src/core/daytrade/desks.ts |
 
 ## Pendencias externas e configuracao
 
-1. **Banco Supabase:** historico remoto sincronizado ate `20261103025606_daytrade_paper_session_boundary_gap`; as migrations locais correspondem aos IDs remotos. Em 02/11/2026, `dt_market_bars`, `dt_market_quotes`, `dt_paper_fills` e `dt_ledger` estavam sem dados. O feed e a amostra paper ainda dependem da configuracao/execucao do ProfitDLL.
+1. **Banco Supabase:** conferido em 03/11/2026: o projeto remoto continua aplicado ate `20261103025606_daytrade_paper_session_boundary_gap`; migrations locais `20261103025607` a `20261103025612` estao pendentes e nao foram aplicadas. As novas migrations acrescentam limite de capital/equity paper, limite global de posicoes, validacao estrutural de candles na funcao SQL de ingestao, restricoes no banco que proíbem ordens/ledger nao simulados e posicoes confirmadas pela corretora, paridade do custo de slippage e bloqueio de chamadas diretas aos helpers internos dos RPCs de paper/cotacao. A consulta remota confirmou que tabelas da API têm grant explicito e RLS; o marcador historico permanece service-only. No momento da consulta, `dt_market_quotes`, `dt_market_bars`, `dt_market_history_sessions`, `dt_strategy_observations`, `dt_paper_state` e `dt_paper_fills` tinham zero linhas. O feed real e a amostra paper continuam dependendo da configuracao/execucao da ProfitDLL.
 2. **ProfitDLL local:** instalar o pacote oficial Windows x64, confirmar licenca/ativacao e configurar PROFITDLL_RUNTIME_DIR, PROFITDLL_TICKER, PROFITDLL_EXCHANGE=F, DASH_API_URL e PROFITDLL_INGEST_SECRET conforme gateways/profitdll/README.md. O gateway solicita as credenciais da Nelogica no terminal e nao as armazena no repositorio.
 3. **Segredos do servidor:** configurar PROFITDLL_INGEST_SECRET e ATLAS_OWNER_ID apenas no ambiente server-side. O segredo de ingestao precisa ser distinto de CRON_SECRET. Nao criar variaveis de conta MT5 para o DASH.
 4. **Fatos de mercado/risco:** o proprietário preenche margem, horários, limites e custos na aba Risco do DASH com dados da nota Genial e fontes oficiais; um rascunho salvo no banco não remove gates, e a confirmação fica registrada no diário.
@@ -34,11 +34,11 @@ O código está em:
 
 ## Caminho implementado no codigo
 
-O caminho de mercado e separado do ciclo generico: POST /api/daytrade/quote valida o snapshot ProfitDLL, persiste M1 e chama setores de preco e estrategia antes de registrar observacoes e enviar candles fechados ao RPC transacional dt_apply_paper_bar. A mesa de noticias/calendario tambem e consultada no caminho paper; sem fonte completa e recente, o RPC recebe `enabled=false` e nao pode abrir posicao. O banco mantem estado e fills paper em dt_paper_state/dt_paper_fills, isolados do ledger de acoes. O backtest usa worker proprio, dois candidatos e custos/slippage; os resultados nao aprovam estrategia.
+O caminho de mercado e separado do ciclo generico: POST /api/daytrade/quote valida o snapshot ProfitDLL, persiste M1 e chama setores de preco e estrategia antes de registrar observacoes e enviar candles fechados ao RPC transacional dt_apply_paper_bar. A mesa de noticias/calendario tambem e consultada no caminho paper; sem fonte completa e recente, o RPC recebe `enabled=false` e nao pode abrir posicao. O banco mantem estado e fills paper em dt_paper_state/dt_paper_fills, isolados do ledger de acoes. O backtest usa worker proprio, tres candidatos e custos/slippage; os resultados nao aprovam estrategia.
 
 | Responsabilidade | Estado atual |
 |---|---|
-| Feed e persistencia | Gateway ProfitDLL somente leitura; feedWorker confere fonte, frescor e latencia, priceWorker valida candles/turnover e continuidade; a API persiste somente apos validacoes de contrato, sequencia e tick. Horario esperado do mercado e frescor dos dados aparecem como estados separados. |
+| Feed e persistencia | Gateway ProfitDLL somente leitura; feedWorker confere a origem/frescor do quote atual, priceWorker valida integridade/continuidade e preserva em cada candle a origem (`PROFITDLL_DAYTRADE` ou `PROFITDLL_HISTORY`) gravada no banco. Candles historicos persistidos nao podem substituir o candle live mais recente para gerar sinal. Horario esperado do mercado e frescor dos dados aparecem como estados separados. |
 | Preco/estrategia | Workers verificam snapshot, candles, continuidade, VWAP e EMA; o endpoint grava observacoes por candle e usa os sinais aceitos no paper. |
 | Pesquisa/backtest | Worker executa candidatos walk-forward em sessoes completas com friccao; pesquisa isolada, sem aprovacao automatica. |
 | Risco/paper | RPC Postgres transacional, uma posicao e um contrato; simula fill no candle seguinte, stop, gaps, custos, zeragem e limites configurados. |
@@ -101,7 +101,7 @@ O worker generico de `ledger` continua `notImplemented` para reconciliacao de or
   Uma divisória verde a separa da mesa.
 - **Frente esquerda:** a recepção junto ao elevador, com a parede do DASH e uma mesinha de reunião.
 
-Nenhum dado é inventado: as telas mostram "sem dados" ou "aguardando" até cada worker existir.
+Nenhum dado financeiro é inventado: as telas alimentadas exibem valores persistidos; funções sem integração, como reconciliação da corretora e ledger live, ficam indisponíveis ou em espera.
 
 ### Supervisao ativa do ciclo
 

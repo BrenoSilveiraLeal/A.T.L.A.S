@@ -23,6 +23,20 @@ from zoneinfo import ZoneInfo
 NL_OK = 0
 LOGIN, MARKET, ACTIVATION = 0, 2, 3
 LOGIN_CONNECTED, MARKET_CONNECTED, ACTIVATION_VALID = 0, 4, 0
+LOGIN_FAILURES = {
+    1: "usuário Nelogica inválido",
+    2: "senha de login Nelogica inválida",
+    3: "senha de login Nelogica bloqueada; interrompa as tentativas e consulte o suporte",
+    4: "senha de login Nelogica expirada",
+    200: "erro interno no serviço de login Nelogica",
+}
+MARKET_STATES = {
+    0: "desconectado",
+    1: "conectando",
+    2: "aguardando conexão",
+    3: "conectado, mas ainda não autenticado",
+    4: "conectado",
+}
 # Nelogica documents types 1–13; 32 is explicitly classified as unknown.
 # Undocumented values invalidate the affected sample instead of entering OHLCV.
 KNOWN_TRADE_TYPES = frozenset(range(1, 14))
@@ -64,9 +78,11 @@ HistoryTradeCallback = C.WINFUNCTYPE(
 )
 HistoryProgressCallback = C.WINFUNCTYPE(None, HistoryAssetIdentifier, C.c_int)
 
-# Public Nelogica binding documentation currently confirms this callback layout up
-# to 4.0.0.41. A newer signed binary is not automatically ABI-compatible.
-SUPPORTED_ABI_VERSIONS = frozenset({"4.0.0.41"})
+# ABI layouts were compared with Nelogica's official Win64 SDK types for 4.0.0.42
+# (TConnectorAssetIdentifier, TConnectorTrade, TConnectorTradeCallback and legacy
+# TAssetID/history callback) and the official read-only binding example for 4.0.0.41.
+# This collector never loads or calls OMS/order-routing functions.
+SUPPORTED_ABI_VERSIONS = frozenset({"4.0.0.41", "4.0.0.42"})
 
 
 class _FixedFileInfo(C.Structure):
@@ -110,6 +126,32 @@ def require_supported_abi_version(version: str) -> None:
     if version not in SUPPORTED_ABI_VERSIONS:
         allowed = ", ".join(sorted(SUPPORTED_ABI_VERSIONS))
         raise RuntimeError(f"ProfitDLL {version or 'sem versao'} sem ABI homologada; versoes permitidas: {allowed}.")
+
+
+def require_interactive_terminal(is_interactive: bool) -> None:
+    """Never let getpass fall back to echoing activation or login credentials."""
+    if not is_interactive:
+        raise RuntimeError("Execute o gateway em um terminal interativo do Windows; entrada redirecionada não é aceita para proteger a chave e as credenciais.")
+
+
+def require_supported_abi_layout() -> None:
+    """Fail closed unless ctypes offsets match the official Win64 SDK records."""
+    layouts = (
+        (SystemTime, 16, {name: index * 2 for index, name in enumerate((
+            "wYear", "wMonth", "wDayOfWeek", "wDay", "wHour", "wMinute", "wSecond", "wMilliseconds",
+        ))}),
+        (AssetIdentifier, 32, {"Version": 0, "Ticker": 8, "Exchange": 16, "FeedType": 24}),
+        (HistoryAssetIdentifier, 24, {"ticker": 0, "exchange": 8, "feed": 16}),
+        (ConnectorTrade, 64, {
+            "Version": 0, "TradeDate": 2, "TradeNumber": 20, "Price": 24,
+            "Quantity": 32, "Volume": 40, "BuyAgent": 48, "SellAgent": 52, "TradeType": 56,
+        }),
+    )
+    for record, expected_size, expected_offsets in layouts:
+        if C.sizeof(record) != expected_size or any(
+            getattr(record, field).offset != offset for field, offset in expected_offsets.items()
+        ):
+            raise RuntimeError(f"Layout ctypes de {record.__name__} diverge do SDK Win64 oficial.")
 
 
 @dataclass(frozen=True)
@@ -236,8 +278,15 @@ def win_session_close(day: date, expires_on: date | None) -> str:
 
 
 def load_local_env() -> None:
-    """Load only this gateway's ignored local settings file; process env wins over file values."""
-    env_file = Path(__file__).with_name(".env.local")
+    """Load private per-user gateway settings outside the synced repository; process env wins."""
+    configured_file = os.environ.get("PROFITDLL_ENV_FILE")
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if configured_file:
+        env_file = Path(configured_file)
+    elif local_app_data:
+        env_file = Path(local_app_data) / "ATLAS" / "ProfitDLL" / "gateway.env"
+    else:
+        return
     if not env_file.is_file():
         return
     for line in env_file.read_text(encoding="utf-8").splitlines():
@@ -273,10 +322,7 @@ def parse_config() -> tuple[Path, str, str, str, str, str, str | None]:
     secret = require_env("PROFITDLL_INGEST_SECRET")
     if len(secret) < 32:
         raise RuntimeError("PROFITDLL_INGEST_SECRET deve ter pelo menos 32 caracteres.")
-    if C.sizeof(SystemTime) != 16 or C.sizeof(AssetIdentifier) != 32 or C.sizeof(ConnectorTrade) != 64 or C.sizeof(HistoryAssetIdentifier) != 24:
-        raise RuntimeError("Estruturas da ABI incompatíveis com a ProfitDLL x64 documentada.")
-    if ConnectorTrade.TradeDate.offset != 2 or ConnectorTrade.Price.offset != 24 or ConnectorTrade.TradeType.offset != 56:
-        raise RuntimeError("Offsets da ABI incompatíveis com a ProfitDLL x64 documentada.")
+    require_supported_abi_layout()
     config_path = Path(__file__).resolve().parents[2] / "config" / "daytrade.json"
     settings = json.loads(config_path.read_text(encoding="utf-8"))
     win_session_hours()  # Validate the shared B3 schedule before accepting any data.
@@ -556,8 +602,27 @@ class ProfitFeed:
     def wait_ready(self, timeout: float = 30.0) -> None:
         expected = {LOGIN: LOGIN_CONNECTED, MARKET: MARKET_CONNECTED, ACTIVATION: ACTIVATION_VALID}
         with self.changed:
-            if not self.changed.wait_for(lambda: all(self.states.get(k) == v for k, v in expected.items()), timeout):
-                raise TimeoutError("A ProfitDLL não confirmou login, Market Data e ativação dentro de 30 segundos.")
+            self.changed.wait_for(
+                lambda: all(self.states.get(k) == v for k, v in expected.items()) or
+                self.states.get(ACTIVATION) == 1 or self.states.get(LOGIN) in LOGIN_FAILURES,
+                timeout,
+            )
+            states = dict(self.states)
+        if all(states.get(kind) == result for kind, result in expected.items()):
+            return
+        activation = states.get(ACTIVATION)
+        if activation == 1:
+            raise RuntimeError("Ativação ProfitDLL inválida ou não autorizada. Confira se a chave pertence à licença DLL Feed com Market Data ativo; a chave não é a senha Nelogica nem a senha da corretora.")
+        login = states.get(LOGIN)
+        if login in LOGIN_FAILURES:
+            raise RuntimeError(f"Falha no login Nelogica: {LOGIN_FAILURES[login]} (estado {login}). Confira o usuário e a senha no prompt oculto.")
+        market = states.get(MARKET)
+        received = ", ".join((
+            f"login={states.get(LOGIN, 'sem retorno')}",
+            f"Market Data={MARKET_STATES.get(market, f'estado {market}') if market is not None else 'sem retorno'}",
+            f"ativação={states.get(ACTIVATION, 'sem retorno')}",
+        ))
+        raise TimeoutError(f"A ProfitDLL não ficou pronta em {timeout:g}s. Estados recebidos: {received}. Verifique conexão à internet, licença DLL Feed, credenciais Nelogica e se a mesma licença está conectada por outro processo.")
 
     def subscribe(self) -> None:
         self.accepting.set()
@@ -704,6 +769,10 @@ def backfill_history(feed: ProfitFeed, ticker: str, expires_on: str | None, endp
 
 
 def main() -> None:
+    try:
+        require_interactive_terminal(sys.stdin.isatty())
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from None
     runtime_dir, ticker, exchange, endpoint, history_endpoint, secret, expires_on = parse_config()
     try:
         check_ingest_endpoint(endpoint, secret, ticker, "PROFITDLL_DAYTRADE")

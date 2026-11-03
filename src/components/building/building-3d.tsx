@@ -23,7 +23,7 @@ export interface BuildingApi { reset: () => void }
 
 const DEFAULT_TARGET = floorLevel(9) + 1.7;
 
-export function Building3D({ selected, highlight = null, night = false, intro = true, tags = true, onSelect, onEnter, onFail, apiRef }: {
+export function Building3D({ selected, highlight = null, night = false, intro = true, tags = true, onSelect, onEnter, onReady, onFail, apiRef }: {
   /** The floor plates beside the tower (hidden with the offices list). */
   tags?: boolean;
   /** The floor being entered (camera flies there, level view). */
@@ -36,6 +36,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
   intro?: boolean;
   onSelect: (floor: number | null) => void;
   onEnter: (floor: number) => void;
+  onReady?: () => void;
   onFail: () => void;
   apiRef?: React.RefObject<BuildingApi | null>;
 }) {
@@ -44,8 +45,8 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
   const glow = useRef(highlight);
   const dark = useRef(night);
   const opening = useRef(intro);
-  const handlers = useRef({ onSelect, onEnter, onFail });
-  useEffect(() => { handlers.current = { onSelect, onEnter, onFail }; }, [onSelect, onEnter, onFail]);
+  const handlers = useRef({ onSelect, onEnter, onReady, onFail });
+  useEffect(() => { handlers.current = { onSelect, onEnter, onReady, onFail }; }, [onSelect, onEnter, onReady, onFail]);
   useEffect(() => { glow.current = highlight; }, [highlight]);
   useEffect(() => { dark.current = night; }, [night]);
   const tagsOn = useRef(tags);
@@ -320,6 +321,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         // Readable plate (HTML), kept beside the tower on the side the camera looks from.
         const tag = document.createElement("button");
         tag.type = "button"; tag.className = `floor-tag status-${office.status.toLowerCase()}`;
+      tag.classList.toggle("visible", tagsOn.current);
         tag.style.setProperty("--office", office.color);
         tag.innerHTML = `<b>${number}</b><span>${office.name}</span><small>${STATUS_LABEL[office.status]}</small>`;
         tag.setAttribute("aria-label", `Andar ${number}: ${office.name}, ${STATUS_LABEL[office.status]}`);
@@ -419,7 +421,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
 
     const toCamera = new THREE.Vector3(), side = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
     const clock = new THREE.Clock();
-    let frame = 0, running = false;
+    let frame = 0, running = false, readySent = false, appliedTags = tagsOn.current;
     const tick = () => {
       if (!running) return;
       frame = requestAnimationFrame(tick);
@@ -466,6 +468,11 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       const probe = new THREE.Vector3(-side.x * 36, floorLevel(middle), -side.z * 36).project(camera);
       const flip = ((probe.x + 1) / 2) * el.clientWidth < 230 ? -1 : 1;
       side.multiplyScalar(flip);
+      const showTags = tagsOn.current;
+      if (showTags !== appliedTags) {
+        for (const floor of floors) floor.tag?.element.classList.toggle("visible", showTags);
+        appliedTags = showTags;
+      }
       for (const f of floors) {
         if (f.tag) {
           f.tag.center.set(flip > 0 ? 1 : 0, 0.5);
@@ -484,6 +491,7 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       // The panoramic elevator's cab travels up and down the tower.
       if (!reduced) lift.cab.position.y = lift.from + 1.5 + (lift.to - lift.from - 3) * (0.5 - 0.5 * Math.cos(clock.elapsedTime * 0.12));
       renderer.render(scene, camera); labels.render(scene, camera);
+      if (introAt < 0 && !readySent) { readySent = true; handlers.current.onReady?.(); }
     };
     const start = () => { if (!running) { running = true; clock.getDelta(); frame = requestAnimationFrame(tick); } };
     const stop = () => { running = false; cancelAnimationFrame(frame); };

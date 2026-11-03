@@ -44,19 +44,37 @@ export function BuildingView() {
   const [entering, setEntering] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [showHelp, setShowHelp] = useState(true);
-  const [showList, setShowList] = useState(true);
+  const [showList, setShowList] = useState(false);
+  const officeListChosen = useRef(false);
+  const officeListTimer = useRef<number | null>(null);
   // The flat (2D) section is gone (owner, 01/11/2026: "tira essa tela horrível"): without 3D, the
   // list of offices is the map.
   const [failed, setFailed] = useState(false);
   const api = useRef<BuildingApi | null>(null);
   const flat = failed;
+  const onMapReady = useCallback(() => {
+    if (officeListTimer.current !== null) window.clearTimeout(officeListTimer.current);
+    officeListTimer.current = window.setTimeout(() => {
+      if (!officeListChosen.current) setShowList(true);
+      officeListTimer.current = null;
+    }, 2000);
+  }, []);
+  const onMapFail = useCallback(() => {
+    if (officeListTimer.current !== null) window.clearTimeout(officeListTimer.current);
+    officeListTimer.current = null;
+    setFailed(true);
+    setShowList(true);
+  }, []);
+  useEffect(() => () => {
+    if (officeListTimer.current !== null) window.clearTimeout(officeListTimer.current);
+  }, []);
   // The city's sound, on unless turned off (remembered in the browser).
   const [sound, setSound] = useState(() => { try { return localStorage.getItem(SOUND) !== "off"; } catch { return true; } });
   useCitySound(sound && !flat, night);
 
   // Keep the exploration tip visible briefly, then leave the map unobstructed.
   useEffect(() => {
-    const timer = window.setTimeout(() => setShowHelp(false), 5000);
+    const timer = window.setTimeout(() => setShowHelp(false), 8000);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -90,7 +108,7 @@ export function BuildingView() {
     <div className={`building ${night ? "is-night" : ""}`}>
       <div className="building-stage">
         {flat ? <div className="building-flat" aria-hidden="true" />
-          : <Building3D selected={entering} highlight={last} night={night} intro={intro} tags={showList} onSelect={go} onEnter={go} onFail={() => setFailed(true)} apiRef={api} />}
+          : <Building3D selected={entering} highlight={last} night={night} intro={intro} tags={showList} onSelect={go} onEnter={go} onReady={onMapReady} onFail={onMapFail} apiRef={api} />}
 
         {entering !== null && !flat && <div className="building-fade" aria-hidden="true" />}
         {intro && !flat && <div className="building-intro" aria-hidden="true">
@@ -110,7 +128,7 @@ export function BuildingView() {
             {sound ? <Volume2 size={17} /> : <VolumeX size={17} />}</button>}
           {!flat && <button type="button" className="round" onClick={() => api.current?.reset()} aria-label="Centralizar o prédio" title="Centralizar"><LocateFixed size={17} /></button>}
           {/* Owner, 01/11/2026: the "i" hides and shows the list of offices, to see the city. */}
-          <button type="button" className={`round ${showList ? "" : "active"}`} onClick={() => setShowList((s) => !s)} aria-pressed={!showList}
+          <button type="button" className={`round ${showList ? "" : "active"}`} onClick={() => { officeListChosen.current = true; setShowList((s) => !s); }} aria-pressed={!showList}
             aria-controls="building-offices" aria-label={showList ? "Esconder a lista de escritórios" : "Mostrar a lista de escritórios"} title={showList ? "Esconder escritórios" : "Mostrar escritórios"}><Info size={17} /></button>
         </div>
 

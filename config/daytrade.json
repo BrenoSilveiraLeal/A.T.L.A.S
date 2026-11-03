@@ -40,6 +40,7 @@
     "maxLossPerTrade": null,
     "maxLossPerDay": null,
     "maxExposure": null,
+    "capitalBudget": null,
     "stopRequired": true
   },
   "costs": {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import raw from "../config/daytrade.json";
-import { dashConfigSchema, readiness, roomLimits } from "@/core/daytrade/config";
+import { dashConfigSchema, ownerExecutionSettingsSchema, paperReadiness, readiness, roomLimits } from "@/core/daytrade/config";
 import { runCycle, type CycleInput } from "@/core/daytrade/cycle";
 import { INITIAL_STATUS } from "@/core/daytrade/desks";
 import { WORKERS, type DeskWorker } from "@/core/daytrade/agents";
@@ -11,7 +11,7 @@ const ready = dashConfigSchema.parse({
   instruments: [{ ...raw.instruments[0], symbol: "WINZ26", tickSize: 5, pointValue: 0.2, marginPerContract: 100, verified: true,
     expirySource: "https://www.b3.com.br/pt_br/solucoes/plataformas/puma-trading-system/para-participantes-e-traders/calendario-de-negociacao/vencimentos/calendario-de-vencimentos-de-contratos-financeiros/" }, raw.instruments[1]],
   session: { ...raw.session, open: "09:00", lastEntry: "17:00", flatBy: "17:45", verified: true },
-  risk: { ...raw.risk, maxLossPerTrade: 50, maxLossPerDay: 150, maxExposure: 1000 },
+  risk: { ...raw.risk, maxLossPerTrade: 50, maxLossPerDay: 150, maxExposure: 1000, capitalBudget: 1200 },
   costs: { ...raw.costs, brokeragePerContract: 0, exchangeFeesPerContract: 0.3, verified: true },
   strategy: { id: "abertura", version: "v1", approved: true },
 });
@@ -36,6 +36,29 @@ describe("DASH settings file", () => {
   it("is ready once every fact is filled in and checked", () => {
     expect(readiness(ready)).toEqual([]);
     expect(roomLimits(ready)).toMatchObject({ maxLossPerTrade: 50, maxLossPerDay: 150 });
+  });
+
+  it("requires a separate DASH budget and keeps exposure within that allocation", () => {
+    expect(readiness(config).join(" ")).toContain("DASH");
+    expect(dashConfigSchema.safeParse({ ...ready, risk: { ...ready.risk, capitalBudget: 500 } }).success).toBe(false);
+    expect(roomLimits(dashConfigSchema.parse({ ...ready, risk: { ...ready.risk, capitalBudget: 1200 } })))
+      .toMatchObject({ capitalBudget: 1200, maxExposure: 1000 });
+  });
+
+  it("blocks paper when allocated capital cannot cover one contract margin", () => {
+    const underfunded = dashConfigSchema.parse({ ...ready, risk: { ...ready.risk, maxExposure: 90, capitalBudget: 99 } });
+    expect(paperReadiness(underfunded).join(" ")).toContain("margem de um contrato");
+  });
+
+  it("requires a budget to confirm owner paper settings", () => {
+    const settings = {
+      capitalBudget: null, marginPerContract: 100, brokeragePerContract: 0, exchangeFeesPerContract: 0.3,
+      slippageTicks: 1, maxLossPerTrade: 50, maxLossPerDay: 100, maxExposure: 100,
+      lastEntry: "17:00", flatBy: "17:45", sourceNote: "Nota Genial e B3", confirmSource: true,
+    };
+    expect(ownerExecutionSettingsSchema.safeParse(settings).success).toBe(false);
+    expect(ownerExecutionSettingsSchema.safeParse({ ...settings, capitalBudget: 200 }).success).toBe(true);
+    expect(ownerExecutionSettingsSchema.safeParse({ ...settings, capitalBudget: 90 }).success).toBe(false);
   });
 
   it("keeps tax rates informational until a complete fiscal ledger exists", () => {

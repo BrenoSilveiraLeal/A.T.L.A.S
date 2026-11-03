@@ -34,9 +34,11 @@
 .building-about p { margin: 0; color: var(--g-muted); font-size: 13px; line-height: 1.6; }
 
 /* The offices, floating on the right. */
-.building-offices { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); width: min(410px, calc(100% - 44px)); padding: 18px 14px 14px; }
+.building-offices { position: absolute; z-index: 2; right: 22px; top: 50%; transform: translateY(-50%); width: min(410px, calc(100% - 44px)); padding: 18px 14px 14px; }
 .building-offices h1 { margin: 0 6px 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--g-muted); }
 .building-offices ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.building-offices:not([hidden]) { animation: building-offices-in 0.4s ease-out both; }
+@keyframes building-offices-in { from { opacity: 0; } to { opacity: 1; } }
 .office-row { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 12px; width: 100%; min-height: 66px; padding: 10px 12px 10px 10px; border-radius: 14px;
   text-align: left; color: var(--g-text); background: rgba(255, 255, 255, 0.05); border: 1px solid transparent; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; }
 .office-row b { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--office); color: #13263d; font-size: 16px; font-weight: 800; }
@@ -58,8 +60,9 @@
 /* Floor plates beside the tower (HTML, always readable). */
 .floor-tag { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; min-height: 0;
   padding: 6px 14px 6px 6px; border-radius: 14px; text-align: left; color: #fff; font-weight: 700; cursor: pointer;
-  background: rgba(15, 22, 38, 0.82); border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 10px 24px rgba(5, 10, 25, 0.3);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); transition: transform 0.15s ease, border-color 0.15s ease; }
+  background: rgba(15, 22, 38, 0.82); border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 10px 24px rgba(5, 10, 25, 0.3); opacity: 0;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); transition: opacity 0.4s ease, transform 0.15s ease, border-color 0.15s ease; }
+.floor-tag.visible { opacity: 1; }
 .floor-tag b { grid-row: span 2; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--office); color: #13263d; font-size: 14px; font-weight: 800; }
 .floor-tag span { font-size: 13px; line-height: 1.2; white-space: nowrap; color: #fff; }
 .floor-tag small { font-size: 10px; line-height: 1.3; color: #a9b6cc; font-weight: 600; }
@@ -116,4 +119,4 @@
   .building-tools .pill { padding: 0 11px; }
 }
 @media (max-width: 640px) { .office3d-map-link { padding: 0 10px; font-size: 12px; } }
-@media (prefers-reduced-motion: reduce) { .floor-tag, .office-row { transition: none; } .building-intro { display: none; } }
+@media (prefers-reduced-motion: reduce) { .building-offices:not([hidden]) { animation: none; } .floor-tag, .office-row { transition: none; } .building-intro { display: none; } }

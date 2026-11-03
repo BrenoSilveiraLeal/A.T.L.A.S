@@ -286,7 +286,7 @@ export function Dash3D({ status, halted = false }: { status: DashStatus; halted?
           c.strokeStyle = "#2a3446"; c.lineWidth = 2; for (let y = 90; y < 280; y += 45) { c.beginPath(); c.moveTo(16, y); c.lineTo(496, y); c.stroke(); }
           c.fillStyle = "#8fa0b8"; c.font = "bold 30px sans-serif"; c.textAlign = "center";
           c.fillText(deskState(st) === "IDLE" ? (n === 0 ? "SEM DADOS" : "AGUARDANDO") : "OBSERVANDO", 256, 150);
-          c.font = "20px sans-serif"; c.fillStyle = "#5c6b82"; c.fillText(n === 0 ? "função ainda não implementada" : st.mode === "SIMULATED" ? "modo simulado · nada é enviado" : "", 256, 210); c.textAlign = "left";
+          c.font = "20px sans-serif"; c.fillStyle = "#5c6b82"; c.fillText(n === 0 ? "PESQUISA E PAPER" : st.mode === "SIMULATED" ? "MODO SIMULADO · SEM ORDENS REAIS" : "", 256, 210); c.textAlign = "left";
           s.texture.needsUpdate = true;
         } });
       }

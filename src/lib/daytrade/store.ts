@@ -43,7 +43,8 @@ export async function loadDashConfiguration(db: Db, ownerId: string) {
     } : instrument),
     session: { ...base.session, lastEntry: settings.lastEntry, flatBy: settings.flatBy,
       verified: confirmed && settings.lastEntry !== null && settings.flatBy !== null },
-    risk: { ...base.risk, maxLossPerTrade: settings.maxLossPerTrade, maxLossPerDay: settings.maxLossPerDay, maxExposure: settings.maxExposure },
+    risk: { ...base.risk, maxLossPerTrade: settings.maxLossPerTrade, maxLossPerDay: settings.maxLossPerDay,
+      maxExposure: settings.maxExposure, capitalBudget: settings.capitalBudget },
     costs: { ...base.costs, brokeragePerContract: settings.brokeragePerContract, exchangeFeesPerContract: settings.exchangeFeesPerContract,
       slippageTicks: settings.slippageTicks ?? base.costs.slippageTicks,
       verified: confirmed && settings.brokeragePerContract !== null && settings.exchangeFeesPerContract !== null },
@@ -117,6 +118,7 @@ export async function setHalt(db: Db, ownerId: string, halted: boolean, reason: 
 export async function saveDashExecutionSettings(db: Db, ownerId: string, settings: OwnerExecutionSettings) {
   const now = new Date().toISOString();
   const auditValues = JSON.stringify({ marginPerContract: settings.marginPerContract,
+    capitalBudget: settings.capitalBudget,
     brokeragePerContract: settings.brokeragePerContract, exchangeFeesPerContract: settings.exchangeFeesPerContract,
     slippageTicks: settings.slippageTicks,
     maxLossPerTrade: settings.maxLossPerTrade, maxLossPerDay: settings.maxLossPerDay,

@@ -5,9 +5,14 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from gateway import HistoryAssetIdentifier, LiveMinuteAggregator, ProfitFeed, Tick, parse_config, require_supported_abi_version
+from gateway import (
+    ACTIVATION, ACTIVATION_VALID, LOGIN, LOGIN_CONNECTED, MARKET, MARKET_CONNECTED,
+    HistoryAssetIdentifier, LiveMinuteAggregator, ProfitFeed, Tick, main, parse_config,
+    require_interactive_terminal, require_supported_abi_layout, require_supported_abi_version,
+)
 
 
 class LiveMinuteAggregatorTests(unittest.TestCase):
@@ -57,24 +62,113 @@ class LiveMinuteAggregatorTests(unittest.TestCase):
 
 
 class ProfitDllAbiGateTests(unittest.TestCase):
-    def test_accepts_only_the_publicly_documented_binding_version(self):
-        require_supported_abi_version("4.0.0.41")
+    def test_refuses_noninteractive_input_before_credentials_could_be_echoed(self):
+        with self.assertRaisesRegex(RuntimeError, "terminal interativo.*entrada redirecionada"):
+            require_interactive_terminal(False)
+        require_interactive_terminal(True)
 
-    def test_blocks_the_locally_installed_unverified_version_before_login(self):
-        with self.assertRaisesRegex(RuntimeError, "4.0.0.42 sem ABI homologada"):
-            require_supported_abi_version("4.0.0.42")
+    def test_main_rejects_redirected_input_before_configuration_or_network_access(self):
+        with patch("gateway.sys.stdin", SimpleNamespace(isatty=lambda: False)), patch("gateway.parse_config") as parse:
+            with self.assertRaisesRegex(SystemExit, "terminal interativo"):
+                main()
+        parse.assert_not_called()
+
+    def test_accepts_versions_with_official_sdk_abi_layouts(self):
+        require_supported_abi_version("4.0.0.41")
+        require_supported_abi_version("4.0.0.42")
 
     def test_blocks_missing_version_metadata(self):
         with self.assertRaisesRegex(RuntimeError, "sem versao"):
             require_supported_abi_version("")
 
-    def test_parse_config_rejects_unverified_dll_before_reading_ingest_settings(self):
+    def test_blocks_unknown_future_version(self):
+        with self.assertRaisesRegex(RuntimeError, "4.0.0.43 sem ABI homologada"):
+            require_supported_abi_version("4.0.0.43")
+
+    def test_ctypes_offsets_match_official_sdk_records(self):
+        require_supported_abi_layout()
+
+    def test_parse_config_accepts_verified_42_without_loading_or_authenticating_dll(self):
         with tempfile.TemporaryDirectory() as runtime_dir:
             (Path(runtime_dir) / "ProfitDLL.dll").touch()
-            with patch.dict(os.environ, {"PROFITDLL_RUNTIME_DIR": runtime_dir}, clear=False):
+            env = {
+                "PROFITDLL_RUNTIME_DIR": runtime_dir,
+                "PROFITDLL_TICKER": "WINZ26",
+                "PROFITDLL_EXCHANGE": "F",
+                "DASH_API_URL": "https://example.invalid/api/daytrade/quote",
+                "PROFITDLL_INGEST_SECRET": "x" * 40,
+            }
+            with patch.dict(os.environ, env, clear=False):
                 with patch("gateway.dll_file_version", return_value="4.0.0.42"):
-                    with self.assertRaisesRegex(RuntimeError, "4.0.0.42 sem ABI homologada"):
-                        parse_config()
+                    config = parse_config()
+            self.assertEqual(config[1], "WINZ26")
+            self.assertEqual(config[2], "F")
+
+
+class ProfitDllReadOnlyStartupTests(unittest.TestCase):
+    def test_initializes_market_data_only_and_never_looks_up_order_exports(self):
+        market_login = Mock(return_value=0)
+        set_trade = Mock(return_value=0)
+        set_history = Mock(return_value=0)
+        set_progress = Mock(return_value=0)
+        dll = SimpleNamespace(
+            DLLInitializeMarketLogin=market_login,
+            SetTradeCallbackV2=set_trade,
+            SetHistoryTradeCallbackV2=set_history,
+            SetSerieProgressCallback=set_progress,
+        )
+        feed = ProfitFeed.__new__(ProfitFeed)
+        feed.dll = dll
+        feed.state_cb = object()
+        feed.trade_cb = object()
+        feed.history_trade_cb = object()
+        feed.history_progress_cb = object()
+        feed.set_history_trade_callback = set_history
+        feed.history_trade_callback_name = "SetHistoryTradeCallbackV2"
+        feed.initialized = False
+
+        feed.initialize("activation-fixture", "user-fixture", "password-fixture")
+
+        market_login.assert_called_once_with(
+            "activation-fixture", "user-fixture", "password-fixture", feed.state_cb,
+            None, None, None, None, None, None, None,
+        )
+        set_trade.assert_called_once_with(feed.trade_cb)
+        set_history.assert_called_once_with(feed.history_trade_cb)
+        set_progress.assert_called_once_with(feed.history_progress_cb)
+        self.assertTrue(feed.initialized)
+        for order_export in ("DLLInitializeLogin", "SendOrder", "SendOrder2", "CancelOrder"):
+            self.assertFalse(hasattr(dll, order_export), f"unexpected order export: {order_export}")
+
+    def test_feed_does_not_subscribe_until_login_market_and_activation_are_all_ready(self):
+        feed = ProfitFeed.__new__(ProfitFeed)
+        feed.states = {LOGIN: LOGIN_CONNECTED, MARKET: MARKET_CONNECTED}
+        feed.changed = threading.Condition()
+
+        with self.assertRaisesRegex(TimeoutError, "não ficou pronta.*Estados recebidos"):
+            feed.wait_ready(timeout=0.01)
+
+        feed.states[ACTIVATION] = ACTIVATION_VALID
+        feed.wait_ready(timeout=0.01)
+
+    def test_invalid_activation_reports_the_license_problem_without_repeating_credentials(self):
+        feed = ProfitFeed.__new__(ProfitFeed)
+        feed.states = {LOGIN: LOGIN_CONNECTED, MARKET: MARKET_CONNECTED, ACTIVATION: 1}
+        feed.changed = threading.Condition()
+
+        with self.assertRaisesRegex(RuntimeError, "Ativação ProfitDLL inválida.*DLL Feed") as raised:
+            feed.wait_ready()
+
+        self.assertNotIn("activation-fixture", str(raised.exception))
+        self.assertNotIn("password-fixture", str(raised.exception))
+
+    def test_invalid_login_password_has_a_separate_diagnostic(self):
+        feed = ProfitFeed.__new__(ProfitFeed)
+        feed.states = {LOGIN: 2}
+        feed.changed = threading.Condition()
+
+        with self.assertRaisesRegex(RuntimeError, "senha de login Nelogica inválida"):
+            feed.wait_ready()
 
 
 class ProfitDllHistoryCollectorTests(unittest.TestCase):

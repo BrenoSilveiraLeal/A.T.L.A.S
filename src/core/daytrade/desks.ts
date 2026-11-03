@@ -33,7 +33,7 @@ export interface Desk {
   id: DeskId;
   sector: SectorId;
   role: string;
-  /** What the desk will do once its worker exists. */
+  /** Current responsibility. If its path is not integrated, the job says so explicitly. */
   job: string;
   /** Agent shown at the desk (look only). */
   person: { name: string; shirt: string; hair: string; skin: string };

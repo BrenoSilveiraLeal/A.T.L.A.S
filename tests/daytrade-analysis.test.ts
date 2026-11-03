@@ -64,12 +64,13 @@ function summary(candidate: BacktestCandidateId, folds: BacktestFoldSummary[]): 
   };
 }
 
-const fold = (index: number, netPnlByTrade: number[]): BacktestFoldSummary => ({
+const fold = (index: number, netPnlByTrade: number[], riskBreaches = 0): BacktestFoldSummary => ({
   fold: index, trainingSessions: 10 + (index - 1) * 3,
   evaluationFrom: `2026-10-${String(20 + index).padStart(2, "0")}`,
   evaluationThrough: `2026-10-${String(22 + index).padStart(2, "0")}`,
   trades: netPnlByTrade.length, grossPnl: netPnlByTrade.reduce((sum, value) => sum + value, 0),
   feesPaid: 0, slippageCost: 0, netPnl: netPnlByTrade.reduce((sum, value) => sum + value, 0),
+  tradeLossLimitBreaches: riskBreaches, dailyLossLimitBreaches: 0,
   netPnlByTrade,
 });
 
@@ -105,6 +106,38 @@ describe("DASH quantitative research", () => {
     expect(charged.netPnl).toBe(charged.grossPnl - charged.feesPaid - charged.slippageCost);
   });
 
+  it("requires two consecutive closes outside the opening range for the confirmation candidate", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-02T17:00:00Z"));
+    const dates = regularSessions(13), bars = fixtureBars(dates);
+    const evaluationDates = new Set(dates.slice(10));
+    for (const bar of bars) {
+      if (evaluationDates.has(bar.bucket_at.slice(0, 10)) && bar.bucket_at.slice(11, 16) === "09:28") {
+        bar.high = 102; bar.close = 102; bar.turnover = 102;
+      }
+    }
+    const report = backtestCandidate(
+      bars, 1, 1, 0, 0, null, { lastEntry: "09:50", flatBy: "10:00" },
+      "opening-range-confirmed-v1", { maxLossPerTrade: 100, maxLossPerDay: 1000, maxTradesPerDay: 3 },
+      Object.fromEntries(dates.map((date) => [date, 61])),
+    );
+    expect(report.status).toBe("RESEARCH_ONLY");
+    expect(report.trades).toBe(3);
+
+    const singleClose = bars.map((bar) => ({ ...bar }));
+    for (const bar of singleClose) {
+      if (evaluationDates.has(bar.bucket_at.slice(0, 10)) && ["09:28", "09:30"].includes(bar.bucket_at.slice(11, 16))) {
+        bar.close = 100; bar.high = 103; bar.turnover = 100;
+      }
+    }
+    const unconfirmed = backtestCandidate(
+      singleClose, 1, 1, 0, 0, null, { lastEntry: "09:50", flatBy: "10:00" },
+      "opening-range-confirmed-v1", { maxLossPerTrade: 100, maxLossPerDay: 1000, maxTradesPerDay: 3 },
+      Object.fromEntries(dates.map((date) => [date, 61])),
+    );
+    expect(unconfirmed.trades).toBe(0);
+  });
+
   it("selects on completed earlier folds only, never on the fold being evaluated", () => {
     const preferredFromHistory = summary("opening-range-vwap-v1", [
       fold(1, [5, 5]), fold(2, [-50]),
@@ -113,14 +146,44 @@ describe("DASH quantitative research", () => {
       fold(1, [1, 1]), fold(2, [100]),
     ]);
 
-    const selected = selectWalkForwardCandidate([preferredFromHistory, laterWinner], 2);
+    const selected = selectWalkForwardCandidate([laterWinner, preferredFromHistory], 2);
     expect(selected.folds).toHaveLength(1);
     expect(selected.folds[0].selectedCandidate).toBe("opening-range-vwap-v1");
     expect(selected.folds[0].selectionScores).toEqual([
-      { candidate: "opening-range-vwap-v1", netPnl: 10, trades: 2, maxDrawdown: 0 },
-      { candidate: "opening-range-unfiltered-entry-v1", netPnl: 2, trades: 2, maxDrawdown: 0 },
+      { candidate: "opening-range-unfiltered-entry-v1", netPnl: 2, trades: 2, maxDrawdown: 0, netToDrawdown: null, riskLimitBreaches: 0 },
+      { candidate: "opening-range-vwap-v1", netPnl: 10, trades: 2, maxDrawdown: 0, netToDrawdown: null, riskLimitBreaches: 0 },
     ]);
     expect(selected.folds[0].netPnl).toBe(-50);
+  });
+
+  it("selects by historical return relative to drawdown and requires positive net training PnL", () => {
+    const higherReturn = summary("opening-range-vwap-v1", [fold(1, [100, -90, 100]), fold(2, [25])]);
+    const lowerRisk = summary("opening-range-unfiltered-entry-v1", [fold(1, [10, -1, 10]), fold(2, [5])]);
+    const selected = selectWalkForwardCandidate([higherReturn, lowerRisk], 3);
+    expect(selected.folds[0].selectedCandidate).toBe("opening-range-unfiltered-entry-v1");
+    expect(selected.folds[0].selectionScores.find((score) => score.candidate === "opening-range-unfiltered-entry-v1")?.netToDrawdown).toBe(19);
+
+    const negative = summary("opening-range-vwap-v1", [fold(1, [-4, -3])]);
+    const flat = summary("opening-range-unfiltered-entry-v1", [fold(1, [2, -2])]);
+    const noPositiveCandidate = selectWalkForwardCandidate([negative, flat], 2);
+    expect(noPositiveCandidate.folds).toHaveLength(0);
+    expect(noPositiveCandidate.status).toBe("INSUFFICIENT_DATA");
+  });
+
+  it("does not select a candidate whose prior folds breached loss limits", () => {
+    const breached = summary("opening-range-vwap-v1", [fold(1, [50, 50], 1), fold(2, [80])]);
+    const clean = summary("opening-range-unfiltered-entry-v1", [fold(1, [5, 5]), fold(2, [-4])]);
+    const selected = selectWalkForwardCandidate([breached, clean], 2);
+    expect(selected.folds[0].selectedCandidate).toBe("opening-range-unfiltered-entry-v1");
+    expect(selected.folds[0].selectionScores[0].riskLimitBreaches).toBe(1);
+  });
+
+  it("returns no selection when all candidates breached a prior loss limit", () => {
+    const first = summary("opening-range-vwap-v1", [fold(1, [5, 5], 1), fold(2, [8])]);
+    const second = summary("opening-range-unfiltered-entry-v1", [fold(1, [4, 4], 1), fold(2, [8])]);
+    const selected = selectWalkForwardCandidate([first, second], 2);
+    expect(selected.status).toBe("INSUFFICIENT_DATA");
+    expect(selected.folds).toHaveLength(0);
   });
 
   it("reports stop-gap losses that exceed configured per-trade and daily limits", () => {
@@ -130,7 +193,7 @@ describe("DASH quantitative research", () => {
     const evaluationDates = new Set(dates.slice(10));
     for (const bar of bars) {
       if (evaluationDates.has(bar.bucket_at.slice(0, 10)) && bar.bucket_at.slice(11, 16) === "09:31") {
-        bar.open = 90; bar.high = 91; bar.low = 89; bar.close = 90;
+        bar.open = 90; bar.high = 91; bar.low = 89; bar.close = 90; bar.turnover = 90;
       }
     }
     const report = backtestCandidate(
@@ -144,6 +207,8 @@ describe("DASH quantitative research", () => {
     expect(report.dailyLossLimitBreaches).toBe(3);
     expect(report.maxSingleTradeLoss).toBe(12);
     expect(report.maxDailyLoss).toBe(12);
+    expect(report.folds[0].tradeLossLimitBreaches).toBe(3);
+    expect(report.folds[0].dailyLossLimitBreaches).toBe(3);
   });
 
   it("refuses malformed costs, risk limits, session times, and unknown candidate IDs", () => {

@@ -17,6 +17,8 @@ const officialB3Source = z.string().url().refine((value) => {
 
 /** Account-specific values entered by the owner from current Genial documents. */
 export const ownerExecutionSettingsSchema = z.object({
+  /** Capital explicitly reserved by the owner for the isolated DASH paper office. */
+  capitalBudget: money.default(null),
   marginPerContract: money,
   brokeragePerContract: z.number().min(0).nullable(),
   exchangeFeesPerContract: z.number().min(0).nullable(),
@@ -32,7 +34,10 @@ export const ownerExecutionSettingsSchema = z.object({
 }).strict().superRefine((settings, ctx) => {
   if (settings.maxLossPerTrade !== null && settings.maxLossPerDay !== null && settings.maxLossPerTrade > settings.maxLossPerDay)
     ctx.addIssue({ code: "custom", path: ["maxLossPerTrade"], message: "A perda por operação não pode exceder a perda diária." });
+  if (settings.capitalBudget !== null && settings.maxExposure !== null && settings.maxExposure > settings.capitalBudget)
+    ctx.addIssue({ code: "custom", path: ["maxExposure"], message: "Exposicao maxima do DASH maior que o orcamento reservado ao escritorio." });
   if (settings.confirmSource && (
+    settings.capitalBudget === null ||
     settings.marginPerContract === null || settings.brokeragePerContract === null || settings.exchangeFeesPerContract === null ||
     settings.slippageTicks === null ||
     settings.maxLossPerTrade === null || settings.maxLossPerDay === null || settings.maxExposure === null ||
@@ -71,6 +76,8 @@ export const dashConfigSchema = z.object({
     maxLossPerTrade: money,
     maxLossPerDay: money,
     maxExposure: money,
+    /** Owner-assigned DASH paper capital; never drawn from the dividends office. */
+    capitalBudget: money.default(null),
     /** Every order needs a stop accepted by the broker; this cannot be switched off. */
     stopRequired: z.literal(true),
   }),
@@ -85,6 +92,8 @@ export const dashConfigSchema = z.object({
     ctx.addIssue({ code: "custom", path: ["risk", "maxLossPerTrade"], message: "A perda máxima por operação não pode passar a perda máxima do dia." });
   if (c.data.maxDelayMs > c.data.staleAfterMs)
     ctx.addIssue({ code: "custom", path: ["data", "maxDelayMs"], message: "Maximum accepted feed delay cannot exceed the staleness limit." });
+  if (c.risk.capitalBudget !== null && c.risk.maxExposure !== null && c.risk.maxExposure > c.risk.capitalBudget)
+    ctx.addIssue({ code: "custom", path: ["risk", "maxExposure"], message: "DASH exposure cannot exceed the office's dedicated capital budget." });
   if (!c.instruments.some((i) => i.enabled)) ctx.addIssue({ code: "custom", path: ["instruments"], message: "Pelo menos um instrumento precisa estar habilitado." });
 });
 export type DashConfig = z.infer<typeof dashConfigSchema>;
@@ -104,6 +113,9 @@ export function readiness(config: DashConfig, requireApprovedStrategy = true): s
   if (config.risk.maxLossPerTrade === null) missing.push("Perda máxima por operação");
   if (config.risk.maxLossPerDay === null) missing.push("Perda máxima do dia");
   if (config.risk.maxExposure === null) missing.push("Exposição máxima");
+  if (config.risk.capitalBudget === null) missing.push("Orcamento de capital paper reservado exclusivamente ao DASH");
+  if (config.risk.capitalBudget !== null && config.risk.maxExposure !== null && config.risk.maxExposure > config.risk.capitalBudget)
+    missing.push("Exposicao maxima maior que o orcamento paper do DASH");
   if (config.costs.brokeragePerContract === null || config.costs.exchangeFeesPerContract === null || !config.costs.verified) missing.push("Custos por contrato e slippage modelado confirmados (corretagem, emolumentos e ticks adversos por fill)");
   if (requireApprovedStrategy && (!config.strategy.id || !config.strategy.version || !config.strategy.approved)) missing.push("Estrategia versionada e aprovada em backtest e simulacao");
   return missing;
@@ -122,6 +134,12 @@ export function paperReadiness(config: DashConfig, expiresOn = config.instrument
     }
   }
   if (config.session.open !== "09:00") missing.push("Horário de abertura compatível com a faixa inicial da estratégia (09:00)");
+  if (config.risk.capitalBudget !== null) {
+    for (const instrument of config.instruments.filter((item) => item.enabled)) {
+      if (instrument.marginPerContract !== null && config.risk.capitalBudget < instrument.marginPerContract)
+        missing.push(`${instrument.id}: orcamento DASH inferior a margem de um contrato; entradas paper desativadas`);
+    }
+  }
   if (config.session.open && config.session.lastEntry && config.session.flatBy &&
     !(config.session.open < config.session.lastEntry && config.session.lastEntry < config.session.flatBy))
     missing.push("Última entrada e zeragem precisam estar em ordem após a abertura");
@@ -134,14 +152,15 @@ export function paperReadiness(config: DashConfig, expiresOn = config.instrument
 
 /** The risk limits the analysis room uses (agents.ts RiskLimits), or null while any is missing. */
 export function roomLimits(config: DashConfig) {
-  const { maxLossPerTrade, maxLossPerDay, maxExposure, maxOpenPositions } = config.risk;
+  const { maxLossPerTrade, maxLossPerDay, maxExposure, maxOpenPositions, capitalBudget } = config.risk;
   const instrument = config.instruments.find((item) => item.enabled);
   const { brokeragePerContract, exchangeFeesPerContract, verified: costsVerified, slippageTicks } = config.costs;
-  if (maxLossPerTrade === null || maxLossPerDay === null || maxExposure === null || !instrument?.verified ||
+  if (maxLossPerTrade === null || maxLossPerDay === null || maxExposure === null || capitalBudget === null || !instrument?.verified ||
+    maxExposure > capitalBudget ||
     instrument.marginPerContract === null || instrument.pointValue === null || instrument.tickSize === null ||
     brokeragePerContract === null || exchangeFeesPerContract === null || !costsVerified) return null;
   return {
-    maxLossPerTrade, maxLossPerDay, maxOpenPositions, maxExposure,
+    maxLossPerTrade, maxLossPerDay, maxOpenPositions, maxExposure, capitalBudget,
     maxContracts: config.risk.maxContracts, marginPerContract: instrument.marginPerContract,
     pointValue: instrument.pointValue, tickSize: instrument.tickSize,
     costPerSide: brokeragePerContract + exchangeFeesPerContract, slippageTicks,

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HistoricalBar } from "@/providers/types";
 import { formatInstrumentPrice } from "@/components/daytrade/format";
 
@@ -74,6 +74,8 @@ export function CandleChart({
 }) {
   const [range, setRange] = useState(timeframe === "minute" ? 30 : 20);
   const [compact, setCompact] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(timeframe === "minute" ? 390 : 720);
+  const figureRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 640px)");
     const update = () => {
@@ -84,12 +86,22 @@ export function CandleChart({
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+  useEffect(() => {
+    const figure = figureRef.current;
+    if (!figure || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = Math.round(entry.contentRect.width);
+      if (nextWidth > 0) setContainerWidth((current) => Math.abs(current - nextWidth) > 1 ? nextWidth : current);
+    });
+    observer.observe(figure);
+    return () => observer.disconnect();
+  }, []);
   const data = bars.slice(-range);
   if (!data.length)
     return <p>Histórico indisponível. Nenhum candle foi criado.</p>;
-  const width = compact ? 390 : 720,
+  const width = Math.max(280, containerWidth),
     height = compact ? 286 : 300,
-    left = compact ? 68 : 78,
+    left = compact ? Math.min(68, Math.max(52, width * 0.18)) : 78,
     right = compact ? 14 : 12,
     top = compact ? 18 : 16,
     floor = compact ? 184 : 215,
@@ -100,9 +112,10 @@ export function CandleChart({
   const elapsedMinutes = Number.isFinite(firstVisibleAt) && Number.isFinite(lastVisibleAt)
     ? Math.max(0, (lastVisibleAt - firstVisibleAt) / 60_000) : 0;
   // Minute candles keep temporal spacing, so missing feed intervals remain visible.
-  // Overnight periods are removed by the API's one-session chart window.
+  // Scale to the bars on hand and reserve half a cell at each edge; using the selected
+  // range here leaves early-session candles crowded on the left before that range fills.
   const step = timeframe === "minute"
-    ? plotWidth / Math.max(1, range - 1, elapsedMinutes)
+    ? plotWidth / (Math.max(1, data.length - 1, elapsedMinutes) + 1)
     : plotWidth / data.length;
   const xForBar = (timestamp: string, index: number) => {
     if (timeframe !== "minute" || !Number.isFinite(firstVisibleAt)) return left + index * step + step / 2;
@@ -134,7 +147,7 @@ export function CandleChart({
     ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).format(new Date(timestamp))
     : timestamp.slice(0, 10);
   return (
-    <figure className="candle-chart">
+    <figure ref={figureRef} className="candle-chart">
       <div className="section-heading">
         <h2>{ticker} · {timeframe === "minute" ? "Candles de 1 minuto" : "Histórico diário"}</h2>
         <label className="chart-range">

@@ -16,6 +16,11 @@ import { estimatePaperFuturesTax } from "@/core/daytrade/tax-estimate";
 
 export const runtime = "nodejs";
 
+type PersistedMinuteBar = MinuteBar & {
+  provider: string;
+  updated_at: string;
+};
+
 /**
  * The DASH API (docs/daytrade/ARQUITETURA.md: "/api/daytrade/* · BFF autenticado e validado").
  * Owner (AAL2): GET status, config, journal, ledger, orders; POST halt (the DASH kill switch).
@@ -54,6 +59,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ reso
         if (error) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel ler os candles do DASH.");
         descendingRows.push(...(data ?? []));
         if ((data?.length ?? 0) < pageSize) break;
+      }
+      if (resource === "backtest" && descendingRows.length === maximum) {
+        // A silent cap would make a truncated, potentially cherry-picked history look complete.
+        // Probe one extra row and refuse to score unless the entire available dataset was loaded.
+        const { data: overflow, error: overflowError } = await db.from("dt_market_bars").select("bucket_at")
+          .eq("owner_id", user.id).eq("instrument", symbol).eq("timeframe", "1m")
+          .lt("bucket_at", completedBefore).order("bucket_at", { ascending: false }).range(maximum, maximum);
+        if (overflowError) throw new ApiError(500, "DASH_READ_FAILED", "NÃ£o foi possÃ­vel verificar o limite do histÃ³rico do backtest.");
+        if (overflow?.length) return json({ status: "DATASET_TOO_LARGE", researchOnly: true,
+          maximumBars: maximum, reason: "HistÃ³rico excede o limite completo de leitura; resultado walk-forward omitido." });
       }
       const bars = descendingRows.reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume), turnover: b.turnover === null ? null : Number(b.turnover) })) as MinuteBar[];
       const contract = config.instruments.find((i) => i.symbol === symbol)!;
@@ -292,17 +307,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
       if (quoteWriteError) throw new ApiError(500, "DASH_WRITE_FAILED", "Falha ao validar e registrar a cotacao.");
       if (quoteAccepted !== true)
         throw new ApiError(409, "QUOTE_OUT_OF_ORDER", "Cotacao repetida ou fora de ordem foi descartada.");
-      let allBars: MinuteBar[] = [];
+      let allBars: PersistedMinuteBar[] = [];
       let sessionPaperAllowed = false;
       let newsMissing = ["Cobertura de notícias/calendário ausente; entradas paper bloqueadas."];
       let newsDetail = newsMissing[0];
       const researchStatus = { ...INITIAL_STATUS, data: "REAL" as const, broker: "ProfitDLL", instrument: body.instrument };
       const researchContext = { status: researchStatus, now: serverReceivedAt, limits: roomLimits(config), instrumentTickSize: instrument.tickSize };
-      const runResearchStrategy = (prefix: MinuteBar[]) => {
+      const runResearchStrategy = (prefix: PersistedMinuteBar[]) => {
         const candles = prefix.map((bar): Candle => ({
           instrument: body.instrument, start: bar.bucket_at, open: bar.open, high: bar.high, low: bar.low,
           close: bar.close, volume: bar.volume, turnover: bar.turnover ?? null,
-          provenance: { source: body.provider, receivedAt: serverReceivedAt, delayMs: exchangeDelayMs, simulated: false },
+          provenance: { source: bar.provider, receivedAt: bar.updated_at, delayMs: null, simulated: false, persisted: true },
         }));
         const snapshot = {
           provenance: [{ source: body.provider, receivedAt: serverReceivedAt, delayMs: exchangeDelayMs, simulated: false }],
@@ -341,11 +356,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
         // Process completed minutes only. These idempotent records are research observations;
         // the ProfitDLL market-data gateway has no order-routing capability.
         if (freshClosedBars.length) {
-          const { data: history, error: historyError } = await db.from("dt_market_bars").select("bucket_at,open,high,low,close,volume,turnover")
+          const { data: history, error: historyError } = await db.from("dt_market_bars").select("bucket_at,open,high,low,close,volume,turnover,provider,updated_at")
             .eq("owner_id", ownerId).eq("instrument", instrument.symbol).eq("timeframe", "1m")
             .order("bucket_at", { ascending: false }).limit(600);
           if (historyError) throw new ApiError(500, "DASH_READ_FAILED", "Não foi possível carregar o histórico para análise.");
-          allBars = (history ?? []).reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume), turnover: b.turnover === null ? null : Number(b.turnover) })) as MinuteBar[];
+          allBars = (history ?? []).reverse().map((b) => ({ ...b, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume), turnover: b.turnover === null ? null : Number(b.turnover) })) as PersistedMinuteBar[];
           // Poll slow feeds only when a bar closes; the collector may send many quote ticks per minute.
           const newsCoverage = await loadDashNewsSnapshot(db, ownerId);
           const newsAssessment = newsWorker.step(newsCoverage.snapshot, { ...researchContext, now: newsCoverage.assessedAt });
@@ -467,6 +482,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ res
             point_value: instrument.pointValue, tick_size: instrument.tickSize, fee_per_side: feePerSide,
             slippage_ticks: config.costs.slippageTicks, max_loss_per_trade: config.risk.maxLossPerTrade,
             max_loss_per_day: config.risk.maxLossPerDay, max_exposure: config.risk.maxExposure,
+            capital_budget: config.risk.capitalBudget,
             margin_per_contract: instrument.marginPerContract, max_trades_per_day: config.risk.maxTradesPerDay,
             max_contracts: config.risk.maxContracts, max_open_positions: config.risk.maxOpenPositions,
             last_entry: config.session.lastEntry, flat_by: config.session.flatBy,

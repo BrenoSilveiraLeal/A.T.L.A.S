@@ -1,11 +1,21 @@
 $ErrorActionPreference = "Stop"
 $gatewayDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoDir = (Resolve-Path (Join-Path $gatewayDir "../..")).Path
-$envFile = Join-Path $gatewayDir ".env.local"
+if (-not $env:LOCALAPPDATA) { throw "LOCALAPPDATA nao esta definido; nao e seguro guardar a configuracao privada junto ao repositorio." }
+$configDir = Join-Path $env:LOCALAPPDATA "ATLAS\ProfitDLL"
+$envFile = Join-Path $configDir "gateway.env"
+if (-not (Test-Path -LiteralPath $configDir)) { New-Item -ItemType Directory -Path $configDir -Force | Out-Null }
 if (-not (Test-Path -LiteralPath $envFile)) {
-  Copy-Item -LiteralPath (Join-Path $gatewayDir ".env.example") -Destination $envFile
-  throw "Criei gateways/profitdll/.env.local a partir do modelo. Preencha runtime, endpoint e segredo privado e execute novamente."
+  $legacyEnvFile = Join-Path $gatewayDir ".env.local"
+  if (Test-Path -LiteralPath $legacyEnvFile) {
+    Move-Item -LiteralPath $legacyEnvFile -Destination $envFile
+    Write-Host "Migrei a configuracao privada existente para $envFile."
+  } else {
+    Copy-Item -LiteralPath (Join-Path $gatewayDir ".env.example") -Destination $envFile
+    throw "Criei $envFile a partir do modelo. Preencha runtime, endpoint e segredo privado e execute novamente."
+  }
 }
+$env:PROFITDLL_ENV_FILE = $envFile
 
 foreach ($line in [IO.File]::ReadAllLines($envFile)) {
   $value = $line.Trim()
@@ -23,7 +33,12 @@ $configuredTicker = $config.instruments | Where-Object { $_.id -eq "WIN" -and $_
 if (-not $configuredTicker -or $env:PROFITDLL_TICKER -ne $configuredTicker) { throw "PROFITDLL_TICKER precisa corresponder ao contrato ativo configurado no DASH ($configuredTicker)." }
 if ($env:PROFITDLL_API_URL) { throw "Use DASH_API_URL, não PROFITDLL_API_URL." }
 if (-not $env:PROFITDLL_RUNTIME_DIR -or -not (Test-Path -LiteralPath (Join-Path $env:PROFITDLL_RUNTIME_DIR "ProfitDLL.dll"))) { throw "Extraia o pacote x64 oficial da Nelogica e configure PROFITDLL_RUNTIME_DIR para a pasta que contém ProfitDLL.dll." }
-$dllVersion = (Get-Item -LiteralPath (Join-Path $env:PROFITDLL_RUNTIME_DIR "ProfitDLL.dll")).VersionInfo.ProductVersion
+$dllPath = Join-Path $env:PROFITDLL_RUNTIME_DIR "ProfitDLL.dll"
+$signature = Get-AuthenticodeSignature -LiteralPath $dllPath
+if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Nelogica Sistemas de Software Ltda\.') {
+  throw "A assinatura da ProfitDLL não foi validada como um binário oficial da Nelogica; o gateway não será iniciado."
+}
+$dllVersion = (Get-Item -LiteralPath $dllPath).VersionInfo.ProductVersion
 if (-not $dllVersion) { $dllVersion = (Get-Item -LiteralPath (Join-Path $env:PROFITDLL_RUNTIME_DIR "ProfitDLL.dll")).VersionInfo.FileVersion }
 Write-Host "ProfitDLL file version: $(if ($dllVersion) { $dllVersion } else { 'not provided by the package' })"
 if (-not $env:DASH_API_URL -or -not $env:PROFITDLL_INGEST_SECRET) { throw "Endpoint ou segredo privado do gateway ausente; solicite a configuração ao responsável pelo deploy." }

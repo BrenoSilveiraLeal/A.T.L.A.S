@@ -16,13 +16,14 @@
  * worker written later cannot skip them.
  */
 import type { DeskId, DashStatus } from "./desks";
-import { analyzeOpeningRange, backtestCandidate, type BacktestCandidateId, type BacktestRiskLimits, type BacktestSummary, type MinuteBar } from "./analysis";
+import { analyzeOpeningRange, BACKTEST_CANDIDATES, backtestCandidate, type BacktestCandidateId, type BacktestRiskLimits, type BacktestSummary, type MinuteBar } from "./analysis";
 
 // ----- Messages between the desks -----
 
 /** Where a piece of data came from and how old it is; data without this is not used. */
 export interface Provenance { source: string; receivedAt: string; delayMs: number; simulated: boolean }
-export interface Candle { instrument: string; start: string; open: number; high: number; low: number; close: number; volume: number; turnover?: number | null; provenance: Provenance }
+export interface CandleProvenance extends Omit<Provenance, "delayMs"> { delayMs: number | null; persisted?: boolean }
+export interface Candle { instrument: string; start: string; open: number; high: number; low: number; close: number; volume: number; turnover?: number | null; provenance: CandleProvenance }
 export interface BookTop { instrument: string; bid: number; ask: number; bidSize: number; askSize: number; provenance: Provenance }
 export interface FeedSnapshot { provenance: Provenance[]; candles: Candle[]; book: BookTop[] }
 export interface MarketEvent { kind: "NEWS" | "CALENDAR" | "AUCTION" | "HALT"; title: string; at: string; impact: "LOW" | "MEDIUM" | "HIGH"; provenance: Provenance }
@@ -216,6 +217,13 @@ export const priceWorker: DeskWorker<DeskContracts["price"]["in"], DeskContracts
       Number.isFinite(Date.parse(source.receivedAt)) && Number.isFinite(nowMs) &&
       nowMs - Date.parse(source.receivedAt) >= 0 && nowMs - Date.parse(source.receivedAt) <= 10_000 &&
       Number.isFinite(source.delayMs) && source.delayMs >= 0 && source.delayMs <= 2_000 && !source.simulated;
+    const validCandleProvenance = (source: CandleProvenance) => {
+      if (!source || source.simulated || !Number.isFinite(Date.parse(source.receivedAt)) || !Number.isFinite(nowMs)) return false;
+      if (source.persisted !== true) return source.delayMs !== null && validProvenance({ ...source, delayMs: source.delayMs });
+      const age = nowMs - Date.parse(source.receivedAt);
+      const trustedProvider = source.source === "PROFITDLL_DAYTRADE" || source.source === "PROFITDLL_HISTORY";
+      return trustedProvider && age >= -2_000 && age <= 31 * 24 * 60 * 60_000 && source.delayMs === null;
+    };
     if (snapshot.provenance.length === 0 || snapshot.provenance.some((source) => !source || !validProvenance(source)))
       return { state: "BLOCKED", output: null, reason: "Origem ou latência do feed fora do limite." };
     const invalid = candles.some((bar) => !bar || !bar.provenance || !/^[A-Z0-9$]{1,16}$/.test(bar.instrument) ||
@@ -228,7 +236,7 @@ export const priceWorker: DeskWorker<DeskContracts["price"]["in"], DeskContracts
         (!Number.isFinite(bar.turnover) ||
           bar.turnover < bar.low * bar.volume - Math.max(0.01, bar.high * bar.volume * 1e-9) ||
           bar.turnover > bar.high * bar.volume + Math.max(0.01, bar.high * bar.volume * 1e-9))) ||
-      !validProvenance(bar.provenance));
+      !validCandleProvenance(bar.provenance));
     if (invalid || candles.length < 30) return { state: "BLOCKED", output: null, reason: invalid ? "Preço, volume ou origem do candle inválidos; entradas bloqueadas." : "Aguardando pelo menos 30 candles validados." };
     const sorted = [...candles].sort((a, b) => a.start.localeCompare(b.start));
     const day = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(value));
@@ -254,7 +262,7 @@ export const strategyWorker: DeskWorker<DeskContracts["strategy"]["in"], DeskCon
       return { state: "BLOCKED", output: [], reason: input?.gate.reasons.join(" ") || "Estratégia sem dados ou entradas bloqueadas." };
     const latest = input.candles.at(-1);
     const nowMs = Date.parse(context.now);
-    if (!latest || !latest.provenance || context.status.data !== "REAL" || context.status.broker !== "ProfitDLL" ||
+    if (!latest || !latest.provenance || latest.provenance.source !== "PROFITDLL_DAYTRADE" || context.status.data !== "REAL" || context.status.broker !== "ProfitDLL" ||
       !Number.isFinite(nowMs) || Math.abs(nowMs - Date.parse(latest.provenance.receivedAt)) > 10_000 || latest.provenance.simulated)
       return { state: "BLOCKED", output: [], reason: "Candles ProfitDLL ausentes, simulados ou sem atualização recente." };
     const signal = analyzeOpeningRange(input.candles.map((bar) => ({
@@ -325,7 +333,7 @@ export const backtestWorker: DeskWorker<DeskContracts["backtest"]["in"], DeskCon
       !input.risk || !Number.isFinite(input.risk.maxLossPerTrade) || input.risk.maxLossPerTrade <= 0 ||
       !Number.isFinite(input.risk.maxLossPerDay) || input.risk.maxLossPerDay < input.risk.maxLossPerTrade ||
       !Number.isInteger(input.risk.maxTradesPerDay) || input.risk.maxTradesPerDay < 1 ||
-      !["opening-range-vwap-v1", "opening-range-unfiltered-entry-v1"].includes(input.candidate))
+      !BACKTEST_CANDIDATES.some((candidate) => candidate.id === input.candidate))
       return { state: "BLOCKED", output: null, reason: "Amostra, custos, limites de risco ou janela do backtest estão incompletos ou inválidos." };
     const report = backtestCandidate(input.bars, input.pointValue, input.tickSize, input.costPerSide,
       input.slippageTicks, input.expiresOn, input.session, input.candidate, input.risk, input.completedHistoryBarCounts);

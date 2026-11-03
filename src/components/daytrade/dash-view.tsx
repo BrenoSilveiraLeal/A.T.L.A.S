@@ -32,14 +32,15 @@ type PaperTaxEstimate = {
   months: Array<{ month: string; closedTrades: number; dayTradeResult: string; taxableAfterPaperLosses: string; paperLossCarry: string; estimatedTax: string; estimatedIrrfEquivalent: string; excludedOvernightCloses: number; excludedOvernightResult: string }>;
 };
 type DeskHeartbeat = { desk: string; at: string; state: "IDLE" | "WORKING" | "BLOCKED" | "ERROR"; detail: string };
-type ExecutionForm = Record<"marginPerContract" | "brokeragePerContract" | "exchangeFeesPerContract" | "slippageTicks" | "maxLossPerTrade" | "maxLossPerDay" | "maxExposure" | "lastEntry" | "flatBy" | "sourceNote", string>;
-const EMPTY_EXECUTION_FORM: ExecutionForm = { marginPerContract: "", brokeragePerContract: "", exchangeFeesPerContract: "", slippageTicks: "", maxLossPerTrade: "", maxLossPerDay: "", maxExposure: "", lastEntry: "", flatBy: "", sourceNote: "" };
+type ExecutionForm = Record<"capitalBudget" | "marginPerContract" | "brokeragePerContract" | "exchangeFeesPerContract" | "slippageTicks" | "maxLossPerTrade" | "maxLossPerDay" | "maxExposure" | "lastEntry" | "flatBy" | "sourceNote", string>;
+const EMPTY_EXECUTION_FORM: ExecutionForm = { capitalBudget: "", marginPerContract: "", brokeragePerContract: "", exchangeFeesPerContract: "", slippageTicks: "", maxLossPerTrade: "", maxLossPerDay: "", maxExposure: "", lastEntry: "", flatBy: "", sourceNote: "" };
 function makeExecutionForm(settings: Record<string, unknown> | null, config: DashConfig): ExecutionForm {
   const value = (key: string, fallback: number | string | null | undefined) => {
     const saved = settings?.[key];
     return saved === null || saved === undefined ? (fallback == null ? "" : String(fallback)) : String(saved);
   };
   return {
+    capitalBudget: value("capitalBudget", config.risk.capitalBudget),
     marginPerContract: value("marginPerContract", config.instruments.find((item) => item.id === "WIN")?.marginPerContract),
     brokeragePerContract: value("brokeragePerContract", config.costs.brokeragePerContract),
     exchangeFeesPerContract: value("exchangeFeesPerContract", config.costs.exchangeFeesPerContract),
@@ -206,6 +207,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
     setSavingExecutionConfig(true); setMessage("");
     try {
       const body = {
+        capitalBudget: parseLocalizedAmount(executionForm.capitalBudget),
         marginPerContract: parseLocalizedAmount(executionForm.marginPerContract),
         brokeragePerContract: parseLocalizedAmount(executionForm.brokeragePerContract),
         exchangeFeesPerContract: parseLocalizedAmount(executionForm.exchangeFeesPerContract),
@@ -258,7 +260,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
       case "price": return bars.length ? `Analisando ${bars.length} candles` : "Aguardando candles do pregão";
       case "news": return "Aguardando atualização das fontes configuradas";
       case "strategy": return analysis?.state ?? "Aguardando histórico e faixa de abertura";
-      case "backtest": return backtests?.some((result) => result.status === "RESEARCH_ONLY") ? "Comparação exploratória concluída" : backtests?.every((result) => result.status === "NO_TRADES") ? "Walk-forward concluído · nenhum setup" : backtestStatus ?? "Aguardando histórico/custos confirmados";
+      case "backtest": return backtests?.some((result) => result.status === "RESEARCH_ONLY") ? "Comparação exploratória concluída" : backtests?.every((result) => result.status === "NO_TRADES") ? "Walk-forward concluído · nenhum setup" : backtestStatus === "DATASET_TOO_LARGE" ? "O histórico disponível ultrapassa o limite de leitura. O sistema não calcula um walk-forward parcial." : backtestStatus ?? "Aguardando histórico/custos confirmados";
       case "risk": return paperMissing === null ? "Aguardando leitura da configuração" : paperMissing.length ? `BLOCKED · ${paperMissing.slice(0, 2).join("; ")}` : "Limites paper carregados · real bloqueado";
       case "positions": return "Reconciliação de posições da corretora não conectada";
       case "execution": case "orders": return "Bloqueado · roteamento real desativado";
@@ -454,6 +456,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
               <div><dt>EMA 9 / 21</dt><dd>{analysis?.metrics.emaFast == null ? "—" : formatInstrumentPrice(activeInstrument, analysis.metrics.emaFast)} / {analysis?.metrics.emaSlow == null ? "—" : formatInstrumentPrice(activeInstrument, analysis.metrics.emaSlow)}</dd></div>
             </dl>
             <p className="dash-note">{analysis?.explanation ?? "Aguardando feed"} Estratégia candidata sem validação; “observar” não significa comprar ou vender.</p>
+            <p className="dash-note">O paper mantém a versão fixa <code>opening-range-vwap-v1</code>. A seleção walk-forward compara candidatos apenas para pesquisa e não troca a regra paper nem aprova operação real.</p>
           </article>
           <article className="dash-card">
             <h2>Validação</h2>
@@ -463,7 +466,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
             {backtests ? <>
               {walkForwardSelection && <section className="dash-backtest-selection" aria-label="Seleção walk-forward sem antecipação">
                 <h3>Seleção sequencial fora da amostra</h3>
-                <p className="dash-note">Em cada bloco, escolhe o candidato com maior resultado líquido nos blocos anteriores, exigindo ao menos {walkForwardSelection.minimumTrainingTrades} operações de histórico. O bloco seguinte mede a escolha sem usar seus dados para selecioná-la.</p>
+                <p className="dash-note">Em cada bloco, escolhe o candidato com maior resultado líquido nos blocos anteriores, exigindo ao menos {walkForwardSelection.minimumTrainingTrades} operações e nenhum excesso dos limites de perda nesse histórico. O bloco seguinte mede a escolha sem usar seus dados para selecioná-la.</p>
                 {walkForwardSelection.status === "INSUFFICIENT_DATA" ? <p className="dash-note">Ainda não há blocos anteriores com operações suficientes para selecionar um candidato e avaliá-lo no bloco seguinte.</p> : <>
                   <dl>
                     <div><dt>Estado</dt><dd>{walkForwardSelection.status}</dd></div>
@@ -483,7 +486,10 @@ export function DashView({ connected = false }: { connected?: boolean }) {
                           <ul className="dash-selection-scores" aria-label={`Pontuações de treino antes do bloco ${fold.fold}`}>
                             {fold.selectionScores.map((score) => {
                               const candidate = BACKTEST_CANDIDATES.find((item) => item.id === score.candidate);
-                              return <li key={score.candidate}>{candidate?.label ?? score.candidate}: líquido R$ {score.netPnl.toFixed(2)} · {score.trades} operações · drawdown R$ {score.maxDrawdown.toFixed(2)}</li>;
+                              const adjusted = score.netToDrawdown === null
+                                ? score.netPnl > 0 && score.maxDrawdown === 0 ? "sem drawdown observado" : "sem retorno líquido positivo"
+                                : `${score.netToDrawdown.toFixed(2)}× retorno/drawdown`;
+                              return <li key={score.candidate}>{candidate?.label ?? score.candidate}: líquido R$ {score.netPnl.toFixed(2)} · {adjusted} · {score.trades} operações · drawdown R$ {score.maxDrawdown.toFixed(2)} · violações de limite {score.riskLimitBreaches}</li>;
                             })}
                           </ul>
                         </div>;
@@ -515,6 +521,8 @@ export function DashView({ connected = false }: { connected?: boolean }) {
                     <div><dt>Acerto</dt><dd>{result.winRate === null ? "—" : `${(result.winRate * 100).toFixed(1)}%`}</dd></div>
                     <div><dt>Fator de lucro</dt><dd>{result.profitFactor?.toFixed(2) ?? "—"}</dd></div>
                     <div><dt>Drawdown máximo</dt><dd>R$ {result.maxDrawdown.toFixed(2)}</dd></div>
+                    <div><dt>Maior perda por operação</dt><dd>R$ {result.maxSingleTradeLoss.toFixed(2)} · excedeu limite em {result.tradeLossLimitBreaches}</dd></div>
+                    <div><dt>Maior perda diária</dt><dd>R$ {result.maxDailyLoss.toFixed(2)} · excedeu limite em {result.dailyLossLimitBreaches} pregões</dd></div>
                   </dl> : <p className="dash-note">{result.status === "INSUFFICIENT_DATA" ? "Histórico OOS insuficiente; precisa de pelo menos 10 pregões completos para o período inicial e um bloco de 3 para avaliação." : result.status}</p>}
                   {result.folds.length > 0 && <details className="dash-fold-details">
                     <summary>Resultado por bloco fora da amostra</summary>
@@ -541,6 +549,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
             <p className="dash-note">Slippage e uma premissa escolhida para simulacao, aplicada contra a operacao em cada fill; nao e uma medicao da corretora.</p>
             <p className="dash-note">{configConfirmedAt ? `Fonte confirmada em ${new Date(configConfirmedAt).toLocaleString("pt-BR")}.` : "Sem confirmação documental; as entradas paper ficam bloqueadas."}</p>
             <form className="dash-config-form" onSubmit={(event) => void saveExecutionConfiguration(event)}>
+              <label>Orcamento de capital reservado ao DASH (R$)<input type="text" inputMode="decimal" value={executionForm.capitalBudget} onChange={(event) => updateExecutionField("capitalBudget", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Capital separado para a simulacao do DASH" /></label>
               <label>Margem por contrato (R$)<input type="text" inputMode="decimal" value={executionForm.marginPerContract} onChange={(event) => updateExecutionField("marginPerContract", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Conforme sua conta e regra vigente" /></label>
               <label>Corretagem por contrato e lado (R$)<input type="text" inputMode="decimal" value={executionForm.brokeragePerContract} onChange={(event) => updateExecutionField("brokeragePerContract", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Conforme sua nota" /></label>
               <label>Emolumentos por contrato e lado (R$)<input type="text" inputMode="decimal" value={executionForm.exchangeFeesPerContract} onChange={(event) => updateExecutionField("exchangeFeesPerContract", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Conforme sua nota" /></label>

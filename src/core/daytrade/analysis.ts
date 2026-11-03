@@ -13,11 +13,12 @@ export interface DeskSignal {
   metrics: { bars: number; vwap: number | null; openingHigh: number | null; openingLow: number | null; emaFast: number | null; emaSlow: number | null };
 }
 
-const ema = (values: number[], period: number) => {
-  if (values.length < period) return null;
+const emaSeeded = (values: number[], period: number) => {
+  if (!values.length) return null;
   const alpha = 2 / (period + 1);
   return values.slice(1).reduce((value, price) => value + alpha * (price - value), values[0]);
 };
+const ema = (values: number[], period: number) => values.length < period ? null : emaSeeded(values, period);
 const saoPauloDayFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" });
 const saoPauloMinuteFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
@@ -85,6 +86,7 @@ export function analyzeOpeningRange(bars: MinuteBar[], generatedAt = new Date().
 export interface BacktestFoldSummary {
   fold: number; trainingSessions: number; evaluationFrom: string; evaluationThrough: string;
   trades: number; grossPnl: number; feesPaid: number; slippageCost: number; netPnl: number;
+  tradeLossLimitBreaches: number; dailyLossLimitBreaches: number;
   /** Chronological closed-trade net results, retained to calculate drawdown across selected folds. */
   netPnlByTrade: number[];
 }
@@ -103,7 +105,7 @@ export interface BacktestSummary {
 export interface WalkForwardSelectionFold extends BacktestFoldSummary {
   selectedCandidate: BacktestCandidateId | null;
   trainingTrades: number;
-  selectionScores: Array<{ candidate: BacktestCandidateId; netPnl: number; trades: number; maxDrawdown: number }>;
+  selectionScores: Array<{ candidate: BacktestCandidateId; netPnl: number; trades: number; maxDrawdown: number; netToDrawdown: number | null; riskLimitBreaches: number }>;
 }
 
 export interface WalkForwardSelectionSummary {
@@ -121,6 +123,7 @@ export interface WalkForwardSelectionSummary {
 
 export const BACKTEST_CANDIDATES = [
   { id: "opening-range-vwap-v1", label: "Rompimento + VWAP + EMA", description: "Exige alinhamento do rompimento da faixa inicial, VWAP e EMA 9/21." },
+  { id: "opening-range-confirmed-v1", label: "Rompimento confirmado + VWAP + EMA", description: "Exige dois fechamentos consecutivos além da faixa inicial, além dos filtros VWAP e EMA 9/21." },
   { id: "opening-range-unfiltered-entry-v1", label: "Rompimento sem filtro de entrada", description: "Baseline comparativo: remove os filtros VWAP e EMA da entrada; conserva as mesmas saídas, stops, janela e custos." },
 ] as const;
 export type BacktestCandidateId = typeof BACKTEST_CANDIDATES[number]["id"];
@@ -168,14 +171,26 @@ export function selectWalkForwardCandidate(
         candidate: report.candidate,
         netPnl: prior.reduce((sum, fold) => sum + fold.netPnl, 0),
         trades: prior.reduce((sum, fold) => sum + fold.trades, 0),
+        riskLimitBreaches: prior.reduce((sum, fold) => sum + fold.tradeLossLimitBreaches + fold.dailyLossLimitBreaches, 0),
         // Compare candidates using the actual chronological trade path, not only
         // one aggregate return per six-session fold.
         drawdown: maxDrawdownFor(prior.flatMap((fold) => fold.netPnlByTrade)),
       };
     });
-    const eligible = selectionScores.filter((score) => score.trades >= minimumTrainingTrades);
+    const eligible = selectionScores.filter((score) => score.trades >= minimumTrainingTrades &&
+      score.riskLimitBreaches === 0 && score.netPnl > 0);
     if (!eligible.length) continue;
-    eligible.sort((a, b) => b.netPnl - a.netPnl || a.drawdown - b.drawdown || a.candidate.localeCompare(b.candidate));
+    eligible.sort((a, b) => {
+      // A zero-drawdown positive path has an unbounded ratio; handle it explicitly
+      // so Infinity - Infinity cannot turn the comparator into NaN and skip tie-breaks.
+      if (a.drawdown === 0 && b.drawdown > 0) return -1;
+      if (a.drawdown > 0 && b.drawdown === 0) return 1;
+      if (a.drawdown > 0 && b.drawdown > 0) {
+        const ratioDifference = b.netPnl / b.drawdown - a.netPnl / a.drawdown;
+        if (ratioDifference !== 0) return ratioDifference;
+      }
+      return b.netPnl - a.netPnl || a.candidate.localeCompare(b.candidate);
+    });
     const winner = eligible[0];
     const report = valid.find((item) => item.candidate === winner.candidate)!;
     const scoredFold = report.folds[evaluationIndex];
@@ -183,8 +198,10 @@ export function selectWalkForwardCandidate(
       ...scoredFold,
       selectedCandidate: winner.candidate,
       trainingTrades: winner.trades,
-      selectionScores: selectionScores.map(({ candidate, netPnl, trades, drawdown }) => ({
+      selectionScores: selectionScores.map(({ candidate, netPnl, trades, drawdown, riskLimitBreaches }) => ({
         candidate, netPnl, trades, maxDrawdown: drawdown,
+        netToDrawdown: netPnl > 0 && drawdown > 0 ? netPnl / drawdown : null,
+        riskLimitBreaches,
       })),
     });
   }
@@ -288,11 +305,12 @@ export function backtestCandidate(
       const rest = day.filter((bar) => saoPauloMinute(bar.bucket_at) >= "09:15" && saoPauloMinute(bar.bucket_at) <= session.flatBy);
       if (!rest.some((bar) => saoPauloMinute(bar.bucket_at) === session.flatBy)) continue;
 
-      // Seed indicators from the opening range exactly as the live analysis does.
+      // Seed both EMAs from the first session close, matching live analysis and the chart.
       let totalVol = opening.reduce((sum, bar) => sum + bar.volume, 0);
       let totalTurnover = opening.reduce((sum, bar) => sum + bar.turnover!, 0);
-      let fast = ema(opening.map((bar) => bar.close), 9)!;
-      let slow = ema(opening.map((bar) => bar.close), 21)!;
+      const openingCloses = opening.map((bar) => bar.close);
+      let fast = emaSeeded(openingCloses, 9)!;
+      let slow = emaSeeded(openingCloses, 21)!;
       const fastAlpha = 2 / 10, slowAlpha = 2 / 22;
       let side: 1 | -1 | 0 = 0, entry = 0, exitPending = false;
       let tradesToday = 0, realizedToday = 0, suppressSignalAt = -1;
@@ -368,9 +386,12 @@ export function backtestCandidate(
         const nextMinute = saoPauloMinute(next.bucket_at);
         if (Date.parse(next.bucket_at) - lastAt !== 60_000) continue;
         if (nextMinute >= session.lastEntry || nextMinute >= session.flatBy) continue;
-        const longSetup = last.close > rangeHigh &&
+        const previous = i > 0 ? rest[i - 1] : null;
+        const confirmedBreakout = candidate !== "opening-range-confirmed-v1" || Boolean(previous &&
+          (last.close > rangeHigh && previous.close > rangeHigh || last.close < rangeLow && previous.close < rangeLow));
+        const longSetup = last.close > rangeHigh && confirmedBreakout &&
           (candidate === "opening-range-unfiltered-entry-v1" || (last.close > vwap && fast > slow));
-        const shortSetup = last.close < rangeLow &&
+        const shortSetup = last.close < rangeLow && confirmedBreakout &&
           (candidate === "opening-range-unfiltered-entry-v1" || (last.close < vwap && fast < slow));
         const entrySlippage = slippageTicks * tickSize;
         const candidateSide: 1 | -1 | 0 = longSetup ? 1 : shortSetup ? -1 : 0;
@@ -397,6 +418,10 @@ export function backtestCandidate(
     const blockStart = evaluationStart + index * evaluationBlockDays;
     const days = validDays.slice(blockStart, blockStart + evaluationBlockDays);
     const trades = results.filter((trade) => trade.fold === index + 1);
+    const foldDailyPnl = new Map<string, number>();
+    for (const trade of trades) foldDailyPnl.set(trade.day, (foldDailyPnl.get(trade.day) ?? 0) + trade.net);
+    const foldDailyLosses = [...foldDailyPnl.values()].map((value) => Math.max(0, -value));
+    const foldTradeLosses = trades.map((trade) => Math.max(0, -trade.net));
     return {
       fold: index + 1,
       trainingSessions: blockStart,
@@ -407,6 +432,8 @@ export function backtestCandidate(
       feesPaid: feesPerRoundTrip * trades.length,
       slippageCost: slippagePerRoundTrip * trades.length,
       netPnl: trades.reduce((sum, trade) => sum + trade.net, 0),
+      tradeLossLimitBreaches: foldTradeLosses.filter((value) => value > risk.maxLossPerTrade).length,
+      dailyLossLimitBreaches: foldDailyLosses.filter((value) => value > risk.maxLossPerDay).length,
       netPnlByTrade: trades.map((trade) => trade.net),
     };
   });
