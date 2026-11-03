@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import raw from "../../../config/daytrade.json";
-import { dashConfigSchema, paperReadiness, readiness, type DashConfig } from "@/core/daytrade/config";
+import { dashConfigSchema, ownerExecutionSettingsSchema, paperReadiness, readiness, type DashConfig, type OwnerExecutionSettings } from "@/core/daytrade/config";
 import { INITIAL_STATUS, ORDER_STATES, type DashStatus } from "@/core/daytrade/desks";
 import type { JournalEntry } from "@/core/daytrade/cycle";
 import { ApiError } from "@/lib/auth";
@@ -18,12 +18,45 @@ export function dashConfig(): DashConfig {
   return parsed.data;
 }
 
+export async function loadDashConfiguration(db: Db, ownerId: string) {
+  const { data, error } = await db.from("dt_settings").select("execution_config,execution_source_note,execution_confirmed_at")
+    .eq("owner_id", ownerId).maybeSingle();
+  if (error) throw new ApiError(500, "DASH_CONFIG_READ_FAILED", "Não foi possível ler a configuração do proprietário.");
+  const base = dashConfig();
+  const raw = data?.execution_config;
+  if (!raw || (typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length === 0))
+    return { config: base, executionSettings: null as OwnerExecutionSettings | null, sourceNote: "", confirmedAt: null as string | null };
+  const parsed = ownerExecutionSettingsSchema.safeParse(raw);
+  if (!parsed.success) throw new ApiError(500, "DASH_OWNER_CONFIG_INVALID", "A configuração persistida do proprietário está inválida; entradas do paper continuam bloqueadas.");
+  const settings = parsed.data;
+  const recordedConfirmation = typeof data.execution_confirmed_at === "string" && settings.confirmSource ? data.execution_confirmed_at : null;
+  const confirmed = recordedConfirmation !== null && data.execution_source_note === settings.sourceNote && settings.slippageTicks !== null;
+  const confirmedAt = confirmed ? recordedConfirmation : null;
+  const config = dashConfigSchema.parse({
+    ...base,
+    instruments: base.instruments.map((instrument) => instrument.id === "WIN" ? {
+      ...instrument,
+      marginPerContract: settings.marginPerContract,
+      // Keep official contract specification separate from the owner's account margin.
+      // Read-only market-data collection must remain available before paper-risk approval.
+      verified: instrument.verified,
+    } : instrument),
+    session: { ...base.session, lastEntry: settings.lastEntry, flatBy: settings.flatBy,
+      verified: confirmed && settings.lastEntry !== null && settings.flatBy !== null },
+    risk: { ...base.risk, maxLossPerTrade: settings.maxLossPerTrade, maxLossPerDay: settings.maxLossPerDay, maxExposure: settings.maxExposure },
+    costs: { ...base.costs, brokeragePerContract: settings.brokeragePerContract, exchangeFeesPerContract: settings.exchangeFeesPerContract,
+      slippageTicks: settings.slippageTicks ?? base.costs.slippageTicks,
+      verified: confirmed && settings.brokeragePerContract !== null && settings.exchangeFeesPerContract !== null },
+  });
+  return { config, executionSettings: settings, sourceNote: data.execution_source_note ?? "", confirmedAt };
+}
+
 type Db = SupabaseClient;
 const day = (at = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(at);
 
 /** The office as the dashboard shows it: from the tables, or "nothing yet" where they are empty. */
-export async function loadDashStatus(db: Db, ownerId: string) {
-  const config = dashConfig();
+export async function loadDashStatus(db: Db, ownerId: string, configured?: DashConfig) {
+  const config = configured ?? (await loadDashConfiguration(db, ownerId)).config;
   const activeInstrument = config.instruments.find((instrument) => instrument.enabled && instrument.symbol);
   const signalQuery = activeInstrument?.symbol
     ? db.from("dt_strategy_observations").select("state")
@@ -56,7 +89,10 @@ export async function loadDashStatus(db: Db, ownerId: string) {
   const status: DashStatus = {
     ...INITIAL_STATUS,
     mode: "SIMULATED",
-    market: sessionConfirmed ? "OPEN" : session.data?.status === "CLOSED" || currentSession.state === "CLOSED" ? "CLOSED" : "UNVERIFIED",
+    // Exchange hours and feed health are separate facts. Keeping the scheduled session OPEN
+    // while the quote is stale lets supervision detect a live-session feed outage; `data`
+    // remains NONE until a fresh ProfitDLL quote arrives.
+    market: currentSession.state === "OPEN" ? "OPEN" : currentSession.state === "CLOSED" ? "CLOSED" : "UNVERIFIED",
     data: freshQuote ? "REAL" : "NONE",
     broker: freshQuote ? "ProfitDLL" : null,
     instrument: freshQuote?.instrument ?? config.instruments.find((i) => i.enabled)?.symbol ?? null,
@@ -76,6 +112,25 @@ export async function setHalt(db: Db, ownerId: string, halted: boolean, reason: 
   const { error } = await db.from("dt_settings").upsert({ owner_id: ownerId, halted, halt_reason: halted ? reason : null, updated_at: new Date().toISOString() });
   if (error) throw new ApiError(500, "DASH_WRITE_FAILED", "Não foi possível gravar a parada do DASH.");
   await appendJournal(db, ownerId, [{ at: new Date().toISOString(), desk: "supervisor", state: halted ? "BLOCKED" : "IDLE", message: halted ? `Parada acionada: ${reason ?? "sem motivo"}` : "Parada liberada pelo proprietário." }]);
+}
+
+export async function saveDashExecutionSettings(db: Db, ownerId: string, settings: OwnerExecutionSettings) {
+  const now = new Date().toISOString();
+  const auditValues = JSON.stringify({ marginPerContract: settings.marginPerContract,
+    brokeragePerContract: settings.brokeragePerContract, exchangeFeesPerContract: settings.exchangeFeesPerContract,
+    slippageTicks: settings.slippageTicks,
+    maxLossPerTrade: settings.maxLossPerTrade, maxLossPerDay: settings.maxLossPerDay,
+    maxExposure: settings.maxExposure, lastEntry: settings.lastEntry, flatBy: settings.flatBy });
+  const message = `${settings.confirmSource ? "Configuração financeira paper confirmada pelo proprietário a partir da fonte informada" : "Rascunho de configuração financeira paper salvo; gates de risco permanecem fechados"}. Valores: ${auditValues}`;
+  const { error } = await db.rpc("dt_save_execution_config", {
+    p_owner_id: ownerId,
+    p_execution_config: settings,
+    p_source_note: settings.sourceNote,
+    p_confirmed_at: settings.confirmSource ? now : null,
+    p_journal_message: message,
+  });
+  if (error) throw new ApiError(500, "DASH_CONFIG_WRITE_FAILED", "Não foi possível salvar a configuração do proprietário.");
+  return loadDashConfiguration(db, ownerId);
 }
 
 /** A desk reports in (the workers call this through the cron/worker route, never the browser). */

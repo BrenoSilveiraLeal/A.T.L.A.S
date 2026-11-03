@@ -1,5 +1,6 @@
 import { B3_CALENDAR, saoPauloClock } from "@/core/b3-calendar";
 import type { DashConfig } from "@/core/daytrade/config";
+import { winSessionClose } from "@/core/daytrade/market-hours";
 
 export type DayTradeSessionState = "OPEN" | "CLOSED" | "UNVERIFIED";
 
@@ -22,8 +23,7 @@ export interface DayTradeSession {
 export function dayTradeSession(at: Date, config: DashConfig, expiresOn = config.instruments.find((instrument) => instrument.enabled)?.expiresOn ?? null): DayTradeSession {
   if (Number.isNaN(at.getTime())) return { day: "", state: "UNVERIFIED", paperAllowed: false, open: "09:00", close: "18:25", reason: "Timestamp de mercado invalido." };
   const clock = saoPauloClock(at);
-  const expiresToday = expiresOn === clock.date;
-  const close = clock.date < "2026-11-03" || expiresToday ? "18:00" : "18:25";
+  const close = winSessionClose(clock.date, expiresOn);
   const base = { day: clock.date, open: "09:00", close };
   if (clock.weekday === "Sat" || clock.weekday === "Sun") return { ...base, state: "CLOSED", paperAllowed: false, reason: "Fim de semana." };
   const calendar = B3_CALENDAR[clock.year];
@@ -35,7 +35,10 @@ export function dayTradeSession(at: Date, config: DashConfig, expiresOn = config
   if (clock.time < sessionOpen || clock.time >= base.close)
     return { ...base, state: "CLOSED", paperAllowed: false, reason: clock.time < sessionOpen ? `Antes da abertura WIN (${sessionOpen}).` : `Pregao WIN encerrado as ${base.close}.` };
   if (lateOpen) return { ...base, state: "OPEN", paperAllowed: false, reason: "Pregao especial com abertura tardia; estrategia de abertura das 09:00 desabilitada." };
+  // `state` describes the exchange's scheduled session; `paperAllowed` separately describes
+  // whether our configured entry/flatten window is verified. That distinction lets the
+  // supervisor see an expected open market even while setup is incomplete or its feed is down.
   if (!config.session.verified || config.session.open !== base.open || !config.session.lastEntry || !config.session.flatBy || config.session.flatBy >= base.close || config.session.lastEntry >= config.session.flatBy)
-    return { ...base, state: "UNVERIFIED", paperAllowed: false, reason: "Horarios de entrada e zeragem ainda nao foram conferidos." };
+    return { ...base, state: "OPEN", paperAllowed: false, reason: "Horarios de entrada e zeragem ainda nao foram conferidos." };
   return { ...base, state: "OPEN", paperAllowed: true, reason: "Sessao WIN dentro do horario oficial e configuracao conferida." };
 }

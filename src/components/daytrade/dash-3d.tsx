@@ -13,6 +13,7 @@ import { makePerson, posterTexture, S, SEAT_Y, type Person } from "@/components/
 import { DASH_FLOOR, RECEPTION, PARTITIONS, POSTERS, deskAt, FURNITURE, ISLANDS, PATROL, PLANTS, ROOM_FRONT, ROOMS, RUGS, SEATS, VIDEO_WALL } from "./dash-layout";
 import { Mass, NIGHT_SKY, prefersNight, roundedRect, setNight as applyNight, SKY } from "@/components/building/city";
 import { buildSurroundings, SHAFT } from "@/components/building/tower";
+import { CITY_NIGHT_STORAGE_KEY } from "@/components/building/time-of-day";
 
 /** This office's floor in the ATLAS tower. */
 const FLOOR = officeById("dash")!.floor;
@@ -115,21 +116,40 @@ export function Dash3D({ status, halted = false }: { status: DashStatus; halted?
     // Walls: glass all round with white frames; low at the front so the room is seen from outside.
     const glass = new THREE.MeshPhysicalMaterial({ color: 0xd8f1ff, transparent: true, opacity: 0.2, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
     const frames = new Mass(), panes = new Mass();
-    const wall = (along: "x" | "z", at: number, length: number, h: number) => {
+    const wall = (along: "x" | "z", at: number, start: number, end: number, h: number) => {
+      const length = end - start, center = (start + end) / 2;
       for (const b of windowBays(length)) {
-        const mid = (b.from + b.to) / 2, len = b.to - b.from;
-        if (along === "x") { panes.box(mid, 0, at, len - 0.1, h, 0.05, false); frames.box(b.from, 0, at, 0.12, h, 0.14, false); }
-        else { panes.box(at, 0, mid, 0.05, h, len - 0.1, false); frames.box(at, 0, b.from, 0.14, h, 0.12, false); }
+        const mid = center + (b.from + b.to) / 2, len = b.to - b.from;
+        if (along === "x") { panes.box(mid, 0, at, len - 0.1, h, 0.05, false); frames.box(center + b.from, 0, at, 0.12, h, 0.14, false); }
+        else { panes.box(at, 0, mid, 0.05, h, len - 0.1, false); frames.box(at, 0, center + b.from, 0.14, h, 0.12, false); }
       }
-      if (along === "x") frames.box(0, h, at, length, 0.12, 0.16); else frames.box(at, h, 0, 0.16, 0.12, length);
+      if (along === "x") frames.box(center, h, at, length, 0.12, 0.16); else frames.box(at, h, center, 0.16, 0.12, length);
     };
-    wall("x", -D / 2, W, H); wall("z", -W / 2, D, H); wall("z", W / 2, D, H);
-    // Front: glass too, floor to ceiling (owner, 01/11/2026: "tem que ter vidro"), with the elevator where the entrance is.
-    const frontLeft = W / 2 + (ELEVATOR.x - ELEVATOR.width / 2), frontRight = W / 2 - (ELEVATOR.x + ELEVATOR.width / 2);
-    panes.box(-W / 2 + frontLeft / 2, 0, D / 2, frontLeft, H, 0.05, false); panes.box(W / 2 - frontRight / 2, 0, D / 2, frontRight, H, 0.05, false);
-    for (const b of windowBays(W)) if (b.from < ELEVATOR.x - ELEVATOR.width / 2 || b.from > ELEVATOR.x + ELEVATOR.width / 2) frames.box(b.from, 0, D / 2, 0.12, H, 0.14, false);
-    frames.box(0, H, D / 2, W, 0.12, 0.16);
-    scene.add(new THREE.Mesh(panes.geometry(), glass)); add(new THREE.Mesh(frames.geometry(), white));
+    // Straight runs stop at the tower's 4 m corner radius.
+    wall("x", -D / 2, -20, 20, H); wall("z", -W / 2, -10, 10, H); wall("z", W / 2, -10, 10, H);
+    // Front glass is split around the elevator entrance and follows the same rounded outline.
+    wall("x", D / 2, -17, 20, H);
+    const curvedPanes = new THREE.Group(), curvedFrames = new THREE.Group();
+    const cornerGlass = (cx: number, cz: number, from: number, to: number) => {
+      const radius = 4, steps = 8;
+      const orientedBox = (target: THREE.Group, x: number, y: number, z: number, angle: number, w: number, h: number, d: number) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), target === curvedPanes ? glass : white);
+        mesh.position.set(x, y, z); mesh.rotation.y = -angle; target.add(mesh);
+      };
+      for (let i = 0; i < steps; i++) {
+        const a = from + (to - from) * i / steps, b = from + (to - from) * (i + 1) / steps;
+        const x1 = cx + Math.cos(a) * radius, z1 = cz + Math.sin(a) * radius;
+        const x2 = cx + Math.cos(b) * radius, z2 = cz + Math.sin(b) * radius;
+        const dx = x2 - x1, dz = z2 - z1, length = Math.hypot(dx, dz), angle = Math.atan2(dz, dx);
+        const x = (x1 + x2) / 2, z = (z1 + z2) / 2;
+        orientedBox(curvedPanes, x, H / 2, z, angle, length - 0.05, H, 0.05);
+        orientedBox(curvedFrames, x, H, z, angle, length, 0.12, 0.16);
+        for (const [px, pz] of [[x1, z1], [x2, z2]]) orientedBox(curvedFrames, px, H / 2, pz, angle, 0.12, H, 0.14);
+      }
+    };
+    cornerGlass(20, -10, -Math.PI / 2, 0); cornerGlass(20, 10, 0, Math.PI / 2);
+    cornerGlass(-20, 10, Math.PI / 2, Math.PI); cornerGlass(-20, -10, Math.PI, Math.PI * 1.5);
+    scene.add(new THREE.Mesh(panes.geometry(), glass), curvedPanes); add(new THREE.Mesh(frames.geometry(), white)); add(curvedFrames);
     {
       const brushed = new THREE.MeshStandardMaterial({ color: 0xc9cdd2, roughness: 0.28, metalness: 0.85 }), x0 = ELEVATOR.x, half = ELEVATOR.width / 2, z = D / 2;
       const e = new Mass(); e.box(x0 - half + 0.15, 0, z, 0.3, H, 0.24, false); e.box(x0 + half - 0.15, 0, z, 0.3, H, 0.24, false); e.box(x0, 2.6, z, ELEVATOR.width, H - 2.6, 0.24);
@@ -230,7 +250,7 @@ export function Dash3D({ status, halted = false }: { status: DashStatus; halted?
       const person = makePerson(look);
       const tag = document.createElement("div"); tag.className = "dash-desk-tag"; tag.style.setProperty("--desk", color);
       // Just the name over the head (desks are close together); the role is on the desk's monitors and in the Equipe tab.
-      tag.innerHTML = `<b>${who.name}</b>`; tag.title = title;
+      const name = document.createElement("b"); name.textContent = who.name; tag.append(name); tag.title = title;
       const label = new CSS2DObject(tag); label.position.set(0, 1.95, 0); person.group.add(label);
       return person;
     };
@@ -518,7 +538,7 @@ export function Dash3D({ status, halted = false }: { status: DashStatus; halted?
           <PersonStanding size={18} />
         </button>
         <button type="button" className="icon-button secondary" onClick={() => setNightMode((on) => {
-          const next = !on; try { localStorage.setItem("atlas-building-night", next ? "1" : "0"); } catch { /* storage blocked */ }
+          const next = !on; try { localStorage.setItem(CITY_NIGHT_STORAGE_KEY, next ? "1" : "0"); } catch { /* storage blocked */ }
           api.current?.night(next); return next;
         })} aria-pressed={night} aria-label={night ? "Mudar escritório para dia" : "Mudar escritório para noite"} title={night ? "Mudar para dia" : "Mudar para noite"}>
           {night ? <Moon size={18} /> : <Sun size={18} />}

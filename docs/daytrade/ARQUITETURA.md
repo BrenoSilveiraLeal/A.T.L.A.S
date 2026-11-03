@@ -1,147 +1,66 @@
 # DASH — arquitetura do escritório Day Trade
 
-**DASH** significa **Day-trading Analysis & Strategy Hub** (*Centro de Análise e Estratégia de Day Trade*). É o nome do novo escritório de day trade dentro do produto ATLAS.
+**DASH** significa **Day-trading Analysis & Strategy Hub**. É o módulo de pesquisa e simulação de day trade no produto ATLAS. Este documento descreve o código atual e suas dependências externas; não declara operação pronta nem rentabilidade.
 
-**Estado em 02/11/2026:** UI DASH e proteções básicas existem; execução real continua bloqueada. Provedor escolhido: ProfitDLL, em processo Windows isolado. A ponte MT5 do DAWN permanece independente e inalterada.
+## Estado implementado
 
-**Atualização de implementação:** o gateway `gateways/profitdll/gateway.py` é Market Data somente leitura; M1, observações, estado paper e fills estão nas tabelas próprias `dt_market_*`, `dt_strategy_observations` e `dt_paper_*`. O sinal paper é processado por candle fechado com preenchimento apenas no candle seguinte e uma função Postgres invoker transacional. Para operar o paper faltam DLL/licença/ativação local, nota de custos, limites e horários verificados. Notícias, chefe/supervisor automáticos, reconciliação de conta e roteamento OMS não estão implementados; ordem real permanece bloqueada.
+- A rota `/daytrade` usa a autenticação do proprietário do ATLAS. As leituras privadas exigem AAL2; gravações do proprietário verificam origem e sessão. A ingestão do coletor usa um segredo próprio, separado de `CRON_SECRET`, e identifica o proprietário no servidor.
+- `gateways/profitdll/gateway.py` é um processo Windows x64 separado, somente leitura. Inicializa Market Data, agrega negócios em candles M1 e envia snapshots HTTPS para `POST /api/daytrade/quote`. Não carrega funções de ordens ProfitDLL nem compartilha a ponte MT5 do DAWN.
+- A API confere símbolo ativo e verificado, expiração, origem, atraso, sequência, tick, OHLCV, turnover e alinhamento/ordem dos candles antes de persistir. Dados e eventos DASH usam tabelas `dt_*` próprias, com `owner_id`; o caminho do navegador não recebe a service role.
+- `feedWorker` e `priceWorker` verificam proveniência, frescor, integridade e continuidade. `strategyWorker` produz observações explicáveis de rompimento da faixa inicial com VWAP e EMA; não produz ordens. O dashboard lê candles e observações persistidos.
+- `backtestWorker` avalia dois candidatos congelados por walk-forward, usando pregões completos de calendários oficiais, custos, slippage, perda máxima por operação/dia e o limite de operações diárias. Ele simula reentradas até os limites configurados; resultados são exploratórios e nenhum resultado aprova automaticamente uma estratégia.
+- O motor paper usa RPC Postgres transacional e idempotente em `dt_paper_state`/`dt_paper_fills`: sinal após candle fechado, fill simulado na barra seguinte, custos, slippage, stop/gap, limite diário e zeragem. A RPC confere sessão persistida e kill switch dentro da transação; a trava de configuração sincroniza a parada do proprietário com cada nova entrada. Fills e posições paper são separados dos livros/posições do ATLAS e da corretora.
+- Trabalhadores de notícias/calendário, risco, chefia, supervisão, execução paper, estados de ordens e snapshots de posição têm contratos explícitos em `src/core/daytrade/agents.ts`. A ausência de cobertura de notícias ou de estado de risco reconciliado bloqueia o ciclo genérico. O pipeline não envia ordens.
+- O código do scheduler central chama `/api/daytrade/cycle` na nuvem a cada minuto, autenticado com `CRON_SECRET` e timeout limitado; a falha desse ciclo é registrada sem parar o scheduler do ATLAS. Essa chamada passa a valer em produção após publicar esta versão. A ingestão ProfitDLL continua independente e somente leitura.
+- O layout e favicon de `/daytrade` são específicos do DASH; o shell e favicon geral ATLAS permanecem separados.
 
-## Objetivo e fronteiras
-
-O DASH será um módulo de day trade separado do escritório atual de ações à vista. O escopo planejado começa por WIN (mini-índice); WDO (mini-dólar) fica para uma fase posterior. A estratégia não é presumida lucrativa: pesquisa, custos, dados fora da amostra e validação podem reprovar todas as estratégias, mantendo o sistema em modo SIMULADO.
-
-Compartilhamento planejado com ATLAS:
-
-- aplicação Next.js e implantação web;
-- sessão Supabase Auth e identidade do proprietário, com MFA/AAL2 nas operações sensíveis;
-- mesmo projeto Supabase, usando tabelas próprias `dt_*` e políticas próprias;
-- utilitários puros e comprovadamente compatíveis, como valores decimais, calendário e leitura de notícias. O DASH terá um gateway ProfitDLL próprio; não reutilizar a ponte MT5 do DAWN para futuros.
-
-O DASH terá estados, dados, estratégias, pesquisa, processos, risco, kill switch, journal e ledger próprios. O compartilhamento do projeto Supabase não significa compartilhar tabelas ou saldos. O ledger de ações, o ledger de Paper Trading e o ledger do DASH precisam permanecer identificáveis e separados.
+## Fluxos
 
 ```mermaid
 flowchart LR
-  subgraph web[Mesmo produto Next.js]
-    app["/app/* · ATLAS ações, preservado"]
-    dash["/daytrade/* · DASH"]
-    api["/api/daytrade/* · API autenticada"]
-  end
-  api --> db[("Supabase existente · tabelas dt_* próprias")]
-  subgraph windows[Processos isolados no Windows x64]
-    swing["MT5 Swing · DAWN existente"]
-    dtgw["Gateway ProfitDLL DASH"]
-    recorder["Coletor de ticks e candles"]
-    engine["Motor determinístico · SIMULADO por padrão"]
-    guard["Guarda de risco independente"]
-  end
-  recorder --> dtgw
-  engine --> dtgw
-  guard --> dtgw
-  dtgw --> profit["ProfitDLL · Market Data / OMS"]
-  dtgw --> db
-  engine --> db
-  guard --> db
+  gw["ProfitDLL local · Market Data"] -->|HTTPS + segredo dedicado| api["POST /api/daytrade/quote"]
+  api --> checks["validação · persistência · setores preço/estratégia"]
+  checks --> db[("Supabase · tabelas dt_*")]
+  checks --> paper["RPC paper · fills simulados"]
+  db --> ui["/daytrade · dashboard e gráficos"]
+  api -. "sem OMS" .-> disabled["ordens reais desativadas"]
 ```
 
-O desenho é uma proposta, não uma infraestrutura já instalada. A documentação Nelogica exige DLL nativa Windows x64, licença ativa, código de ativação e callbacks; a Vercel não carrega a DLL. A conectividade entre hospedagem web e gateway, segredos, reinício do processo e persistência ainda precisam ser definidos e validados. Primeiro conectar somente Market Data; roteamento exige que a conta esteja habilitada pela corretora.
+## Configuração e bloqueios atuais
 
-## O que existe e pode ser reutilizado, com limites
+O modo aceito pelo schema é `SIMULATED`. `config/daytrade.json` mantém os defaults públicos; margem, horários de entrada/zeragem, limites e custos específicos da conta são salvos pelo proprietário em `dt_settings.execution_config` (inclui ticks de slippage escolhidos como premissa do modelo), com fonte declarada, confirmação AAL2 e registro append-only em `dt_journal`. Um rascunho não libera o paper; a confirmação habilita apenas os cálculos paper/backtest e nunca o modo real. A estratégia continua não aprovada. Não usar estimativas para remover as travas.
 
-| Área | Caminhos existentes | Reutilização possível | Limite observado |
-| --- | --- | --- | --- |
-| Next.js/React | `src/app/`, `src/components/`, `src/proxy.ts`, `next.config.ts` | Adicionar grupo de páginas `/daytrade/*` e componentes DASH | O shell atual e as rotas `/app/*` não devem mudar nesta fase; a rota API atual centraliza recursos de ações em `src/app/api/atlas/[resource]/route.ts`. |
-| Autenticação | `src/lib/auth.ts`, `src/lib/env.ts`, `src/lib/supabase.ts`, `src/proxy.ts`, `src/app/app/layout.tsx` | Reutilizar `requireOwner()` e a sessão do Supabase | `requireOwner()` exige AAL2 por padrão, mas existe bypass exclusivamente local em `127.0.0.1`; rotas e layouts DASH precisam preservar essas condições e negar acesso fora da allowlist. |
-| Supabase e banco | `supabase/migrations/`, `tests/database.test.ts`, `src/lib/supabase.ts` | Mesmo projeto e harness PGlite; migrations aditivas próprias para `dt_*` | Há 28 migrations existentes, tabelas atuais em `public`, RLS e funções privilegiadas. Não alterar tabelas/migrations de ações, `paper_*`, `system_state`, `ledger_*` ou `executor_*` para acomodar o DASH, salvo integração de kill switch estritamente delimitada e documentada. |
-| Dinheiro | `src/core/money.ts`, domínio `public.atlas_decimal` na migration de fundação | Reutilizar validação de strings decimais e cálculos exatos | O domínio SQL existente é `numeric(28,10)`; revisar escala, valor do ponto, contratos e arredondamento específicos dos futuros antes de reutilizar. Python e SQL devem continuar usando `Decimal`/`numeric`, nunca float para dinheiro/P&L. |
-| IR e datas | `src/core/tax.ts`, `src/core/b3-calendar.ts` | Reutilizar helpers somente depois de confirmar compatibilidade | `tax.ts` já separa resultados de day trade de ações e operações comuns, mas sua entrada é `TaxFill` de ticker/quantidade/preço; não modela ajuste diário, futuros, margem ou especificidades fiscais dos minicontratos. `b3-calendar.ts` é um guard conservador para ações à vista, tem janela 10:05–16:50 e lista 2027 provisória; não é um calendário operacional confirmado para WIN/WDO. |
-| Estratégia/risco/OMS | `src/core/risk.ts`, `src/core/oms.ts`, `src/core/executor.ts`, `src/lib/executor.ts`, `src/providers/execution-gateway.ts` | Referência para contratos, auditoria, idempotência e estados de falha | O domínio de risco valida `assetClass === "EQUITY"`, lotes de ações e ordens LIMIT/STOP_LIMIT; OMS e executor atuais são do fluxo de ações. Não conectar o motor DASH diretamente a eles sem separar domínio, persistência, identidade de conta e invariantes de futuros. |
-| IA de notícias | `src/core/news-ai.ts`, `src/lib/news-ai.ts` | Reusar leitura de manchetes e configuração de provedor após limitar permissões | A implementação atual gera etiquetas de contexto de ações e grava no banco. Não é um agente trader e não deve ganhar acesso a credenciais, gateway ou escrita de ordens. DASH só poderá usar IA para reduzir risco/bloquear entradas e redigir relatório, com fontes e schema validados. |
-| Gateway DASH | `gateways/profitdll/gateway.py`, `run-gateway.ps1` e README | Coletor Windows x64 somente leitura; usa Market Data do SDK licenciado e envia candles/quotes autenticados ao BFF | Código de integração existe, mas ainda depende da DLL/ativação oficiais, entitlement e contrato vigente. OMS/roteamento real e reconciliação permanecem desativados. Não alterar `gateways/mt5/`: ele continua atendendo ao DAWN. |
-| Interface visual | `src/components/shell.tsx`, estilos em `src/app/globals.css`, páginas em `src/app/app/` | Reutilizar tokens/componentes neutros, quando adequado | A interface não comprova estado de mercado, preenchimento ou lucratividade. DASH deve mostrar `PENDING`/vazio quando não houver dado persistido, ter responsividade e respeitar movimento reduzido. |
-| Testes e CI | `vitest.config.ts`, `tests/`, `gateways/mt5/test_*.py`, `.github/workflows/ci.yml`, `package.json` | Usar Vitest/PGlite para banco e MT5 falso em testes Python; CI já prepara Python 3.13 | Linha de base: 629 testes Vitest passaram, 15 foram ignorados; 69 testes Python passaram. Novos testes devem ser aditivos; não editar testes de ações para fazer DASH passar. |
+O contrato configurado é WINZ26, com vencimento em 16/12/2026; deve ser atualizado antes do vencimento. O gateway requer pacote/licença/ativação oficial ProfitDLL para Windows x64 e credenciais digitadas no terminal. O arquivo local de variáveis não deve ser versionado. A Vercel hospeda o BFF e a interface, não a DLL nativa nem o coletor contínuo.
 
-## Estrutura planejada ainda não concluída (itens já entregues indicados acima)
+As migrations DASH estao versionadas em `supabase/migrations/`. O historico remoto foi conferido e esta sincronizado ate `20261103025606_daytrade_paper_session_boundary_gap`. As sete migrations mais recentes foram aplicadas em ordem: persistencia autoritativa do historico, configuracao de risco por proprietario, P&L de zeragem entre pregoes, kill switch transacional, substituicao integral de sessoes historicas, validacao de risco dentro do banco e tratamento de lacuna na fronteira do pregao. Os nomes/versoes locais correspondem aos IDs registrados no Supabase. A zeragem na abertura do primeiro candle em `flatBy` continua na migration `20261102213431_daytrade_session_flat_open_fill`. No momento da verificacao, `dt_settings`, `dt_market_bars`, `dt_market_quotes`, `dt_paper_state`, `dt_paper_fills` e `dt_ledger` estavam vazias: o schema esta pronto, mas ainda nao existe feed nem amostra paper. Confira novamente o historico remoto antes de aplicar futuras migrations.
 
-```text
-daytrade/                         domínio e processos Python exclusivos do DASH
-  atlas_dt/                       config, relógio, contratos, custos, risco, ledger,
-                                  estratégias, pesquisa e simulação
-  recorder.py                     coleta somente leitura de ticks e M1
-  engine.py                       execução determinística, SIM por padrão
-  risk_guard.py                   processo independente com veto
-  context_ai.py                   contexto e relatório sem autoridade de ordem
-  tests/                           fixtures sintéticas e MT5 falso
-src/app/daytrade/                  páginas /daytrade/*
-src/app/api/daytrade/[resource]/   BFF autenticado e validado
-src/components/daytrade/           shell, painéis e estados do DASH
-src/lib/daytrade/                  consultas server-side de dados dt_*
-supabase/migrations/*_daytrade_*   schema aditivo, RLS e RPCs próprias
-docs/daytrade/                     arquitetura, pesquisa, runbook e readiness
-```
+- Cada fill paper e espelhado na tabela append-only `dt_ledger` via trigger PostgreSQL transacional, com chave unica vinculada ao fill para idempotencia e P&L bruto/liquido. Isso registra paper; nao reconcilia posicoes da corretora nem lanca dinheiro real.
 
-A estrutura acima descreve módulos futuros; hoje a coleta ProfitDLL e o motor paper persistente são implementados no gateway e no app Next.js listados no estado de implementação. WDO, meta-labeling, agente de notícias, supervisão automática, reconciliação com corretora e hospedagem contínua ainda não estão entregues.
+A ingestao da cotacao e dos candles ocorre em uma unica RPC transacional. O banco aceita a cotacao somente se timestamp/sequencia forem monotonicamente mais recentes; candles parciais tambem carregam `source_exchange_at`, impedindo que uma requisicao atrasada sobrescreva um candle atualizado. A importacao completa do historico ProfitDLL substitui os minutos live da sessao; reimportacoes sao serializadas, atualizam o marcador e substituem o conjunto inteiro de candles do dia para remover minutos obsoletos. O mesmo caminho passa EMA 9 e VWAP ao motor paper; o banco enfileira a saida na proxima abertura quando o fechamento invalida um desses filtros, como no backtest.
 
-## Proteção do ATLAS de ações
+Candles fechados recebidos depois do limite `data.staleAfterMs` continuam persistidos para consulta e backtest, mas nao geram observacoes de sinal nem fills paper retroativos. Se a coleta retomar apos uma lacuna, o proximo candle fresco deixa o motor paper detectar o intervalo e aplicar a regra conservadora de lacuna antes de permitir novas entradas. Se um feed interrompido ainda deixar uma posicao aberta na troca do dia, a zeragem no primeiro candle disponivel registra o resultado liquido no limite de perda do novo dia, impedindo que uma perda carregada libere novas entradas por um reset silencioso.
 
-1. Não alterar o comportamento do perfil `GENIAL_SWING`, nem compartilhar porta, journal SQLite, halt file, variáveis do processo ou sessão do terminal com a instância Day Trade.
-2. Não alterar rotas `/app/*`, tabelas atuais, funções RPC, comportamento de ações/estratégias, ledger de ações ou Paper Trading. Mudança transversal só pode ser considerada se indispensável, explicitamente descrita e compatível com os testes existentes.
-3. Criar e consultar dados DASH por caminhos e tabelas `dt_*` próprios, com `owner_id`, RLS em cada tabela exposta, menor privilégio e funções privilegiadas cuidadosamente restritas. A service role não substitui a verificação do proprietário/AAL2 na API.
-4. A ponte Day Trade deve rodar como segunda instância/processo, com porta, perfil, conta, terminal, journal e halt file próprios. O motor não importa o SDK MT5 para enviar ordens; usa um cliente autenticado para a ponte local/privada.
-5. Um kill switch global já existe para o ATLAS. A integração DASH deve ser unidirecional e conservadora: uma trava global pode bloquear novas entradas no DASH; a trava DASH não deve mudar o estado operacional do escritório de ações. Cancelamentos/zeragem precisam ser confirmados no terminal, não presumidos.
-6. Testes de envio usam somente um adaptador MT5 falso em memória. Nenhuma etapa técnica liga execução ou altera `.env.local` de produção.
+## Limites operacionais
 
-## Segurança operacional e critérios de produto
+- O preflight autenticado de `/api/daytrade/history` lista os pregões já persistidos nos últimos 30 dias; o gateway só pula datas confirmadas pelo Supabase. Estado local do coletor não é fonte de verdade, e dias sem negócios não são marcados como importados.
 
-- Modo padrão `SIMULATED`, usando dados de mercado reais somente se a origem, horário, frescor e continuidade forem conhecidos. Preenchimento simulado deve ser conservador e incluir custos/slippage.
-- Sem dado fresco, sessão confirmada, calendário conhecido, terminal/ponte conectados, heartbeat válido ou ausência de halt file: bloquear novas entradas. Erros/desconhecidos não são convertidos em neutro.
-- Regras que decidem sinais são determinísticas, versionadas e testadas. LLM não envia ordens, não acessa credenciais/gateway e só pode reduzir tamanho ou bloquear, com registro da fonte; falha não inventa análise.
-- Todo trade real futuro exige stop efetivamente aceito/confirmado na corretora. Proteção apenas na memória do processo não satisfaz o requisito.
-- Segredos permanecem fora do código, Git, navegador e logs. A senha da corretora é digitada pelo proprietário no terminal; chaves privadas nunca usam `NEXT_PUBLIC_`.
-- Não declarar estratégia lucrativa por desenho ou backtest in-sample. Validar custos, walk-forward, out-of-sample, leakage, look-ahead e overfitting. Se nenhuma passar critérios previamente definidos, a conclusão correta é permanecer SIMULADO.
-- Não usar `pandas-ta`, `mlfinlab`, modelos de trading pré-treinados baixados da internet ou LSTM para prever preço.
-- Limites de risco propostos no prompt são requisitos a analisar, não parâmetros já validados para o capital/conta do proprietário. Custos e especificações de WIN/WDO precisam vir de documentação atual da B3/Genial, probe da conta e conferência de nota; os números do prompt são aproximações não homologadas.
+- Roteamento real, reconciliação de conta Genial, alarmes externos e disponibilidade permanente ainda não estão homologados. O gate de notícias usa os calendários oficiais do BCB, notícias BCB e RSS habilitados no ATLAS, com frescor por fonte; essa cobertura é limitada e falha fechada quando alguma fonte fica ausente ou vencida. As observações de pesquisa continuam sem gerar ordens. Não habilitar ordens reais.
+- O coletor solicita trades históricos ProfitDLL dia a dia, até os 30 dias de retenção documentados pela Nelogica, e importa candles M1 apenas após o callback indicar conclusão. Sessões com erro ou sem trades não são marcadas como importadas; gaps e pregões incompletos continuam excluídos de estratégias/backtests que exigem continuidade.
+- VWAP requer total de preço × quantidade dos negócios; candles legados sem turnover não são usados para esta análise.
+- Stops no paper são regras de simulação. Não equivalem a stop aceito pela corretora.
+- Custos são cobrados nos dois lados e slippage adverso é modelado; fills OHLC de um minuto não reproduzem fila, liquidez, latência ou execução real.
+- Uma estratégia só pode ser considerada após validação independente, fora da amostra, com custos, análise de risco e revisão humana. Backtest não garante resultado futuro.
+- Credenciais de corretora, chaves de ativação, tokens e segredo de ingestão nunca devem entrar em código, Git, navegador ou logs. A API valida proprietário/AAL2 para leitura; service role permanece apenas no servidor.
 
-## Diferenças observadas entre o plano e o código atual
+## Arquivos principais
 
-| Tema | Plano do DASH | Estado observado em 31/10/2026 | Efeito para as próximas etapas |
-| --- | --- | --- | --- |
-| Nome/escritório | DASH, dentro do produto Atlas | Não há páginas, componentes ou diretório `daytrade/` | Implementar rotas próprias quando a etapa de UI chegar; nesta etapa só registra-se o nome. |
-| Gateway ProfitDLL | ProfitDLL para market data B3 e, se conta autorizada, roteamento via OMS | Escolha registrada em `config/daytrade.json`; o SDK não está instalado no repositório e nenhum processo ProfitDLL existe ainda | Começar pelo modo de Market Data; obter SDK/manual/licença oficiais, mapear callbacks e saúde, depois provar conta/capacidades e reconciliação. O roteamento continuará bloqueado até passar essas etapas. |
-| Ordens protegidas | Stop obrigatório registrado na corretora | O contrato e as validações atuais só aceitam ordem pendente LIMIT/DAY; sem SL/TP no fluxo | Definir suporte a ordem/posição protegida, confirmação pós-fill, fallback de zeragem e testes MT5 falso antes de considerar operação real. |
-| Ledger e schema | Tabelas novas `dt_*`, kill switch e ledger DASH próprios | A fundação atual tem tabelas públicas de ações, executor, paper, ledger e estados globais; migrations são aplicadas por ordem e testadas em PGlite | Criar migrations aditivas isoladas. Testar política e RPC com os papéis Auth simulados já usados em `tests/database.test.ts`. |
-| Calendário/dados | Tick, M1, calendário de futuros, sessão e contrato vigente | Dados atuais são principalmente ações, candles diários e fontes destinadas à análise; o calendário local é para ações; não existe coletor MT5 intraday DASH | Provar disponibilidade/horário/símbolo WIN$ e contrato vigente; não misturar série contínua de pesquisa com símbolo de ordem. |
-| Custos e fatos de mercado | Defaults WIN/WDO no prompt | Nenhuma fonte/probe Day Trade foi inspecionada ou homologada; integração Genial documenta modalidade e limitações, mas não confirma os valores aproximados da tabela do prompt | Tratar ticks, valor financeiro, margem, vencimentos, taxas, slippage e horários como `UNVERIFIED` até confirmação oficial. Não codificar valores de suposição como fatos. |
-| IR | Extender `src/core/tax.ts` sem regressão de ações | `tax.ts` já separa operações comuns e day trade de ações, com carry separado; não representa ajuste diário dos futuros | Modelagem fiscal de futuros é trabalho separado, com fonte oficial/contador e testes de regressão da lógica atual. |
-| Agentes/IA | Traders, mesa e relatório pós-pregão | Agentes atuais são do domínio de ações; `news-ai` retorna etiquetas de contexto e não escolhe ordens | Não reaproveitar personalidade/autoridade de agente existente como decisor; motor DASH deve ser determinístico e compartilhar apenas dados/relatórios limitados. |
-| Autorização | Mesmo proprietário/MFA/AAL2 | `requireOwner()` confere proprietário UUID e AAL2 por padrão; bypass local existe apenas no loopback de desenvolvimento | Confirmar comportamento de `/daytrade` e `/api/daytrade/*` nos testes de acesso; rotas de escrita devem usar BFF e validação estrita. |
-| Deploy | Mesmo frontend Vercel e processo ProfitDLL em Windows/VPS | App roda Next/Vercel; ProfitDLL é uma DLL nativa e não é hospedada pela Vercel. Nenhum processo ProfitDLL está instalado. Execução atual está bloqueada. | Definir transporte privado, supervisão, backup e comportamento em queda antes de qualquer etapa operacional. |
-| CI e dependências | Adicionar pytest/ruff ao CI se Python disponível | CI já configura Python 3.13 e executa unittest para a ponte; `package.json` não possui scripts DASH/Pytest/Ruff | Acrescentar dependências/scripts só quando houver código Python DASH; pin de versões e lockfile/requirements são necessários. |
-
-## Linha de base local
-
-Executado em 31/10/2026, antes das alterações desta Etapa 0, no diretório raiz do projeto:
-
-| Comando | Resultado |
-| --- | --- |
-| `npm run lint` | Passou (executado por `npm run check`). |
-| `npm run typecheck` | Passou; `next typegen` gerou tipos e `tsc --noEmit` terminou sem erro. |
-| `npm test` | 56 arquivos passaram, 11 ignorados; 629 testes passaram, 15 ignorados. |
-| `npm run build` | Passou em Next.js 16.3.5. O Turbopack avisou que o acesso dinâmico em `src/lib/live-view.ts:41` pode incluir a árvore do projeto no tracing do servidor. |
-| `npm run test:mt5` | Passou: 69 testes unittest, sem MetaTrader5 real. Uma mensagem de falha de `symbol_info_tick` foi gerada pela fixture de teste que exercita fallback; o processo terminou `OK`. |
-
-Nenhuma falha preexistente foi observada nessa linha de base. Isso verifica apenas o ambiente local e doubles; não comprova conexão, custos, execução ou conta real.
-
-## Decisões pendentes antes de implementação financeira
-
-- Confirmar com fontes oficiais atuais os símbolos e especificações do WIN, horários e leilões, calendário de eventos, vencimentos/rolagem, tick/valor do ponto, margem, taxas e corretagem efetivas da conta Day Trade.
-- Confirmar autorização e limitações da modalidade Genial Day Trade para automação externa Python/MT5, stop associado, zeragem compulsória, consultas e comportamento de reconexão; ausência de conta demo significa que o modo SIMULADO não é homologação de execução.
-- Definir de onde vêm e onde são armazenados ticks/M1, retenção, licenças de uso e gaps; separar gravação de pesquisa e feed ao vivo.
-- Revisar as métricas de aprovação do prompt (incluindo DSR/PBO, mínimo de trades e janelas) antes de automatizá-las; especificar casos de dados insuficientes e múltiplos testes.
-- Revisar os limites diários/mensais com o proprietário e profissional qualificado antes de configurá-los; não tratar percentuais do prompt como recomendação financeira.
-- Definir processo de incidentes, backup, disponibilidade, alarmes fora do painel e operação com terminal/PC desligados.
-
-Nenhuma decisão pendente permite ativar modo REAL nesta etapa. O modo real do futuro DASH permanece desligado por desenho, com ativação dependente de etapas, evidências e autorização explícita posteriores.
-
-## Verificação depois das alterações documentais
-
-Após criar este documento e `AGENTS.md`, lint, typecheck, os 629 testes Vitest (15 ignorados) e os 69 testes Python passaram novamente. `npm run build` não concluiu: Next.js recebeu `EPERM` ao remover um arquivo de `.next/static` dentro da pasta sincronizada pelo OneDrive. O mesmo build havia passado antes das alterações documentais. Nenhum código de produção foi alterado e nenhum contorno de permissão foi aplicado; a conclusão do build fica pendente de executar o comando em um estado de filesystem sem bloqueio.
+| Área | Caminho |
+|---|---|
+| Configuração/readiness | `config/daytrade.json`, `dt_settings.execution_config`, `src/core/daytrade/config.ts` |
+| Estratégia e walk-forward | `src/core/daytrade/analysis.ts`, `docs/daytrade/METODOLOGIA.md` |
+| Contratos e setores | `src/core/daytrade/agents.ts`, `src/core/daytrade/desks.ts`, `docs/daytrade/AGENTES.md` |
+| Sessão B3 | `src/core/daytrade/session.ts`, `src/core/b3-calendar.ts` |
+| API e persistência | `src/app/api/daytrade/[resource]/route.ts`, `src/lib/daytrade/store.ts` |
+| Gateway ProfitDLL | `gateways/profitdll/` |
+| Schema e RPCs | `supabase/migrations/*_daytrade_*.sql` |
+| Interface DASH | `src/components/daytrade/`, `src/app/daytrade.css` |

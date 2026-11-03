@@ -24,6 +24,17 @@
   width: 100%;
   height: auto;
 }
+.candle-chart .chart-indicator { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.candle-chart .chart-vwap { stroke: #f4c66b; }
+.candle-chart .chart-ema9 { stroke: #6bd6c7; }
+.candle-chart .chart-ema21 { stroke: #bc9cff; stroke-dasharray: 4 3; }
+.candle-chart .chart-legend { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+.candle-chart .chart-legend span::before { content: ""; display: inline-block; width: 13px; margin: 0 6px 3px 0; border-top: 2px solid currentColor; vertical-align: middle; }
+.candle-chart .chart-legend .vwap { color: #f4c66b; }
+.candle-chart .chart-legend .ema9 { color: #6bd6c7; }
+.candle-chart .chart-legend .ema21 { color: #bc9cff; }
+.candle-chart .chart-legend .ema21::before { border-top-style: dashed; }
+.candle-chart .chart-legend .indicator-unavailable { color: var(--muted); }
 .candle-chart figcaption,
 .candle-chart summary {
   font-size: 10px;

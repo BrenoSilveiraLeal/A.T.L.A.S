@@ -52,7 +52,7 @@ export interface Office {
 /** The three selectable offices, grouped in the middle of the tower. */
 export const OFFICES: readonly Office[] = [
   // Names chosen by the owner, 01/11/2026 (the ids stay as they were).
-  { id: "dividendos", name: "DAWN", fullName: "Dividend Analysis & Wealth Network", tagline: "Rede de Análise de Dividendos e Patrimônio",
+  { id: "dividendos", name: "DOWN", fullName: "Dividend Operations & Wealth Network", tagline: "Rede de Operações com Dividendos e Patrimônio",
     floor: 8, status: "ACTIVE", href: "/app", color: "#a3cdb5",
     summary: "Ações da B3 para longo prazo e dividendos. A equipe de IAs que já trabalha com a Genial." },
   { id: "dash", name: "DASH", fullName: "Day-trading Analysis & Strategy Hub", tagline: "Núcleo de Análise e Estratégia de Day Trade",

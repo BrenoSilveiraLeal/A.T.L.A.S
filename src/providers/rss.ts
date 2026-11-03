@@ -1,5 +1,5 @@
 import "server-only";
-import { ProviderError } from "./http";
+import { limitedText, ProviderError } from "./http";
 import { decodeXml } from "./agencia-brasil";
 import type { Headline } from "./gdelt";
 import type { ProviderName } from "./types";
@@ -42,7 +42,7 @@ export async function fetchRss(feed: RssFeed, transport: typeof fetch = fetch): 
     await response.body?.cancel();
     throw new ProviderError(feed.provider, "UNAVAILABLE", response.status);
   }
-  return parseRss(feed, await response.text(), Date.now());
+  return parseRss(feed, await limitedText(response, feed.provider, MAX_BYTES), Date.now());
 }
 
 /** Feeds enabled for this installation (Money Times only with ATLAS_NEWS_MONEYTIMES=true). */

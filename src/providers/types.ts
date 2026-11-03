@@ -34,6 +34,8 @@ export interface HistoricalBar {
   close: string;
   adjustedClose: string | null;
   volume: number;
+  /** Exact price × quantity sum when supplied by the trade feed; absent for EOD providers. */
+  turnover?: number | null;
 }
 
 export interface MarketHistory {

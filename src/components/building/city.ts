@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { TOWER } from "@/core/building";
+import { consumeOfficeEntryNightPreference, savedCityNightPreference } from "./time-of-day";
 
 /**
  * The city around the ATLAS tower (the tower itself is in tower.ts), shared by the building view and
@@ -21,7 +22,10 @@ export const SKY = 0x9fd0f2, NIGHT_SKY = 0x141c33;
  * offices use the same, so the city outside their windows is the one on the map.
  */
 export function prefersNight() {
-  try { const saved = localStorage.getItem("atlas-building-night"); if (saved === "1" || saved === "0") return saved === "1"; } catch { /* storage blocked */ }
+  const entryPreference = consumeOfficeEntryNightPreference();
+  if (entryPreference !== null) return entryPreference;
+  const saved = savedCityNightPreference();
+  if (saved !== null) return saved;
   const hour = new Date().getHours();
   return hour >= 18 || hour < 6;
 }/** Distance between street centre lines; each block is BLOCK wide, the rest is street. */

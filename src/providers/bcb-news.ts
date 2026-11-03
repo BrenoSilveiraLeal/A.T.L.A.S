@@ -1,5 +1,5 @@
 import "server-only";
-import { ProviderError } from "./http";
+import { limitedText, ProviderError } from "./http";
 import { decodeXml } from "./agencia-brasil";
 import type { Headline } from "./gdelt";
 
@@ -34,5 +34,5 @@ export async function fetchBcbNews(transport: typeof fetch = fetch): Promise<Hea
     await response.body?.cancel();
     throw new ProviderError("bcb", "UNAVAILABLE", response.status);
   }
-  return parseBcbNewsAtom(await response.text(), Date.now());
+  return parseBcbNewsAtom(await limitedText(response, "bcb", MAX_BYTES), Date.now());
 }

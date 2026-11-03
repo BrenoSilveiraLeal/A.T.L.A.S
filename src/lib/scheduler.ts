@@ -16,6 +16,30 @@ import { storeBars } from "./market-bars";
 import { holdTeamMeeting } from "./meeting";
 import { creditDividends } from "./dividends";
 import { notifyBigMoves } from "./movers";
+import { loadDashNewsSnapshot } from "./daytrade/news";
+
+/** Keep DASH supervision alive from the same cloud tick as the ATLAS scheduler. */
+async function runDashCycle() {
+  if (!process.env.VERCEL) return { status: "SKIPPED_LOCAL" as const };
+  const base = process.env.ATLAS_APP_URL, secret = process.env.CRON_SECRET;
+  if (!base || !secret) return { status: "NOT_CONFIGURED" as const };
+  try {
+    const endpoint = new URL("/api/daytrade/cycle", base);
+    if (endpoint.protocol !== "https:") return { status: "INVALID_APP_URL" as const };
+    const response = await fetch(endpoint, {
+      method: "POST", headers: { authorization: `Bearer ${secret}` },
+      cache: "no-store", redirect: "error", signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return { status: "FAILED" as const, httpStatus: response.status };
+    }
+    await response.body?.cancel();
+    return { status: "SUCCEEDED" as const };
+  } catch {
+    return { status: "FAILED" as const };
+  }
+}
 
 const jobSchema = z.object({
   job_id: z.uuid(),
@@ -25,13 +49,18 @@ const jobSchema = z.object({
 export async function runScheduler() {
   const db = adminClient(),
     owner = required("ATLAS_OWNER_ID");
+  const dashCycle = await runDashCycle();
+  if (dashCycle.status === "FAILED" || dashCycle.status === "NOT_CONFIGURED" || dashCycle.status === "INVALID_APP_URL")
+    console.error(JSON.stringify({ component: "dash-cycle", ...dashCycle }));
   // With real money on, only the owner's computer decides: it is the only place a real order can go
   // out (MetaTrader). Deciding in the cloud while the bridge is off made the agents' book believe
   // in a purchase that never happened at Genial (26/10/2026).
   if (process.env.VERCEL) {
     const live = await db.from("live_settings").select("enabled").eq("owner_id", owner).maybeSingle();
-    if (live.data?.enabled) return { skipped: "LOCAL_EXECUTION" as const, jobs: [] };
+    if (live.data?.enabled) return { skipped: "LOCAL_EXECUTION" as const, jobs: [], dashCycle };
   }
+  // Warm DASH's independent news cache through the existing scheduler; quote ingest stays read-only and fast.
+  await loadDashNewsSnapshot(db, owner, true).catch(() => undefined);
   // Distributed rate cap prevents repeated scheduler requests from exhausting provider quotas.
   const rate = await db.rpc("consume_rate_limit", {
     p_key: "atlas-scheduler",
@@ -49,7 +78,7 @@ export async function runScheduler() {
     await holdTeamMeeting(db, owner).catch(() => undefined);
     await creditDividends(db, owner).catch(() => undefined);
     if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
-    return { skipped: "RECENT_TICK", jobs: [] };
+    return { skipped: "RECENT_TICK", jobs: [], dashCycle };
   }
   // Housekeeping is bounded and never deletes decisions, orders or financial evidence.
   // A maintenance failure degrades health without preventing read-only analysis.
@@ -83,7 +112,7 @@ export async function runScheduler() {
     await holdTeamMeeting(db, owner).catch(() => undefined);
     await creditDividends(db, owner).catch(() => undefined);
     if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
-    return { jobs: [] };
+    return { jobs: [], dashCycle };
   }
   const [news, macro] = await Promise.allSettled([readNews(), readMacro()]);
   const errors = [
@@ -242,7 +271,7 @@ export async function runScheduler() {
   await holdTeamMeeting(db, owner).catch(() => undefined);
   await creditDividends(db, owner).catch(() => undefined);
   if (!process.env.VERCEL) await notifyBigMoves(db, owner).catch(() => undefined);
-  return { jobs: results };
+  return { jobs: results, dashCycle };
 
   async function health(status: string, message: string) {
     const now = new Date();

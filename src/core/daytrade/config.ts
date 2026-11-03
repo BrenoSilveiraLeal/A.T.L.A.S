@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { winSessionClose } from "@/core/daytrade/market-hours";
 
 /**
  * The DASH settings file (config/daytrade.json; owner, 01/11/2026: "já deixa as configurações no
@@ -9,6 +10,38 @@ import { z } from "zod";
  */
 const money = z.number().positive().nullable();
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable();
+const officialB3Source = z.string().url().refine((value) => {
+  const hostname = new URL(value).hostname.toLowerCase();
+  return hostname === "b3.com.br" || hostname.endsWith(".b3.com.br");
+}, "A fonte oficial do contrato precisa estar em um domínio da B3.");
+
+/** Account-specific values entered by the owner from current Genial documents. */
+export const ownerExecutionSettingsSchema = z.object({
+  marginPerContract: money,
+  brokeragePerContract: z.number().min(0).nullable(),
+  exchangeFeesPerContract: z.number().min(0).nullable(),
+  /** Owner-selected paper assumption; this is not claimed to be measured broker slippage. */
+  slippageTicks: z.number().int().min(1).max(20).nullable(),
+  maxLossPerTrade: money,
+  maxLossPerDay: money,
+  maxExposure: money,
+  lastEntry: time,
+  flatBy: time,
+  sourceNote: z.string().trim().max(240),
+  confirmSource: z.boolean(),
+}).strict().superRefine((settings, ctx) => {
+  if (settings.maxLossPerTrade !== null && settings.maxLossPerDay !== null && settings.maxLossPerTrade > settings.maxLossPerDay)
+    ctx.addIssue({ code: "custom", path: ["maxLossPerTrade"], message: "A perda por operação não pode exceder a perda diária." });
+  if (settings.confirmSource && (
+    settings.marginPerContract === null || settings.brokeragePerContract === null || settings.exchangeFeesPerContract === null ||
+    settings.slippageTicks === null ||
+    settings.maxLossPerTrade === null || settings.maxLossPerDay === null || settings.maxExposure === null ||
+    settings.lastEntry === null || settings.flatBy === null || settings.sourceNote.trim().length < 8
+  )) ctx.addIssue({ code: "custom", path: ["confirmSource"], message: "Para confirmar, preencha margem, custos, limites, horários e a fonte documental." });
+  if (settings.lastEntry && settings.flatBy && settings.lastEntry >= settings.flatBy)
+    ctx.addIssue({ code: "custom", path: ["flatBy"], message: "A zeragem precisa ser posterior à última entrada." });
+});
+export type OwnerExecutionSettings = z.infer<typeof ownerExecutionSettingsSchema>;
 
 export const instrumentSchema = z.object({
   id: z.enum(["WIN", "WDO"]),
@@ -17,11 +50,13 @@ export const instrumentSchema = z.object({
   /** The tradable contract's symbol at the broker (the current series), not a continuous series. */
   symbol: z.string().regex(/^[A-Z0-9$]{3,12}$/).nullable(),
   expiresOn: z.string().date().nullable().optional(),
+  /** Official listing calendar for the configured expiry date. */
+  expirySource: officialB3Source.optional(),
   tickSize: money,
   pointValue: money,
   marginPerContract: money,
   verified: z.boolean(),
-  specificationSource: z.string().url().optional(),
+  specificationSource: officialB3Source.optional(),
 });
 
 export const dashConfigSchema = z.object({
@@ -48,6 +83,8 @@ export const dashConfigSchema = z.object({
   const { maxLossPerTrade, maxLossPerDay } = c.risk;
   if (maxLossPerTrade !== null && maxLossPerDay !== null && maxLossPerTrade > maxLossPerDay)
     ctx.addIssue({ code: "custom", path: ["risk", "maxLossPerTrade"], message: "A perda máxima por operação não pode passar a perda máxima do dia." });
+  if (c.data.maxDelayMs > c.data.staleAfterMs)
+    ctx.addIssue({ code: "custom", path: ["data", "maxDelayMs"], message: "Maximum accepted feed delay cannot exceed the staleness limit." });
   if (!c.instruments.some((i) => i.enabled)) ctx.addIssue({ code: "custom", path: ["instruments"], message: "Pelo menos um instrumento precisa estar habilitado." });
 });
 export type DashConfig = z.infer<typeof dashConfigSchema>;
@@ -59,14 +96,15 @@ export function readiness(config: DashConfig, requireApprovedStrategy = true): s
     if (!i.symbol) missing.push(`${i.id}: símbolo do contrato vigente`);
     if (i.tickSize === null || i.pointValue === null) missing.push(`${i.id}: tamanho do tick e valor do ponto`);
     if (i.marginPerContract === null) missing.push(`${i.id}: margem por contrato`);
-    if (i.expiresOn && new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) >= i.expiresOn) missing.push(`${i.id}: contract expired; update the active contract symbol`);
+    if (i.expiresOn && new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()) > i.expiresOn) missing.push(`${i.id}: contract expired; update the active contract symbol`);
+    if (i.expiresOn && !i.expirySource) missing.push(`${i.id}: vencimento do contrato sem confirmação no calendário oficial`);
     if (!i.verified) missing.push(`${i.id}: especificação conferida em fonte oficial`);
   }
   if (!config.session.open || !config.session.lastEntry || !config.session.flatBy || !config.session.verified) missing.push("Horários da sessão (abertura, última entrada, zeragem) conferidos");
   if (config.risk.maxLossPerTrade === null) missing.push("Perda máxima por operação");
   if (config.risk.maxLossPerDay === null) missing.push("Perda máxima do dia");
   if (config.risk.maxExposure === null) missing.push("Exposição máxima");
-  if (config.costs.brokeragePerContract === null || config.costs.exchangeFeesPerContract === null || !config.costs.verified) missing.push("Custos por contrato (corretagem e emolumentos) conferidos na nota");
+  if (config.costs.brokeragePerContract === null || config.costs.exchangeFeesPerContract === null || !config.costs.verified) missing.push("Custos por contrato e slippage modelado confirmados (corretagem, emolumentos e ticks adversos por fill)");
   if (requireApprovedStrategy && (!config.strategy.id || !config.strategy.version || !config.strategy.approved)) missing.push("Estrategia versionada e aprovada em backtest e simulacao");
   return missing;
 }
@@ -75,13 +113,20 @@ export function readiness(config: DashConfig, requireApprovedStrategy = true): s
 export function paperReadiness(config: DashConfig, expiresOn = config.instruments.find((instrument) => instrument.enabled)?.expiresOn ?? null): string[] {
   // Paper tests an unapproved research candidate; strategy approval is a later gate.
   const missing = readiness(config, false);
-  if (config.session.open !== "09:00") missing.push("HorÃ¡rio de abertura compatÃ­vel com a faixa inicial da estratÃ©gia (09:00)");
+  if (config.risk.maxTradesPerDay < 1) missing.push("Limite de operações diárias zerado; entradas paper desativadas");
+  if (config.risk.maxOpenPositions < 1) missing.push("Limite de posições abertas zerado; entradas paper desativadas");
+  if (config.risk.maxExposure !== null) {
+    for (const instrument of config.instruments.filter((item) => item.enabled)) {
+      if (instrument.marginPerContract !== null && config.risk.maxExposure < instrument.marginPerContract)
+        missing.push(`${instrument.id}: exposição máxima inferior à margem de um contrato; entradas paper desativadas`);
+    }
+  }
+  if (config.session.open !== "09:00") missing.push("Horário de abertura compatível com a faixa inicial da estratégia (09:00)");
   if (config.session.open && config.session.lastEntry && config.session.flatBy &&
     !(config.session.open < config.session.lastEntry && config.session.lastEntry < config.session.flatBy))
-    missing.push("Ãšltima entrada e zeragem precisam estar em ordem apÃ³s a abertura");
+    missing.push("Última entrada e zeragem precisam estar em ordem após a abertura");
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-  const expiresToday = expiresOn === today;
-  const officialClose = today < "2026-11-03" || expiresToday ? "18:00" : "18:25";
+  const officialClose = winSessionClose(today, expiresOn);
   if (config.session.flatBy && config.session.flatBy >= officialClose)
     missing.push(`Zeragem precisa ocorrer antes do encerramento dos futuros WIN as ${officialClose}`);
   return missing;
@@ -90,12 +135,15 @@ export function paperReadiness(config: DashConfig, expiresOn = config.instrument
 /** The risk limits the analysis room uses (agents.ts RiskLimits), or null while any is missing. */
 export function roomLimits(config: DashConfig) {
   const { maxLossPerTrade, maxLossPerDay, maxExposure, maxOpenPositions } = config.risk;
-  if (maxLossPerTrade === null || maxLossPerDay === null || maxExposure === null) return null;
-  return { maxLossPerTrade, maxLossPerDay, maxOpenPositions, maxExposure };
-}
-
-/** Day-trade tax on a month's net result (simulated results never count; a loss carries no tax). */
-export function dayTradeTax(config: DashConfig, monthNet: number) {
-  const due = monthNet > 0 ? monthNet * config.tax.dayTradeRate : 0;
-  return { due: Math.round(due * 100) / 100, darfCode: config.tax.darfCode };
+  const instrument = config.instruments.find((item) => item.enabled);
+  const { brokeragePerContract, exchangeFeesPerContract, verified: costsVerified, slippageTicks } = config.costs;
+  if (maxLossPerTrade === null || maxLossPerDay === null || maxExposure === null || !instrument?.verified ||
+    instrument.marginPerContract === null || instrument.pointValue === null || instrument.tickSize === null ||
+    brokeragePerContract === null || exchangeFeesPerContract === null || !costsVerified) return null;
+  return {
+    maxLossPerTrade, maxLossPerDay, maxOpenPositions, maxExposure,
+    maxContracts: config.risk.maxContracts, marginPerContract: instrument.marginPerContract,
+    pointValue: instrument.pointValue, tickSize: instrument.tickSize,
+    costPerSide: brokeragePerContract + exchangeFeesPerContract, slippageTicks,
+  };
 }

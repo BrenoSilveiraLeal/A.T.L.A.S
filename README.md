@@ -155,6 +155,10 @@ A visão geral e a carteira mostram histórico patrimonial da conta selecionada;
 
 Abra **http://127.0.0.1:3000/app/paper** após login com MFA. Crie uma carteira de teste (o formulário sugere R$ 10.000), cadastre um ativo em **Mercado** e um agente com orçamento em **Agentes**, ative o agente e volte à simulação. Escolha direção, quantidade e preço limite, gere a proposta e aprove após ler a análise e os limites. A ordem virtual só poderá ser preenchida quando a brapi publicar uma cotação posterior à abertura e compatível com o limite; use **Verificar nova cotação**. O resultado ficará no livro virtual e na auditoria da própria aba. Isso pode levar tempo e pode não preencher. Os dados de mercado são reais e atrasados; dinheiro, ordem e fill são sempre simulados. [Manual completo e premissas](docs/PAPER_TRADING.md).
 
+## DASH ProfitDLL e paper trading
+
+O coletor ProfitDLL do DASH e independente do gateway MT5 do DAWN. Para configurar Market Data, candles, pesquisa e paper trading, siga o [guia de configuracao ProfitDLL](docs/daytrade/CONFIGURACAO_PROFITDLL.md) e o [guia tecnico do gateway](gateways/profitdll/README.md). O DASH usa migrations `dt_*` proprias e precisa do lote do banco descrito em `docs/daytrade/ARQUITETURA.md`. O coletor e somente leitura; o paper permanece separado da conta real e o envio de ordens esta desabilitado.
+
 ## 9. Validar localmente
 
 ```powershell
@@ -216,9 +220,9 @@ O Free pode pausar e não tem SLA de disponibilidade. Antes de live, backup/rest
 
 O painel converte medições vencidas, futuras ou inválidas para `UNKNOWN`, preservando o estado que foi originalmente registrado. A cada hora, o scheduler também pode remover até 500 registros de cache com mais de sete dias. Essa limpeza é restrita a `READ_CACHE_V1`: decisões, memória, ordens, ledger e auditoria são preservados. Falha na manutenção degrada a saúde e não cria sucesso fictício.
 
-## 12. Conectar o gateway de execução
+## 12. Gateway MT5 do DAWN e execucao real
 
-Leia a [decisão técnica](docs/EXECUTION_GATEWAY_DECISION.md), a [comparação MT5](docs/research/MT5_GATEWAY_RESEARCH.md) e a [pesquisa ProfitDLL/VPS](docs/research/PROFIT_INFRA_RESEARCH.md). A rota principal usa o SDK Python oficial em `gateways/mt5` junto a um terminal autenticado. A API privada de uma corretora não é pré-requisito. ProfitDLL e API oficial direta continuam alternativas futuras no contrato `BrokerProvider`.
+Esta secao documenta o caminho MT5 separado do escritorio DAWN; ela nao descreve o coletor ProfitDLL do DASH (consulte a secao anterior e `gateways/profitdll/README.md`). Leia a [decisao tecnica](docs/EXECUTION_GATEWAY_DECISION.md), a [comparacao MT5](docs/research/MT5_GATEWAY_RESEARCH.md) e a [pesquisa ProfitDLL/VPS](docs/research/PROFIT_INFRA_RESEARCH.md). O gateway MT5 do DAWN usa o SDK Python oficial junto a um terminal autenticado. Qualquer execucao real continua bloqueada ate autorizacao, reconciliacao e homologacao; a configuracao do DASH nao compartilha conta ou estado com essa ponte.
 
 `src/core/executor.ts` recebe comandos aprovados, revalida risco, despacha uma vez e recupera resultados incertos por consulta. `src/providers/execution-gateway.ts` implementa o transporte privado; Supabase conserva comandos, claims, reservas, fills, ledger e auditoria. O gateway não escolhe ativo, preço, direção ou quantidade. A ponte inicial limita escrita a LIMIT/DAY, cancelamento e modificação de preço com mesma quantidade.
 

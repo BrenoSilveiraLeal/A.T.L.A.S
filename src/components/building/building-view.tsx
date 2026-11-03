@@ -6,10 +6,11 @@ import { Hammer, Info, LocateFixed, Moon, Sun, Volume2, VolumeX } from "lucide-r
 import { officeOnFloor, OFFICES, parseFloor, STATUS_LABEL } from "@/core/building";
 import type { BuildingApi } from "./building-3d";
 import { useCitySound } from "./city-sound";
+import { CITY_NIGHT_STORAGE_KEY, setOfficeEntryNightPreference } from "./time-of-day";
 
 /** The office floor entered last; the map highlights it. */
 const LAST_OFFICE = "atlas-last-office";
-const NIGHT = "atlas-building-night";
+const NIGHT = CITY_NIGHT_STORAGE_KEY;
 const SOUND = "atlas-city-sound";
 /** Time for the camera to fly to the floor before the office opens. */
 const FLY_MS = 1700;
@@ -70,10 +71,11 @@ export function BuildingView() {
     try { localStorage.setItem(LAST_OFFICE, String(office.floor)); } catch { /* storage blocked */ }
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     setEntering(office.floor);
+    setOfficeEntryNightPreference(night);
     // The office page continues the move: its camera starts outside the tower and comes in.
     try { sessionStorage.setItem("atlas-entering", String(office.floor)); } catch { /* storage blocked */ }
     window.setTimeout(() => router.push(office.href!), flat || reduced ? 0 : FLY_MS);
-  }, [router, flat]);
+  }, [router, flat, night]);
   const remember = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* storage blocked */ } };
   const toggleNight = () => setNight((n) => { remember(NIGHT, n ? "0" : "1"); return !n; });
   const toggleSound = () => setSound((s) => { remember(SOUND, s ? "off" : "on"); return !s; });

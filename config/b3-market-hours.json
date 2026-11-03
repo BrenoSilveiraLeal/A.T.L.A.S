@@ -1,0 +1,11 @@
+{
+  "$comment": "Grade regular do WIN conforme o Ofício Circular 055/2026-VNC. Atualizar somente a partir de comunicado oficial da B3.",
+  "win": {
+    "defaultClose": "18:00",
+    "regularCloseChanges": [
+      { "effectiveDate": "2026-11-03", "close": "18:25" }
+    ],
+    "expiryClose": "18:00",
+    "source": "https://www.b3.com.br/data/files/BE/16/C1/59/2F881A10F75B881AAC094EA8/OC%20055-2026-VNC%20NOVOS%20HORARIOS%20DE%20NEGOCIACAO_PT.pdf"
+  }
+}

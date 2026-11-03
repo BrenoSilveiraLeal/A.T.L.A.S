@@ -31,7 +31,7 @@ beforeAll(async () => {
   `);
   const path = resolve("supabase/migrations");
   for (const file of readdirSync(path).filter((name) => name.endsWith(".sql")).sort()) {
-    await db.exec(readFileSync(resolve(path, file), "utf8"));
+    await db.exec(readFileSync(resolve(path, file), "utf8").replace(/^\uFEFF/, ""));
   }
 }, 60000);
 beforeEach(async () => {

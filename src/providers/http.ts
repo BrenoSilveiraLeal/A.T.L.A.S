@@ -40,8 +40,22 @@ async function limitedJson(
   response: Response,
   provider: ProviderName,
 ): Promise<unknown> {
+  const text = await limitedText(response, provider, MAX_RESPONSE_BYTES);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ProviderError(provider, "INVALID_RESPONSE");
+  }
+}
+
+/** Read a provider response with a streaming byte cap before decoding into memory. */
+export async function limitedText(
+  response: Response,
+  provider: ProviderName,
+  maxBytes = MAX_RESPONSE_BYTES,
+): Promise<string> {
   const length = Number(response.headers.get("content-length"));
-  if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) {
+  if (Number.isFinite(length) && length > maxBytes) {
     await response.body?.cancel();
     throw new ProviderError(provider, "INVALID_RESPONSE");
   }
@@ -54,7 +68,7 @@ async function limitedJson(
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) {
+      if (size > maxBytes) {
         await reader.cancel();
         throw new ProviderError(provider, "INVALID_RESPONSE");
       }
@@ -70,7 +84,7 @@ async function limitedJson(
     offset += chunk.length;
   }
   try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer));
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } catch {
     throw new ProviderError(provider, "INVALID_RESPONSE");
   }

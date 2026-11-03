@@ -32,7 +32,7 @@ beforeAll(async () => {
     grant execute on all functions in schema auth to anon,authenticated,service_role;`);
   const directory = resolve("supabase/migrations");
   for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql")).sort())
-    await db.exec(readFileSync(resolve(directory, file), "utf8"));
+    await db.exec(readFileSync(resolve(directory, file), "utf8").replace(/^\uFEFF/, ""));
 }, 60000);
 beforeEach(async () => {
   now = new Date().toISOString();

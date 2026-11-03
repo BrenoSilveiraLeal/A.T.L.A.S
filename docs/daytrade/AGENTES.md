@@ -1,34 +1,30 @@
-# DASH — equipe, setores e funções a implementar
+# DASH - setores, workers e estado da implementacao
 
-## Pronto no código (02/11/2026)
+## Pronto no codigo (02/11/2026)
 
-| Peça | Onde |
+| Componente | Evidencia |
 |---|---|
-| Configuração do DASH (instrumentos, sessão, risco, custos, tributos, gateway, estratégia) | `config/daytrade.json`, validada em `src/core/daytrade/config.ts` |
-| O que falta para operar, em lista (`readiness`) | `src/core/daytrade/config.ts`, mostrado em Painel → "O que falta para operar" |
-| Tabelas próprias `dt_*` com RLS (dono com AAL2 lê; backend grava); ledger e diário só de inclusão | `supabase/migrations/20261101120000_daytrade_dash.sql` |
-| Leitura e gravação no banco (estado, parada, sinal de vida, diário) | `src/lib/daytrade/store.ts` |
-| API: `GET status, config, journal, ledger, orders`; `POST halt` (dono); `POST cycle, heartbeat` (agendador, `CRON_SECRET`) | `src/app/api/daytrade/[resource]/route.ts` |
-| Ciclo da mesa: dados → notícias → estratégia → sala de análise → risco → execução, com diário | `src/core/daytrade/cycle.ts` |
-| Contratos de cada mesa, poderes e regras da sala | `src/core/daytrade/agents.ts` |
-| Tela com estado real quando há banco, botão "Parar o DASH" | `src/components/daytrade/dash-view.tsx` |
-| Testes | `tests/daytrade-*.test.ts`, `tests/database.test.ts` (aplica a migration) |
+| Configuracao e readiness | config/daytrade.json e src/core/daytrade/config.ts |
+| Esquema proprio com RLS, persistencia de cotacoes, candles, observacoes e paper fills | supabase/migrations/20261102185514_daytrade_dash.sql e migrations seguintes em supabase/migrations/ |
+| Gateway ProfitDLL Windows x64 somente leitura | gateways/profitdll/gateway.py e gateways/profitdll/README.md |
+| API autenticada de quote/status, barras, backtest, estado paper e kill switch | src/app/api/daytrade/[resource]/route.ts |
+| Analise opening range, VWAP real por turnover e EMA; dois candidatos de backtest walk-forward com custos | src/core/daytrade/analysis.ts |
+| Workers deterministas de preco, estrategia, backtest, risco, chefia e supervisao | src/core/daytrade/agents.ts |
+| Motor paper transacional, um contrato/posicao, stops, gaps, custos e limites | RPC dt_apply_paper_bar nas migrations daytrade_paper_* |
+| Dashboard e setores do escritorio | src/components/daytrade/dash-view.tsx, src/core/daytrade/desks.ts |
 
-## Falta fora do código
+## Pendencias externas e configuracao
 
-1. **Banco:** aplicar a migration `20261101120000_daytrade_dash.sql` no Supabase (`supabase db push` ou SQL editor).
-2. **`.env`:** preencher `DASH_GATEWAY_URL`, `DASH_GATEWAY_TOKEN` e `DASH_GATEWAY_ACCOUNT_ID`, que é a segunda instância do MT5 (ver `.env.example`).
-3. **`config/daytrade.json`:** preencher cada valor `null` só com fonte oficial (B3, Genial, nota de corretagem) e marcar `verified: true`. São eles:
-   - símbolo do contrato vigente, tick, valor do ponto e margem;
-   - horários da sessão;
-   - perdas máximas e exposição;
-   - custos;
-   - estratégia aprovada.
-4. **Agendador:** chamar `POST /api/daytrade/cycle` durante a sessão, com `Authorization: Bearer CRON_SECRET`. Os workers chamam `POST /api/daytrade/heartbeat`.
-5. **Workers:** no outro computador, trocar cada `notImplemented(...)` de `WORKERS` pela implementação, respeitando o contrato de `DeskContracts`.
-6. **Ponte MT5 Day Trade:** segunda instância, conforme `docs/daytrade/ARQUITETURA.md`. Nenhuma rota envia ordem hoje: o modo `LIVE` é recusado pela configuração e pela tabela, e liberar isso exige uma revisão própria.
+1. **Banco Supabase:** historico remoto sincronizado ate `20261103025606_daytrade_paper_session_boundary_gap`; as migrations locais correspondem aos IDs remotos. Em 02/11/2026, `dt_market_bars`, `dt_market_quotes`, `dt_paper_fills` e `dt_ledger` estavam sem dados. O feed e a amostra paper ainda dependem da configuracao/execucao do ProfitDLL.
+2. **ProfitDLL local:** instalar o pacote oficial Windows x64, confirmar licenca/ativacao e configurar PROFITDLL_RUNTIME_DIR, PROFITDLL_TICKER, PROFITDLL_EXCHANGE=F, DASH_API_URL e PROFITDLL_INGEST_SECRET conforme gateways/profitdll/README.md. O gateway solicita as credenciais da Nelogica no terminal e nao as armazena no repositorio.
+3. **Segredos do servidor:** configurar PROFITDLL_INGEST_SECRET e ATLAS_OWNER_ID apenas no ambiente server-side. O segredo de ingestao precisa ser distinto de CRON_SECRET. Nao criar variaveis de conta MT5 para o DASH.
+4. **Fatos de mercado/risco:** o proprietário preenche margem, horários, limites e custos na aba Risco do DASH com dados da nota Genial e fontes oficiais; um rascunho salvo no banco não remove gates, e a confirmação fica registrada no diário.
+5. **Coleta:** o gateway faz POST autenticado de Market Data para /api/daytrade/quote. O endpoint persiste candles e processa pesquisa/paper. A rota /api/daytrade/cycle e uma ronda de status/guardas, nao o agendador do ProfitDLL.
+6. **Setores ainda pendentes:** reconciliação de posição da corretora não tem fonte integrada. A mesa de notícias usa feeds públicos configurados com gate por frescor, mas a cobertura é limitada e não equivale a monitoramento integral de notícias. Supervisão, OMS e envio real não formam um operador live homologado. Não habilitar roteamento real.
 
-Guia para implementar os agentes do DASH em outro computador. O código está em:
+## Contratos e responsabilidades dos workers
+
+O código está em:
 
 - `src/core/daytrade/desks.ts`: setores (`SECTORS`) e agentes (`DESKS`), cada um com setor, papel e o que faz.
 - `src/core/daytrade/agents.ts`: os contratos. Cada mesa tem um `DeskWorker` com o que recebe e o que entrega
@@ -36,20 +32,22 @@ Guia para implementar os agentes do DASH em outro computador. O código está em
   implementadas e testadas em `tests/daytrade-agents.test.ts`.
 - `src/components/daytrade/dash-layout.ts`: a planta da sala, compartilhada pela cena 3D e pelo mapa.
 
-## Caminho já executado pelo DASH
+## Caminho implementado no codigo
 
-`WORKERS` e `POST /api/daytrade/cycle` continuam sendo contratos do pipeline genérico e ainda não formam um operador completo. O caminho ativo de pesquisa é separado: `POST /api/daytrade/quote` valida o snapshot ProfitDLL, persiste M1, analisa candles fechados e chama `dt_apply_paper_bar`. O RPC simula entradas no candle seguinte, stop/gap/zeragem, custos e risco, e grava em `dt_paper_state` e `dt_paper_fills`, tudo separado do ledger de ações. A configuração incompleta ou o kill switch deixa o motor sem novas entradas.
+O caminho de mercado e separado do ciclo generico: POST /api/daytrade/quote valida o snapshot ProfitDLL, persiste M1 e chama setores de preco e estrategia antes de registrar observacoes e enviar candles fechados ao RPC transacional dt_apply_paper_bar. A mesa de noticias/calendario tambem e consultada no caminho paper; sem fonte completa e recente, o RPC recebe `enabled=false` e nao pode abrir posicao. O banco mantem estado e fills paper em dt_paper_state/dt_paper_fills, isolados do ledger de acoes. O backtest usa worker proprio, dois candidatos e custos/slippage; os resultados nao aprovam estrategia.
 
 | Responsabilidade | Estado atual |
 |---|---|
-| Feed e validação | ProfitDLL local, somente leitura; valida origem, atraso, contrato, OHLCV, candle e tick antes da persistência. |
-| Preço e estratégia | `opening-range-vwap-v1` calcula faixa inicial, VWAP e EMA em candle fechado e grava uma observação idempotente. |
-| Pesquisa | Backtest walk-forward em sessões completas, com fills no candle seguinte, fricção por lado e pregão corrente excluído; não aprova a estratégia automaticamente. |
-| Risco e execução paper | RPC Postgres transacional, um contrato, uma posição por vez; sinal do fechamento preenche no próximo candle; custo/risk config pendente bloqueia entradas. |
-| Noticias e reconciliacao com conta | Workers ainda nao implementados; sem fonte de noticias nem consulta de posicoes da corretora. |
-| Roteamento real ProfitDLL | Desativado: não há chamadas OMS no gateway nem endpoint de envio. |
+| Feed e persistencia | Gateway ProfitDLL somente leitura; feedWorker confere fonte, frescor e latencia, priceWorker valida candles/turnover e continuidade; a API persiste somente apos validacoes de contrato, sequencia e tick. Horario esperado do mercado e frescor dos dados aparecem como estados separados. |
+| Preco/estrategia | Workers verificam snapshot, candles, continuidade, VWAP e EMA; o endpoint grava observacoes por candle e usa os sinais aceitos no paper. |
+| Pesquisa/backtest | Worker executa candidatos walk-forward em sessoes completas com friccao; pesquisa isolada, sem aprovacao automatica. |
+| Risco/paper | RPC Postgres transacional, uma posicao e um contrato; simula fill no candle seguinte, stop, gaps, custos, zeragem e limites configurados. |
+| Chefia/supervisao | Regras deterministicas no ciclo generico; a ingestao mantem heartbeats setoriais. Isso nao e aprovacao de execucao real. |
+| Noticias/calendario externo | `src/lib/daytrade/news.ts` consulta calendários oficiais do BCB, notícias do BCB e RSS de mercado habilitados. newsWorker exige todas as fontes configuradas recentes; evento HIGH/HALT bloqueia. MEDIUM reduz no worker e bloqueia paper enquanto o tamanho mínimo for um contrato. Fonte ausente/vencida bloqueia; observações de pesquisa continuam disponíveis. |
+| Posicoes/ordens/registro | positionsWorker valida snapshots completos; a ingestao reconcilia o state paper interno, sem afirmar conciliacao com corretora. ordersWorker valida historico monotono; cada fill paper tambem e espelhado em dt_ledger por trigger append-only, sem OMS live. |
+| Roteamento real ProfitDLL | Desativado: o gateway nao carrega funcoes OMS e nao ha endpoint de envio. |
 
-Ingestao, preco, estrategia candidata e paper sao o caminho ativo de mercado. Supervisao e chefia executam guardas deterministicas no ciclo; a chefia exige mercado confirmado, ProfitDLL fresco, contrato correspondente, risco aprovado e versao de estrategia explicitamente aprovada. Noticias, reconciliacao, ordens e ledger ainda aguardam workers. Nenhum worker ativa roteamento real.
+O paper trading e independente do ciclo generico runCycle. O ciclo nao recebe posicoes/P&L reconciliados, entao a guarda de risco o bloqueia. A rota de cotacao atualiza a simulacao persistida sem criar autoridade para ordens reais.
 
 ## Fluxo de uma operação
 
@@ -64,18 +62,18 @@ O supervisor recebe o `Heartbeat` de cada mesa nas rondas. A chefia abre e encer
 
 | Setor | Agente | Papel | Recebe → entrega |
 |---|---|---|---|
-| Chefia | Marta (`chief`) | Chefe do DASH: plano do dia, abre e encerra a sessão, dá a palavra final na sala de análise | propostas e votos → voto |
-| Supervisão | Rui (`supervisor`) | Anda pela mesa conferindo cada setor; pode pausar e acionar o kill switch | heartbeats → pausa e achados |
+| Chefia | Marta (`chief`) | Última revisão determinística de propostas e votos; não abre a sessão nem envia ordens | propostas e votos → voto |
+| Supervisão | Rui (`supervisor`) | Confere heartbeats; pode solicitar pausa e acionar o kill switch sob falha crítica | heartbeats → pausa e achados |
 | Dados de mercado | Nina (`feed`) | Feed: origem, horário, atraso e falhas | — → `Provenance[]` |
 | Dados de mercado | Caio (`price`) | Candles, volume, livro de ofertas | proveniência → candles e topo do livro |
 | Notícias e eventos | Lia (`news`) | Notícias e calendário; só bloqueia ou reduz | eventos → `NewsGate` |
 | Estratégia | Theo (`strategy`) | Sinais de estratégia explícita e versionada | candles, livro, gate → `Signal[]` |
 | Estratégia | Dani (`backtest`) | Valida cada versão em backtest e simulação | versão → `BacktestReport` |
 | Risco | Bia (`risk`) | Limites e veto | proposta, posições, perda do dia → `RiskDecision` |
-| Risco | Otto (`positions`) | Posições e reconciliação com a corretora | atualizações de ordens → posições (reconciliado?) |
-| Execução | Léo (`execution`) | Envia apenas ordens aprovadas, com stop | proposta e decisão da sala → `OrderRequest` ou nada |
+| Risco | Otto (`positions`) | Valida snapshots completos e recentes; o caminho ativo reconcilia somente o estado paper, sem afirmar conciliação com corretora | snapshot paper/broker → posições validadas |
+| Execução | Léo (`execution`) | Formata ordem para simulação somente; `maySend` recusa envio live | proposta paper aprovada → `OrderRequest` ou nada |
 | Execução | Duda (`orders`) | Acompanha cada ordem até o fim | `OrderUpdate[]` → `OrderUpdate[]` |
-| Registro e tributos | Vera (`ledger`) | Registra operações, custos e IR de day trade; nada é escondido | atualizações → `LedgerEntry[]` |
+| Registro e tributos | Vera (`ledger`) | Fills paper são gravados em `dt_paper_fills`; `GET /api/daytrade/tax-estimate` mostra referência mensal paper, sem DARF ou dados de corretora | registro e estimativa paper separados; sem lançamento financeiro real |
 
 ## Regras já implementadas (não remover)
 
@@ -90,6 +88,8 @@ O supervisor recebe o `Heartbeat` de cada mesa nas rondas. A chefia abre e encer
 
   Qualquer dúvida é não.
 - **`maySend`:** no modo simulado nada sai, a ordem só é registrada. Também nada sai sem corretora conectada.
+
+O worker generico de `ledger` continua `notImplemented` para reconciliacao de ordens da corretora. O registro paper e escrito em `dt_paper_fills` pela RPC transacional e cada fill e copiado em `dt_ledger` por trigger append-only, com chave unica contra duplicacao e campos de P&L. A configuracao tributaria em `config/daytrade.json` e informativa; nao ha calculo fiscal de contratos futuros homologado.
 
 ## A sala (planta)
 

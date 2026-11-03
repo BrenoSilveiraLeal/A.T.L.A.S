@@ -19,6 +19,7 @@ import { SELLS_NEAR_HIGH } from "@/core/range";
 import { ELEVATOR, OFFICE_GLASS, officeById, TOWER, wallSegments } from "@/core/building";
 import { NIGHT_SKY, prefersNight, roundedRect, setNight as applyNight, SKY } from "./building/city";
 import { buildSurroundings, SHAFT } from "./building/tower";
+import { CITY_NIGHT_STORAGE_KEY } from "./building/time-of-day";
 
 /** This office's floor in the ATLAS tower. */
 const FLOOR = officeById("dividendos")!.floor;
@@ -749,11 +750,26 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       }
     }
     const paint = matte("#2e4057", 0.85);
-    const backWall = wall(-24, -14, 24, -14, H, paint, true, [0, -1]);
-    const leftWall = wall(-24, -14, -24, 14, H, paint, true, [-1, 0]);
-    const rightWall = wall(24, -14, 24, 14, H, paint, true, [1, 0]);
-    wall(-24, 14, -21.5, 14, H, paint, true, [0, 1]);
-    const frontWall = wall(-17, 14, 24, 14, H, paint, true, [0, 1]);
+    const backWall = wall(-20, -14, 20, -14, H, paint, true, [0, -1]);
+    const leftWall = wall(-24, -10, -24, 10, H, paint, true, [-1, 0]);
+    const rightWall = wall(24, -10, 24, 10, H, paint, true, [1, 0]);
+    // The tower floor has 4 m rounded corners. Follow that same perimeter with short
+    // tangent wall sections so the office edge no longer ends in a sharp right angle.
+    const roundedCorner = (cx: number, cz: number, from: number, to: number) => {
+      const steps = 8, radius = 4;
+      for (let i = 0; i < steps; i++) {
+        const a = from + (to - from) * i / steps, b = from + (to - from) * (i + 1) / steps;
+        const x1 = cx + Math.cos(a) * radius, z1 = cz + Math.sin(a) * radius;
+        const x2 = cx + Math.cos(b) * radius, z2 = cz + Math.sin(b) * radius, mid = (a + b) / 2;
+        wall(x1, z1, x2, z2, H, paint, true, [Math.cos(mid), Math.sin(mid)]);
+      }
+    };
+    roundedCorner(20, -10, -Math.PI / 2, 0);
+    roundedCorner(20, 10, 0, Math.PI / 2);
+    roundedCorner(-20, 10, Math.PI / 2, Math.PI);
+    roundedCorner(-20, -10, Math.PI, Math.PI * 1.5);
+    // Keep the elevator opening clear; its entrance starts just past the rounded left corner.
+    const frontWall = wall(-17, 14, 20, 14, H, paint, true, [0, 1]);
     const accents = ["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"];
     [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
     for (const r of COUNCILS) { glassWall(r.x1 + 0.1, -6, r.door - 0.8, -6); glassWall(r.door + 0.8, -6, r.x2 - 0.1, -6); }
@@ -1086,11 +1102,20 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Company logo painted on the front of the wall (owner: "só de um lado, como se fosse uma logo"),
     // not a label that turns with the camera.
     {
+      const office = officeById("dividendos")!;
       const logo = canvasTexture(1024, 384), g = logo.g;
       g.clearRect(0, 0, 1024, 384); g.textAlign = "center"; g.textBaseline = "middle";
       g.shadowColor = "rgba(255, 207, 138, 0.8)"; g.shadowBlur = 24;
-      g.fillStyle = "#fff4e2"; g.font = "bold 190px sans-serif"; g.fillText("ATLAS", 512, 160);
-      g.shadowBlur = 0; g.fillStyle = "#ffe0b8"; g.font = "600 52px sans-serif"; g.fillText("Trading AI System", 512, 300);
+      g.fillStyle = "#fff4e2"; g.font = "bold 190px sans-serif"; g.fillText(office.name, 512, 145);
+      // Keep the English expansion readable beneath the office name on the wall plaque.
+      g.shadowBlur = 0; g.fillStyle = "#ffe0b8";
+      let subtitleSize = 54;
+      g.font = `600 ${subtitleSize}px sans-serif`;
+      while (g.measureText(office.fullName ?? "").width > 960 && subtitleSize > 38) {
+        subtitleSize -= 1;
+        g.font = `600 ${subtitleSize}px sans-serif`;
+      }
+      g.fillText(office.fullName ?? "", 512, 280, 960);
       logo.texture.needsUpdate = true;
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 2.1), new THREE.MeshBasicMaterial({ map: logo.texture, transparent: true, toneMapped: false }));
       sign.position.set(-19.5, 1.75, 6.34); scene.add(sign);
@@ -1131,7 +1156,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     {
       const welcome = canvasTexture(512, 160), g = welcome.g;
       g.fillStyle = "#1b1e24"; g.fillRect(0, 0, 512, 160); g.fillStyle = "#ffcf8a"; g.font = "bold 56px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
-      g.fillText("Bem-vindo", 256, 62); g.font = "30px sans-serif"; g.fillStyle = "#e8f6ff"; g.fillText("ATLAS", 256, 118); welcome.texture.needsUpdate = true;
+      g.fillText("Bem-vindo", 256, 62); g.font = "30px sans-serif"; g.fillStyle = "#e8f6ff"; g.fillText("DOWN", 256, 118); welcome.texture.needsUpdate = true;
       const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.16), new THREE.MeshBasicMaterial({ map: welcome.texture }));
       plate.position.set(-19.5, 1.18, 9.79); plate.rotation.x = -0.25; scene.add(plate);
     }
@@ -2264,7 +2289,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           <PersonStanding size={18} />
         </button>
         <button type="button" className="icon-button secondary" onClick={() => setNightMode((on) => {
-          const next = !on; try { localStorage.setItem("atlas-building-night", next ? "1" : "0"); } catch { /* storage blocked */ }
+          const next = !on; try { localStorage.setItem(CITY_NIGHT_STORAGE_KEY, next ? "1" : "0"); } catch { /* storage blocked */ }
           api.current?.night(next); return next;
         })} aria-pressed={night} aria-label={night ? "Mudar escritório para dia" : "Mudar escritório para noite"} title={night ? "Mudar para dia" : "Mudar para noite"}>
           {night ? <Moon size={18} /> : <Sun size={18} />}

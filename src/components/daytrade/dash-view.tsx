@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { Building, Building2, LayoutGrid, OctagonX, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 import { officeById } from "@/core/building";
 import { CandleChart } from "@/components/candle-chart";
-import type { MinuteBar, DeskSignal } from "@/core/daytrade/analysis";
+import { formatInstrumentPrice } from "@/components/daytrade/format";
+import { BACKTEST_CANDIDATES, type BacktestSummary, type WalkForwardSelectionSummary, type MinuteBar, type DeskSignal } from "@/core/daytrade/analysis";
 import type { DashConfig } from "@/core/daytrade/config";
 import { DATA_LABEL, DESKS, deskState, INITIAL_STATUS, MARKET_LABEL, ORDER_STATES, SECTORS, type DashStatus } from "@/core/daytrade/desks";
 
@@ -25,7 +26,46 @@ type PaperData = {
   state: Array<{ instrument: string; position_side: number; entry_price: string | null; stop_price: string | null; pending_side: number; trades_today: number; realized_pnl_today: string; last_bar_at: string | null }>;
   fills: Array<{ instrument: string; bar_at: string; action: "ENTRY" | "EXIT"; side: "BUY" | "SELL"; price: string; fees: string; net_pnl: string | null; reason: string }>;
 };
+type PaperTaxEstimate = {
+  status: "READY" | "NO_CLOSED_TRADES" | "HISTORY_LIMIT";
+  carryInUnknown?: boolean;
+  months: Array<{ month: string; closedTrades: number; dayTradeResult: string; taxableAfterPaperLosses: string; paperLossCarry: string; estimatedTax: string; estimatedIrrfEquivalent: string; excludedOvernightCloses: number; excludedOvernightResult: string }>;
+};
 type DeskHeartbeat = { desk: string; at: string; state: "IDLE" | "WORKING" | "BLOCKED" | "ERROR"; detail: string };
+type ExecutionForm = Record<"marginPerContract" | "brokeragePerContract" | "exchangeFeesPerContract" | "slippageTicks" | "maxLossPerTrade" | "maxLossPerDay" | "maxExposure" | "lastEntry" | "flatBy" | "sourceNote", string>;
+const EMPTY_EXECUTION_FORM: ExecutionForm = { marginPerContract: "", brokeragePerContract: "", exchangeFeesPerContract: "", slippageTicks: "", maxLossPerTrade: "", maxLossPerDay: "", maxExposure: "", lastEntry: "", flatBy: "", sourceNote: "" };
+function makeExecutionForm(settings: Record<string, unknown> | null, config: DashConfig): ExecutionForm {
+  const value = (key: string, fallback: number | string | null | undefined) => {
+    const saved = settings?.[key];
+    return saved === null || saved === undefined ? (fallback == null ? "" : String(fallback)) : String(saved);
+  };
+  return {
+    marginPerContract: value("marginPerContract", config.instruments.find((item) => item.id === "WIN")?.marginPerContract),
+    brokeragePerContract: value("brokeragePerContract", config.costs.brokeragePerContract),
+    exchangeFeesPerContract: value("exchangeFeesPerContract", config.costs.exchangeFeesPerContract),
+    slippageTicks: value("slippageTicks", null),
+    maxLossPerTrade: value("maxLossPerTrade", config.risk.maxLossPerTrade),
+    maxLossPerDay: value("maxLossPerDay", config.risk.maxLossPerDay),
+    maxExposure: value("maxExposure", config.risk.maxExposure),
+    lastEntry: value("lastEntry", config.session.lastEntry),
+    flatBy: value("flatBy", config.session.flatBy),
+    sourceNote: value("sourceNote", ""),
+  };
+}
+const parseLocalizedAmount = (input: string) => {
+  const value = input.trim().replace(/\s/g, "");
+  if (!value) return null;
+  const normalized = value.includes(",") ? value.replace(/\./g, "").replace(",", ".") : value;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) throw new Error("Revise os valores numéricos da configuração.");
+  return parsed;
+};
+const parseSlippageTicks = (input: string) => {
+  const value = input.trim();
+  if (!value) return null;
+  if (!/^\d{1,2}$/.test(value) || Number(value) < 1 || Number(value) > 20) throw new Error("Slippage deve ser um numero inteiro entre 1 e 20 ticks por fill.");
+  return Number(value);
+};
 
 /**
  * The DASH office (owner, 01/11/2026: "crie o escritório do DASH para eu poder entrar e começar a
@@ -42,14 +82,21 @@ export function DashView({ connected = false }: { connected?: boolean }) {
   const [missing, setMissing] = useState<string[] | null>(null);
   const [paperMissing, setPaperMissing] = useState<string[] | null>(null);
   const [paper, setPaper] = useState<PaperData | null>(null);
+  const [paperTax, setPaperTax] = useState<PaperTaxEstimate | null>(null);
   const [config, setConfig] = useState<DashConfig | null>(null);
+  const [executionForm, setExecutionForm] = useState<ExecutionForm>(EMPTY_EXECUTION_FORM);
+  const [configConfirmedAt, setConfigConfirmedAt] = useState<string | null>(null);
+  const [confirmExecutionSource, setConfirmExecutionSource] = useState(false);
+  const [savingExecutionConfig, setSavingExecutionConfig] = useState(false);
   const [heartbeats, setHeartbeats] = useState<DeskHeartbeat[]>([]);
   const [renderedAt, setRenderedAt] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [bars, setBars] = useState<MinuteBar[]>([]);
   const [analysis, setAnalysis] = useState<DeskSignal | null>(null);
-  const [backtest, setBacktest] = useState<{ status: string; trades?: number; netPnl?: number; winRate?: number | null; profitFactor?: number | null; maxDrawdown?: number; walkForwardFolds?: number; trainingDays?: number; evaluationDays?: number } | null>(null);
+  const [backtests, setBacktests] = useState<BacktestSummary[] | null>(null);
+  const [walkForwardSelection, setWalkForwardSelection] = useState<WalkForwardSelectionSummary | null>(null);
+  const [backtestStatus, setBacktestStatus] = useState<string | null>(null);
   const [backtestBusy, setBacktestBusy] = useState(false);
   const [chartMessage, setChartMessage] = useState("Conecte o coletor ProfitDLL e configure um contrato ativo para receber candles.");
   const [tab, setTab] = useState<Tab>("office");
@@ -81,7 +128,13 @@ export function DashView({ connected = false }: { connected?: boolean }) {
     void fetch("/api/daytrade/config", { cache: "no-store" }).then(async (response) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Falha ao ler a configuração do DASH.");
-      if (alive) setConfig(data.config);
+      if (alive) {
+        setConfig(data.config);
+        setPaperMissing(data.paperMissing ?? null);
+        setExecutionForm(makeExecutionForm(data.executionSettings ?? null, data.config));
+        setConfigConfirmedAt(data.confirmedAt ?? null);
+        setConfirmExecutionSource(false);
+      }
     }).catch(() => { if (alive) setConfig(null); });
     return () => { alive = false; };
   }, [connected]);
@@ -100,6 +153,16 @@ export function DashView({ connected = false }: { connected?: boolean }) {
     return () => { alive = false; window.clearInterval(timer); };
   }, [connected, tab]);
   useEffect(() => {
+    if (!connected || tab !== "panel") return;
+    let alive = true;
+    void fetch("/api/daytrade/tax-estimate", { cache: "no-store" }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Falha ao estimar os tributos paper.");
+      if (alive) setPaperTax(data as PaperTaxEstimate);
+    }).catch(() => { if (alive) setPaperTax(null); });
+    return () => { alive = false; };
+  }, [connected, tab]);
+  useEffect(() => {
     if (!connected || tab !== "charts") return;
     let alive = true;
     const load = async () => {
@@ -107,7 +170,12 @@ export function DashView({ connected = false }: { connected?: boolean }) {
         const response = await fetch("/api/daytrade/bars", { cache: "no-store" });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar os candles.");
-        if (alive) { setBars(data.bars); setAnalysis(data.analysis); setChartMessage(data.bars.length ? "Feed ProfitDLL somente leitura." : "Nenhum candle salvo ainda. O histórico começa quando o gateway for executado durante o pregão."); }
+        if (alive) {
+          setBars(data.bars); setAnalysis(data.analysis);
+          setChartMessage(data.bars.length
+            ? data.feedFresh ? "Feed ProfitDLL atualizado; somente leitura." : "Feed sem cotação recente; a análise ativa está bloqueada."
+            : "Nenhum candle salvo ainda. Ao conectar o gateway ProfitDLL, ele tenta importar pregões completos disponíveis nos últimos 30 dias e continua a coleta ao vivo durante o mercado.");
+        }
       } catch (error) { if (alive) setChartMessage(error instanceof Error ? error.message : "Falha ao carregar candles."); }
     };
     void load(); const timer = window.setInterval(load, 15000);
@@ -119,10 +187,51 @@ export function DashView({ connected = false }: { connected?: boolean }) {
       const response = await fetch("/api/daytrade/backtest", { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Falha ao avaliar o histórico.");
-      setBacktest(data);
+      if (Array.isArray(data.candidates)) {
+        setBacktests(data.candidates as BacktestSummary[]);
+        setWalkForwardSelection(data.selection as WalkForwardSelectionSummary | null);
+        setBacktestStatus(null);
+      } else {
+        setBacktests(null);
+        setWalkForwardSelection(null);
+        setBacktestStatus(typeof data.status === "string" ? data.status : "Não foi possível montar a comparação de candidatos.");
+      }
     } catch (error) {
-      setBacktest({ status: error instanceof Error ? error.message : "Falha ao avaliar o histórico." });
+      setBacktests(null);
+      setBacktestStatus(error instanceof Error ? error.message : "Falha ao avaliar o histórico.");
     } finally { setBacktestBusy(false); }
+  }
+  async function saveExecutionConfiguration(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingExecutionConfig(true); setMessage("");
+    try {
+      const body = {
+        marginPerContract: parseLocalizedAmount(executionForm.marginPerContract),
+        brokeragePerContract: parseLocalizedAmount(executionForm.brokeragePerContract),
+        exchangeFeesPerContract: parseLocalizedAmount(executionForm.exchangeFeesPerContract),
+        slippageTicks: parseSlippageTicks(executionForm.slippageTicks),
+        maxLossPerTrade: parseLocalizedAmount(executionForm.maxLossPerTrade),
+        maxLossPerDay: parseLocalizedAmount(executionForm.maxLossPerDay),
+        maxExposure: parseLocalizedAmount(executionForm.maxExposure),
+        lastEntry: executionForm.lastEntry || null,
+        flatBy: executionForm.flatBy || null,
+        sourceNote: executionForm.sourceNote.trim(),
+        confirmSource: confirmExecutionSource,
+      };
+      const response = await fetch("/api/daytrade/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Falha ao salvar a configuração paper.");
+      setConfig(data.config); setPaperMissing(data.paperMissing);
+      setExecutionForm(makeExecutionForm(data.executionSettings, data.config));
+      setConfigConfirmedAt(data.confirmedAt ?? null); setConfirmExecutionSource(false);
+      setMessage(data.confirmedAt ? "Configuração paper salva e confirmada. O modo real permanece bloqueado." : "Rascunho salvo; as entradas paper continuam bloqueadas até a confirmação da fonte.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Falha ao salvar a configuração paper.");
+    } finally { setSavingExecutionConfig(false); }
+  }
+  function updateExecutionField(field: keyof ExecutionForm, value: string) {
+    setExecutionForm((previous) => ({ ...previous, [field]: value }));
+    setConfirmExecutionSource(false); setConfigConfirmedAt(null);
   }
   /** The DASH kill switch (only the DASH; the DAWN office is not touched). */
   async function toggleHalt() {
@@ -137,6 +246,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
   }
   const idle = deskState(status) === "IDLE";
   const current = TABS.find((t) => t.id === tab)!;
+  const activeInstrument = config?.instruments.find((instrument) => instrument.enabled)?.symbol ?? "WIN";
   const heartbeatByDesk = new Map(heartbeats.map((heartbeat) => [heartbeat.desk, heartbeat]));
   const activity = (id: string) => {
     const heartbeat = heartbeatByDesk.get(id);
@@ -146,9 +256,9 @@ export function DashView({ connected = false }: { connected?: boolean }) {
       case "supervisor": return halted ? "Parada ativa" : "Aguardando ciclo de supervisão";
       case "feed": return status.data === "REAL" ? "Feed ProfitDLL ativo · somente leitura" : "Aguardando conexão do ProfitDLL";
       case "price": return bars.length ? `Analisando ${bars.length} candles` : "Aguardando candles do pregão";
-      case "news": return "Fonte de notícias/eventos ainda não conectada";
+      case "news": return "Aguardando atualização das fontes configuradas";
       case "strategy": return analysis?.state ?? "Aguardando histórico e faixa de abertura";
-      case "backtest": return backtest?.status === "RESEARCH_ONLY" ? "Avaliação exploratória concluída" : "Aguardando histórico/custos confirmados";
+      case "backtest": return backtests?.some((result) => result.status === "RESEARCH_ONLY") ? "Comparação exploratória concluída" : backtests?.every((result) => result.status === "NO_TRADES") ? "Walk-forward concluído · nenhum setup" : backtestStatus ?? "Aguardando histórico/custos confirmados";
       case "risk": return paperMissing === null ? "Aguardando leitura da configuração" : paperMissing.length ? `BLOCKED · ${paperMissing.slice(0, 2).join("; ")}` : "Limites paper carregados · real bloqueado";
       case "positions": return "Reconciliação de posições da corretora não conectada";
       case "execution": case "orders": return "Bloqueado · roteamento real desativado";
@@ -310,10 +420,20 @@ export function DashView({ connected = false }: { connected?: boolean }) {
             <dl>
               <div><dt>Corretagem / contrato / lado</dt><dd>{!config || config.costs.brokeragePerContract === null ? "Pendente" : `R$ ${config.costs.brokeragePerContract.toFixed(2)}`}</dd></div>
               <div><dt>Emolumentos / contrato / lado</dt><dd>{!config || config.costs.exchangeFeesPerContract === null ? "Pendente" : `R$ ${config.costs.exchangeFeesPerContract.toFixed(2)}`}</dd></div>
-              <div><dt>Slippage</dt><dd>{config ? `${config.costs.slippageTicks} tick(s) por fill` : "—"}</dd></div>
-              <div><dt>IR estimado</dt><dd>{config ? `${(config.tax.dayTradeRate * 100).toFixed(0)}% sobre ganho mensal` : "—"}</dd></div>
+              <div><dt>Slippage modelado</dt><dd>{config ? `${config.costs.slippageTicks} tick(s) adversos por fill · estimativa` : "—"}</dd></div>
+              <div><dt>Alíquota day trade (referência)</dt><dd>{config ? `${(config.tax.dayTradeRate * 100).toFixed(0)}%` : "—"}</dd></div>
+              <div><dt>IRRF day trade (referência)</dt><dd>{config ? `${(config.tax.withholdingRate * 100).toFixed(0)}% do resultado líquido diário` : "—"}</dd></div>
             </dl>
-            <p className="dash-note">Confira custos e tributos com a nota da Genial e um contador. O backtest não desconta IR.</p>
+            <h3>Estimativa fiscal paper</h3>
+            {paperTax?.status === "READY" ? <>
+              <dl>{paperTax.months.slice(0, 3).map((month) => <div key={month.month}>
+                <dt>{month.month} · {month.closedTrades} saídas</dt>
+                <dd>Resultado R$ {Number(month.dayTradeResult).toFixed(2)} · IR teórico R$ {Number(month.estimatedTax).toFixed(2)}</dd>
+              </div>)}</dl>
+              {paperTax.months[0]?.excludedOvernightCloses ? <p className="dash-note">{paperTax.months[0].excludedOvernightCloses} zeragem(ns) entre pregões (R$ {Number(paperTax.months[0].excludedOvernightResult).toFixed(2)}) ficaram fora do cálculo day trade.</p> : null}
+              <p className="dash-note">Resultado tributável estimado após perdas paper: R$ {Number(paperTax.months[0]?.taxableAfterPaperLosses ?? 0).toFixed(2)} · IRRF teórico: R$ {Number(paperTax.months[0]?.estimatedIrrfEquivalent ?? 0).toFixed(2)}. O saldo de prejuízo considera apenas o histórico paper disponível, desde o primeiro mês registrado.</p>
+            </> : <p className="dash-note">{paperTax?.status === "HISTORY_LIMIT" ? "Histórico acima do limite de leitura; totais omitidos para evitar estimativa parcial." : paperTax?.status === "NO_CLOSED_TRADES" ? "Nenhuma saída paper registrada para estimar." : "Estimativa paper indisponível; reabra o painel para carregar."}</p>}
+            <p className="dash-note">Estimativa informativa de simulação, não apuração de conta nem DARF. Não inclui notas reais, IRRF retido, saldo de IRRF anterior ou prejuízos anteriores ao histórico; confira com contador. O backtest não desconta IR.</p>
           </article>
         </section>}
 
@@ -321,7 +441,7 @@ export function DashView({ connected = false }: { connected?: boolean }) {
 
         {tab === "charts" && <section className="dash-grid" aria-label="Gráficos e análise do DASH">
           <article className="dash-card wide">
-            {bars.length ? <CandleChart timeframe="minute" ticker="WIN" bars={bars.map((b) => ({ timestamp: b.bucket_at, open: String(b.open), high: String(b.high), low: String(b.low), close: String(b.close), adjustedClose: null, volume: b.volume }))} /> : <p className="dash-note">{chartMessage}</p>}
+            {bars.length ? <CandleChart timeframe="minute" ticker="WIN" bars={bars.map((b) => ({ timestamp: b.bucket_at, open: String(b.open), high: String(b.high), low: String(b.low), close: String(b.close), adjustedClose: null, volume: b.volume, turnover: b.turnover }))} /> : <p className="dash-note">{chartMessage}</p>}
             {bars.length > 0 && <p className="dash-note">{chartMessage} Os candles representam dados observados; períodos sem feed não são preenchidos.</p>}
           </article>
           <article className="dash-card">
@@ -329,9 +449,9 @@ export function DashView({ connected = false }: { connected?: boolean }) {
             <dl>
               <div><dt>Estado</dt><dd>{analysis?.state ?? "Sem dados"}</dd></div>
               <div><dt>Candles observados</dt><dd>{analysis?.metrics.bars ?? 0}</dd></div>
-              <div><dt>VWAP</dt><dd>{analysis?.metrics.vwap?.toFixed(2) ?? "—"}</dd></div>
-              <div><dt>Faixa inicial</dt><dd>{analysis?.metrics.openingLow?.toFixed(2) ?? "—"} – {analysis?.metrics.openingHigh?.toFixed(2) ?? "—"}</dd></div>
-              <div><dt>EMA 9 / 21</dt><dd>{analysis?.metrics.emaFast?.toFixed(2) ?? "—"} / {analysis?.metrics.emaSlow?.toFixed(2) ?? "—"}</dd></div>
+              <div><dt>VWAP</dt><dd>{analysis?.metrics.vwap == null ? "—" : formatInstrumentPrice(activeInstrument, analysis.metrics.vwap)}</dd></div>
+              <div><dt>Faixa inicial</dt><dd>{analysis?.metrics.openingLow == null ? "—" : formatInstrumentPrice(activeInstrument, analysis.metrics.openingLow)} – {analysis?.metrics.openingHigh == null ? "—" : formatInstrumentPrice(activeInstrument, analysis.metrics.openingHigh)}</dd></div>
+              <div><dt>EMA 9 / 21</dt><dd>{analysis?.metrics.emaFast == null ? "—" : formatInstrumentPrice(activeInstrument, analysis.metrics.emaFast)} / {analysis?.metrics.emaSlow == null ? "—" : formatInstrumentPrice(activeInstrument, analysis.metrics.emaSlow)}</dd></div>
             </dl>
             <p className="dash-note">{analysis?.explanation ?? "Aguardando feed"} Estratégia candidata sem validação; “observar” não significa comprar ou vender.</p>
           </article>
@@ -340,22 +460,105 @@ export function DashView({ connected = false }: { connected?: boolean }) {
             <button type="button" className="button secondary" onClick={() => void runBacktest()} disabled={!connected || backtestBusy}>
               {backtestBusy ? "Avaliando histórico…" : "Executar avaliação fora da amostra"}
             </button>
-            {backtest?.status === "RESEARCH_ONLY" || backtest?.status === "NO_TRADES" ? <dl>
-              <div><dt>Estado</dt><dd>{backtest.status}</dd></div>
-              <div><dt>Operações fora da amostra</dt><dd>{backtest.trades}</dd></div>
-              <div><dt>Pregões avaliados / blocos</dt><dd>{backtest.evaluationDays} / {backtest.walkForwardFolds}</dd></div>
-              <div><dt>Histórico anterior acumulado</dt><dd>{backtest.trainingDays} pregões</dd></div>
-              <div><dt>Líquido após custos, antes de IR</dt><dd>R$ {backtest.netPnl?.toFixed(2)}</dd></div>
-              <div><dt>Acerto</dt><dd>{backtest.winRate === null || backtest.winRate === undefined ? "—" : `${(backtest.winRate * 100).toFixed(1)}%`}</dd></div>
-              <div><dt>Fator de lucro</dt><dd>{backtest.profitFactor?.toFixed(2) ?? "—"}</dd></div>
-              <div><dt>Drawdown máximo</dt><dd>R$ {backtest.maxDrawdown?.toFixed(2)}</dd></div>
-            </dl> : <p className="dash-note">{backtest?.status === "INSUFFICIENT_DATA" ? "Histórico fora da amostra insuficiente; acumule ao menos 20 pregões completos, com 6 no período de avaliação." : backtest?.status === "COSTS_NOT_CONFIGURED" ? "Informe corretagem e emolumentos por contrato com base na sua nota para avaliar resultado líquido." : backtest?.status && backtest.status !== "COSTS_NOT_CONFIGURED" ? backtest.status : "A avaliação usa até 20.000 candles e só é executada quando solicitada. Precisa de custos confirmados da conta."}</p>}
+            {backtests ? <>
+              {walkForwardSelection && <section className="dash-backtest-selection" aria-label="Seleção walk-forward sem antecipação">
+                <h3>Seleção sequencial fora da amostra</h3>
+                <p className="dash-note">Em cada bloco, escolhe o candidato com maior resultado líquido nos blocos anteriores, exigindo ao menos {walkForwardSelection.minimumTrainingTrades} operações de histórico. O bloco seguinte mede a escolha sem usar seus dados para selecioná-la.</p>
+                {walkForwardSelection.status === "INSUFFICIENT_DATA" ? <p className="dash-note">Ainda não há blocos anteriores com operações suficientes para selecionar um candidato e avaliá-lo no bloco seguinte.</p> : <>
+                  <dl>
+                    <div><dt>Estado</dt><dd>{walkForwardSelection.status}</dd></div>
+                    <div><dt>Operações selecionadas OOS</dt><dd>{walkForwardSelection.trades}</dd></div>
+                    <div><dt>Blocos avaliados</dt><dd>{walkForwardSelection.folds.length}</dd></div>
+                    <div><dt>Líquido após custos</dt><dd>R$ {walkForwardSelection.netPnl.toFixed(2)}</dd></div>
+                    <div><dt>Drawdown máximo</dt><dd>R$ {walkForwardSelection.maxDrawdown.toFixed(2)}</dd></div>
+                  </dl>
+                  <details className="dash-fold-details">
+                    <summary>Ver seleção e resultado por bloco</summary>
+                    <div className="dash-fold-list">
+                      {walkForwardSelection.folds.map((fold) => {
+                        const selected = BACKTEST_CANDIDATES.find((item) => item.id === fold.selectedCandidate);
+                        return <div className="dash-fold-row dash-selection-fold" key={fold.fold}>
+                          <span>Bloco {fold.fold}: {selected?.label ?? "sem seleção"} · {fold.evaluationFrom} a {fold.evaluationThrough}<small>{fold.trainingTrades} operações anteriores usadas para selecionar · {fold.trades} operações avaliadas</small></span>
+                          <strong className={fold.netPnl < 0 ? "negative" : "positive"}>R$ {fold.netPnl.toFixed(2)}</strong>
+                          <ul className="dash-selection-scores" aria-label={`Pontuações de treino antes do bloco ${fold.fold}`}>
+                            {fold.selectionScores.map((score) => {
+                              const candidate = BACKTEST_CANDIDATES.find((item) => item.id === score.candidate);
+                              return <li key={score.candidate}>{candidate?.label ?? score.candidate}: líquido R$ {score.netPnl.toFixed(2)} · {score.trades} operações · drawdown R$ {score.maxDrawdown.toFixed(2)}</li>;
+                            })}
+                          </ul>
+                        </div>;
+                      })}
+                    </div>
+                  </details>
+                </>}
+              </section>}
+              <div className="dash-backtest-grid">
+              {backtests.map((result) => {
+                const candidate = BACKTEST_CANDIDATES.find((item) => item.id === result.candidate)!;
+                return <section className="dash-backtest-result" key={result.candidate} aria-label={`Avaliação: ${candidate.label}`}>
+                  <h3>{candidate.label}</h3>
+                  <p className="dash-note">{candidate.description}</p>
+                  {result.status === "RESEARCH_ONLY" || result.status === "NO_TRADES" ? <dl>
+                    <div><dt>Estado</dt><dd>{result.status}</dd></div>
+                    <div><dt>Negócios OOS</dt><dd>{result.trades}</dd></div>
+                    <div><dt>Pregões / blocos</dt><dd>{result.evaluationDays} / {result.walkForwardFolds}</dd></div>
+                    <div><dt>Sessões elegíveis</dt><dd>{result.eligibleSessions}</dd></div>
+                    <div><dt>Sessões esparsas válidas</dt><dd>{result.sparseSessions}</dd></div>
+                    <div><dt>OOS encerrados por lacuna</dt><dd>{result.gapTerminatedSessions}</dd></div>
+                    <div><dt>Posições fechadas por lacuna</dt><dd>{result.gapFlattenedTrades}</dd></div>
+                    <div><dt>Treino acumulado</dt><dd>{result.trainingDays}</dd></div>
+                    <div><dt>Limite de operações por pregão</dt><dd>{result.maxTradesPerDay}</dd></div>
+                    <div><dt>Bruto</dt><dd>R$ {result.grossPnl.toFixed(2)}</dd></div>
+                    <div><dt>Tarifas</dt><dd>R$ {result.feesPaid.toFixed(2)}</dd></div>
+                    <div><dt>Slippage</dt><dd>R$ {result.slippageCost.toFixed(2)}</dd></div>
+                    <div><dt>Líquido antes do IR</dt><dd>R$ {result.netPnl.toFixed(2)}</dd></div>
+                    <div><dt>Acerto</dt><dd>{result.winRate === null ? "—" : `${(result.winRate * 100).toFixed(1)}%`}</dd></div>
+                    <div><dt>Fator de lucro</dt><dd>{result.profitFactor?.toFixed(2) ?? "—"}</dd></div>
+                    <div><dt>Drawdown máximo</dt><dd>R$ {result.maxDrawdown.toFixed(2)}</dd></div>
+                  </dl> : <p className="dash-note">{result.status === "INSUFFICIENT_DATA" ? "Histórico OOS insuficiente; precisa de pelo menos 10 pregões completos para o período inicial e um bloco de 3 para avaliação." : result.status}</p>}
+                  {result.folds.length > 0 && <details className="dash-fold-details">
+                    <summary>Resultado por bloco fora da amostra</summary>
+                    <div className="dash-fold-list">
+                      {result.folds.map((fold) => <div className="dash-fold-row" key={fold.fold}>
+                        <span>Bloco {fold.fold} - {fold.evaluationFrom} a {fold.evaluationThrough}<small>{fold.trainingSessions} pregoes anteriores - {fold.trades} operacoes</small></span>
+                        <strong className={fold.netPnl < 0 ? "negative" : "positive"}>R$ {fold.netPnl.toFixed(2)}</strong>
+                      </div>)}
+                    </div>
+                  </details>}
+                </section>;
+              })}
+              </div>
+            </> : <p className="dash-note">{backtestStatus === "INSUFFICIENT_DATA" ? "Histórico fora da amostra insuficiente; são necessários ao menos 10 pregões iniciais e blocos de avaliação de 3 pregões. A seleção entre candidatos só aparece quando houver operações anteriores suficientes." : backtestStatus === "COSTS_NOT_CONFIGURED" ? "Confirme corretagem e emolumentos na nota; escolha e registre a premissa de slippage adverso por fill." : backtestStatus === "SESSION_NOT_CONFIGURED" ? "Confirme o horário da sessão, a última entrada e a zeragem na configuração antes de avaliar o histórico." : backtestStatus === "RISK_NOT_CONFIGURED" ? "Informe perda máxima por operação e por dia, limite de operações, posições, margem e exposição usando os valores verificados da Genial." : backtestStatus ?? "A avaliação usa até 20.000 candles e só é executada quando solicitada. Precisa de custos confirmados da conta."}</p>}
             <p className="dash-note">Resultado hipotético exploratório, não previsão nem validação para dinheiro real. Ordens permanecem bloqueadas.</p>
           </article>
         </section>}
 
         {tab === "risk" && <section className="dash-grid" aria-label="Risco do DASH">
           {risk}
+          <article className="dash-card wide">
+            <h2>Configuração de risco e custos para paper</h2>
+            <p className="dash-note">Preencha usando a nota atual da Genial e as regras vigentes do contrato. Os valores são salvos no banco por proprietário. Não informe senha, número de conta ou dados de cartão.</p>
+            <p className="dash-note">Slippage e uma premissa escolhida para simulacao, aplicada contra a operacao em cada fill; nao e uma medicao da corretora.</p>
+            <p className="dash-note">{configConfirmedAt ? `Fonte confirmada em ${new Date(configConfirmedAt).toLocaleString("pt-BR")}.` : "Sem confirmação documental; as entradas paper ficam bloqueadas."}</p>
+            <form className="dash-config-form" onSubmit={(event) => void saveExecutionConfiguration(event)}>
+              <label>Margem por contrato (R$)<input type="text" inputMode="decimal" value={executionForm.marginPerContract} onChange={(event) => updateExecutionField("marginPerContract", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Conforme sua conta e regra vigente" /></label>
+              <label>Corretagem por contrato e lado (R$)<input type="text" inputMode="decimal" value={executionForm.brokeragePerContract} onChange={(event) => updateExecutionField("brokeragePerContract", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Conforme sua nota" /></label>
+              <label>Emolumentos por contrato e lado (R$)<input type="text" inputMode="decimal" value={executionForm.exchangeFeesPerContract} onChange={(event) => updateExecutionField("exchangeFeesPerContract", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Conforme sua nota" /></label>
+              <label>Slippage adverso por fill (1-20 ticks)<input type="text" inputMode="numeric" value={executionForm.slippageTicks} onChange={(event) => updateExecutionField("slippageTicks", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Premissa que deseja simular" /></label>
+              <label>Perda máxima por operação (R$)<input type="text" inputMode="decimal" value={executionForm.maxLossPerTrade} onChange={(event) => updateExecutionField("maxLossPerTrade", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Limite definido por você" /></label>
+              <label>Perda máxima por dia (R$)<input type="text" inputMode="decimal" value={executionForm.maxLossPerDay} onChange={(event) => updateExecutionField("maxLossPerDay", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Limite definido por você" /></label>
+              <label>Exposição máxima (R$)<input type="text" inputMode="decimal" value={executionForm.maxExposure} onChange={(event) => updateExecutionField("maxExposure", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Limite definido por você" /></label>
+              <label>Última entrada paper<input type="time" value={executionForm.lastEntry} onChange={(event) => updateExecutionField("lastEntry", event.target.value)} disabled={!connected || savingExecutionConfig} /></label>
+              <label>Horário de zeragem paper<input type="time" value={executionForm.flatBy} onChange={(event) => updateExecutionField("flatBy", event.target.value)} disabled={!connected || savingExecutionConfig} /></label>
+              <label className="dash-config-source">Fonte consultada e premissa do slippage<input type="text" maxLength={240} value={executionForm.sourceNote} onChange={(event) => updateExecutionField("sourceNote", event.target.value)} disabled={!connected || savingExecutionConfig} placeholder="Nota Genial, fonte B3 e premissa de slippage escolhida" /></label>
+              <label className="dash-config-confirm"><input type="checkbox" checked={confirmExecutionSource} onChange={(event) => setConfirmExecutionSource(event.target.checked)} disabled={!connected || savingExecutionConfig} />
+                Confirmo que conferi os valores na fonte informada e que eles servem para estimativa paper.</label>
+              <button className="button secondary dash-config-submit" type="submit" disabled={!connected || savingExecutionConfig}>
+                {savingExecutionConfig ? "Salvando…" : confirmExecutionSource ? "Salvar e confirmar configuração" : "Salvar rascunho"}
+              </button>
+            </form>
+            <p className="dash-note">A confirmação habilita somente os gates de simulação. O modo SIMULATED é fixo; o DASH não envia ordens reais.</p>
+          </article>
           <article className="dash-card wide">
             <h2>Regras da mesa</h2>
             <ol className="dash-rules">

@@ -8,6 +8,7 @@
       "enabled": true,
       "symbol": "WINZ26",
       "expiresOn": "2026-12-16",
+      "expirySource": "https://www.b3.com.br/pt_br/solucoes/plataformas/puma-trading-system/para-participantes-e-traders/calendario-de-negociacao/vencimentos/calendario-de-vencimentos-de-contratos-financeiros/",
       "tickSize": 5,
       "pointValue": 0.2,
       "marginPerContract": null,
@@ -42,7 +43,7 @@
     "stopRequired": true
   },
   "costs": {
-    "$comment": "Brokerage and exchange fees are entered per contract per side, from the Genial brokerage note. The simulator charges two sides for a round trip; slippageTicks applies adversely on each fill.",
+      "$comment": "Brokerage and exchange fees are entered per contract per side, from the user's current Genial note. Do not assume zero brokerage: Genial's published zero-cost terms require active RLP and qualifying real WIN/WDO executions in each renewal cycle. B3's public WIN day-trade figures are a reference, not proof of this account's actual charges. The simulator charges two sides for a round trip; slippageTicks applies adversely on each fill. Sources: https://www.genialinvestimentos.com.br/trader/ and https://edu.b3.com.br/day-trade",
     "brokeragePerContract": null,
     "exchangeFeesPerContract": null,
     "slippageTicks": 1,
@@ -52,7 +53,7 @@
     "dayTradeRate": 0.2,
     "withholdingRate": 0.01,
     "darfCode": "6015",
-    "note": "Imposto de day trade: 20% sobre o ganho líquido do mês, IRRF de 1% retido na fonte, DARF código 6015 até o último dia útil do mês seguinte. Conferir com contador; prejuízo de day trade só compensa ganho de day trade."
+    "note": "Referência informativa: 20% sobre o ganho líquido mensal de day trade; IRRF de 1% sobre o resultado líquido diário da modalidade, como antecipação passível de dedução. DARF código 6015 até o último dia útil do mês seguinte. O DASH não apura IRRF, prejuízos compensáveis ou DARF; conferir regras atuais e o livro fiscal com contador."
   },
   "data": {
     "maxDelayMs": 2000,

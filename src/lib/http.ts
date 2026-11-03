@@ -35,7 +35,7 @@ export function checkProfitDllGateway(request: Request) {
   if (a.length !== b.length || !timingSafeEqual(a, b))
     throw new ApiError(401, "GATEWAY_UNAUTHORIZED", "Gateway ProfitDLL não autorizado.");
 }
-export async function readBody(request: Request) {
+export async function readBody(request: Request, maxBytes = 16_384) {
   if (!request.headers.get("content-type")?.includes("application/json"))
     throw new ApiError(415, "JSON_REQUIRED", "Envie JSON.");
   const reader = request.body?.getReader();
@@ -46,7 +46,7 @@ export async function readBody(request: Request) {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > 16384) {
+    if (size > maxBytes) {
       await reader.cancel();
       throw new ApiError(413, "BODY_TOO_LARGE", "Solicitação muito grande.");
     }
