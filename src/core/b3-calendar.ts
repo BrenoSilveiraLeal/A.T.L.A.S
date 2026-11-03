@@ -1,3 +1,4 @@
+import marketHours from "../../config/b3-market-hours.json";
 /**
  * B3 cash-equity session guard. Conservative by design: it answers "may an automated
  * order be considered now?", not "is B3 technically open".
@@ -41,10 +42,28 @@ export const B3_CALENDAR: Record<number, YearCalendar> = {
 
 /**
  * Regular session is 10:00–16:55 while US daylight saving is in force and 10:00–17:55
- * otherwise. The window below fits inside both, with margins after the opening auction
- * and before the closing call, so the guard never depends on the seasonal switch.
+ * otherwise (closing call until 17:00 / 18:00). SAFE_WINDOW fits inside both; the window in use
+ * follows B3's official grid (config/b3-market-hours.json, Ofício Circular 055/2026-VNC) with the
+ * same margins, and falls back to SAFE_WINDOW once past the last date the grid is known for.
+ * 03/11/2026: the fixed 16:50 stopped purchases 65 minutes before the real end of the session.
  */
 export const SAFE_WINDOW = { open: "10:05", close: "16:50" } as const;
+const equities = marketHours.equities as { defaultCallStart: string; regularCloseChanges: { effectiveDate: string; callStart: string }[]; knownUntil: string };
+
+/** When the closing call starts on that date (São Paulo), from the official grid; null when not known. */
+export function closingCall(date: string): string | null {
+  if (date > equities.knownUntil) return null;
+  let call = equities.defaultCallStart;
+  for (const change of equities.regularCloseChanges) if (date >= change.effectiveDate) call = change.callStart;
+  return call;
+}
+/** The end of the session (closing call included): 17:00 or 18:00; the conservative 17:00 when not known. */
+export const sessionEnd = (date: string) => addMinutes(closingCall(date) ?? "16:55", 5);
+/** The safe trading window of that date: 5 minutes after the open, 5 minutes before the closing call. */
+export function safeWindow(date: string) {
+  const call = closingCall(date);
+  return { open: SAFE_WINDOW.open, close: call ? addMinutes(call, -5) : SAFE_WINDOW.close };
+}
 
 const parts = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
@@ -74,14 +93,14 @@ export function b3Session(at: Date): { status: SessionStatus; reason: string; da
   if (clock.weekday === "Sat" || clock.weekday === "Sun") return { ...base, status: "CLOSED", reason: "Fim de semana." };
   const holiday = year.closed[clock.date];
   if (holiday) return { ...base, status: "CLOSED", reason: `Sem pregão: ${holiday}.` };
-  const late = year.lateOpen[clock.date];
-  const open = late ? addMinutes(late, 5) : SAFE_WINDOW.open;
+  const late = year.lateOpen[clock.date], window = safeWindow(clock.date);
+  const open = late ? addMinutes(late, 5) : window.open;
   if (clock.time < open) return { ...base, status: "CLOSED", reason: `Antes da janela segura (${open}).` };
-  if (clock.time >= SAFE_WINDOW.close) return { ...base, status: "CLOSED", reason: `Depois da janela segura (${SAFE_WINDOW.close}).` };
+  if (clock.time >= window.close) return { ...base, status: "CLOSED", reason: `Depois da janela segura (${window.close}).` };
   return { ...base, status: "OPEN", reason: late ? `Abertura tardia (${late}).` : "Dentro da janela segura." };
 }
 
-function addMinutes(hhmm: string, minutes: number) {
+export function addMinutes(hhmm: string, minutes: number) {
   const [h, m] = hhmm.split(":").map(Number);
   const total = h * 60 + m + minutes;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;

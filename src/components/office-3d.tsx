@@ -10,7 +10,7 @@ import type { Vote } from "@/core/committee";
 import { lookFor, type PersonLook } from "@/core/people";
 import { companyProfile } from "@/core/context";
 import { meetingClock } from "@/core/meeting";
-import { B3_CALENDAR, saoPauloClock } from "@/core/b3-calendar";
+import { B3_CALENDAR, saoPauloClock, sessionEnd } from "@/core/b3-calendar";
 import { NavGrid, type Rect } from "@/core/office-nav";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
 import Link from "next/link";
@@ -103,7 +103,7 @@ const BREAK_CHAT = ["Mais um café?", "Que dia na bolsa!", "Viu o dólar hoje?",
 /** The working day on B3 trading days, from `from` to the close (17:00). */
 function workingHours(at: Date, from = "09:45") {
   const c = saoPauloClock(at);
-  return !["Sat", "Sun"].includes(c.weekday) && !B3_CALENDAR[c.year]?.closed[c.date] && c.time >= from && c.time < "17:00";
+  return !["Sat", "Sun"].includes(c.weekday) && !B3_CALENDAR[c.year]?.closed[c.date] && c.time >= from && c.time < sessionEnd(c.date);
 }
 /** The analysts sit down 30 min before the open (10:00) to read the charts and the news first. */
 const ANALYSTS_FROM = "09:30";

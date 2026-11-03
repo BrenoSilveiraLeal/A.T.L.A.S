@@ -190,15 +190,18 @@ export async function runScheduler() {
         });
         if (commit.error) throw commit.error;
         // Virtual book only. A paper failure never turns a committed analysis into a failure.
-        let paper: Awaited<ReturnType<typeof runPaperAutopilot>> | { status: "FAILED" };
+        let paper: Awaited<ReturnType<typeof runPaperAutopilot>> | { status: "FAILED"; error: string };
         try {
           paper = await runPaperAutopilot(db, {
             owner, jobId: job.job_id, agentId: job.agent_id, assetId: asset.data.id,
             ticker: asset.data.ticker, quote, history,
             context: { action: context.action, summary: contextSummary(context) },
           });
-        } catch {
-          paper = { status: "FAILED" };
+        } catch (error) {
+          // 03/11/2026: the real reason was swallowed and every alert just said "falhou".
+          const reason = error instanceof Error ? error.message.slice(0, 160) : "erro desconhecido";
+          console.error(JSON.stringify({ component: "autopilot", ticker: asset.data.ticker, error: reason }));
+          paper = { status: "FAILED", error: reason };
         }
         return {
           jobId: job.job_id,
@@ -257,10 +260,10 @@ export async function runScheduler() {
     if (paper.status === "ORDER_OPENED")
       notes.push(`${r.label}: decidiu ${paper.side === "BUY" ? "comprar" : "vender"} ${paper.quantity} a até R$ ${paper.limitPrice} (a ordem vai para a Genial).`);
     if (paper.status === "ELIMINATED") alerts.push(`${r.label} atingiu o limite de perda.`);
-    if (paper.status === "FAILED") alerts.push(`Piloto automático falhou para ${r.label}.`);
+    if (paper.status === "FAILED") alerts.push(`Piloto automático falhou para ${r.label}${"error" in paper ? `: ${paper.error}` : ""}.`);
     if (paper.status === "CORPORATE_ACTION_SUSPECTED") alerts.push(`${r.label} PAUSADO: ${paper.reason} Confira a posição antes de retomar.`);
   }
-  if (alerts.length) await notify({ level: "error", title: "Problema nas análises das IAs", lines: alerts, dedupeKey: `scheduler:${alerts.join("|").slice(0, 120)}`, windowSeconds: 3600 });
+  if (alerts.length) await notify({ level: "error", title: "Problema nas análises das IAs", lines: alerts, dedupeKey: "scheduler:analysis-problems", windowSeconds: 3600 });
   if (notes.length) await notify({ level: "info", title: "Atividade das IAs", lines: notes });
   // Keeps the office TV filled even with the panel closed (refresh at most every 5 min).
   await loadNews(db, owner).catch(() => undefined);

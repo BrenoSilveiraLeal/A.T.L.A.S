@@ -2,7 +2,7 @@ import { entryCheck, entryReason, historyAgrees, RANGE_DEFAULTS, SELLS_NEAR_HIGH
 import { minimumSellPrice } from "./live";
 import { forecastOpinion, type ConsensusView } from "./forecast";
 import { opportunityScore } from "./boss";
-import { B3_CALENDAR, saoPauloClock } from "./b3-calendar";
+import { addMinutes, B3_CALENDAR, saoPauloClock, sessionEnd } from "./b3-calendar";
 
 /**
  * End-of-day team meeting (owner, 26/10/2026: "no final do dia todas as IAs se reúnem e debatem
@@ -40,18 +40,19 @@ const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigi
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const pct = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v * 100).toFixed(1).replace(".", ",")}%`;
 
-/** The meeting starts right after the close (owner, 27/10/2026: "depois que fechou a bolsa"). */
-export const MEETING_START = "17:05";
-/** Without minutes by then (runner off), the team stops waiting in the room. */
-const GATHER_UNTIL = "17:40";
+/** The meeting starts 5 minutes after the close (owner, 27/10/2026: "depois que fechou a bolsa"): 17:05 or 18:05. */
+export const meetingStart = (date: string) => addMinutes(sessionEnd(date), 5);
+/** Without minutes 35 minutes later (runner off), the team stops waiting in the room. */
+const gatherUntil = (date: string) => addMinutes(sessionEnd(date), 40);
 /** Walking to the room and sitting down before the boss opens. */
 const GATHER_SECONDS = 60;
 
-/** A B3 trading day after the close (from MEETING_START São Paulo): the time of the meeting. */
+/** A B3 trading day after the close (from meetingStart São Paulo): the time of the meeting. */
 export function meetingDue(at: Date) {
   const clock = saoPauloClock(at);
   const tradingDay = !["Sat", "Sun"].includes(clock.weekday) && !B3_CALENDAR[clock.year]?.closed[clock.date];
-  return { due: tradingDay && clock.time >= MEETING_START, day: clock.date, gathering: tradingDay && clock.time >= MEETING_START && clock.time < GATHER_UNTIL };
+  const start = meetingStart(clock.date);
+  return { due: tradingDay && clock.time >= start, day: clock.date, gathering: tradingDay && clock.time >= start && clock.time < gatherUntil(clock.date) };
 }
 
 /** Time to read a line aloud (a person reads ~14 characters a second), plus a pause between speakers. */
@@ -66,7 +67,7 @@ export function meetingClock(now: Date, minutes: { day: string; created_at?: str
   const { gathering, day } = meetingDue(now);
   if (!minutes || minutes.day !== day || !minutes.created_at)
     return { phase: gathering ? "GATHERING" as const : "NONE" as const, index: -1, remaining: 0 };
-  const created = Date.parse(minutes.created_at), opens = Date.parse(`${day}T${MEETING_START}:00-03:00`);
+  const created = Date.parse(minutes.created_at), opens = Date.parse(`${day}T${meetingStart(day)}:00-03:00`);
   const start = Math.max(created, opens) + GATHER_SECONDS * 1000;
   let elapsed = (now.getTime() - start) / 1000;
   if (elapsed < 0) return { phase: "GATHERING" as const, index: -1, remaining: -elapsed };

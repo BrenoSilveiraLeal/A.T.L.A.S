@@ -7,6 +7,9 @@ import type {
 } from "@/providers/types";
 
 export const OBSERVATION_VERSION = "sma-observation/1.0.0";
+/** Tolerated lead of a quote over the computer's clock (exchange and PC clocks differ by seconds). */
+export const QUOTE_CLOCK_SKEW_MS = 120_000;
+
 export function analyzeAsset(input: {
   ticker: string;
   now: string;
@@ -24,9 +27,11 @@ export function analyzeAsset(input: {
     history.ticker !== input.ticker
   )
     throw new Error("ANALYSIS_IDENTITY_INVALID");
+  // 03/11/2026: Genial's MetaTrader stamps live ticks a few seconds ahead of the PC clock now and
+  // then; up to QUOTE_CLOCK_SKEW_MS is clock skew, beyond it the quote is refused.
   if (
     !Number.isFinite(Date.parse(quote.dataTimestamp)) ||
-    Date.parse(quote.dataTimestamp) > now
+    Date.parse(quote.dataTimestamp) > now + QUOTE_CLOCK_SKEW_MS
   )
     throw new Error("FUTURE_OR_INVALID_QUOTE");
   if (

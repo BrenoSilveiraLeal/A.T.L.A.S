@@ -18,7 +18,7 @@ import { historyAgrees } from "@/core/range";
 import { entryCheck, RANGE_DEFAULTS, SELLS_NEAR_HIGH } from "@/core/range";
 import { HEALTH_LABELS, type CompanyHealth } from "@/core/company-health";
 import type { ContextAction } from "@/core/context";
-import { B3_CALENDAR, b3Session, saoPauloClock } from "@/core/b3-calendar";
+import { B3_CALENDAR, b3Session, saoPauloClock, sessionEnd } from "@/core/b3-calendar";
 import { meetingClock } from "@/core/meeting";
 import type { FocusTrend, Valuation } from "@/core/valuation";
 import type { Meeting } from "./office-3d";
@@ -200,7 +200,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
   const session = b3Session(new Date(now));
   // Working day: from 09:45 (before the open) until 17:00 on B3 trading days.
   const clock = saoPauloClock(new Date(now));
-  const workTime = !["Sat", "Sun"].includes(clock.weekday) && !B3_CALENDAR[clock.year]?.closed[clock.date] && clock.time >= "09:45" && clock.time < "17:00";
+  const workTime = !["Sat", "Sun"].includes(clock.weekday) && !B3_CALENDAR[clock.year]?.closed[clock.date] && clock.time >= "09:45" && clock.time < sessionEnd(clock.date);
   const maxLossPct = Number(account?.agent_max_loss_pct ?? 40);
   // The boss compares the six stocks: the ones in their buy zone get the pot, best first.
   const priceNow = (agent: Row) => {
