@@ -31,3 +31,13 @@ describe("B3 hours follow the official grid (03/11/2026: purchases stopped at 16
     expect(meetingStart("2026-10-30")).toBe("17:05");
   });
 });
+
+describe("purchases only in the last hour of the session (03/11/2026)", () => {
+  it("opens the buy window an hour before the safe close", async () => {
+    const { buyWindow } = await import("@/core/b3-calendar");
+    expect(buyWindow(at("2026-11-04", "16:49"))).toEqual({ open: false, from: "16:50" });
+    expect(buyWindow(at("2026-11-04", "17:10")).open).toBe(true);
+    expect(buyWindow(at("2026-11-04", "17:51")).open).toBe(false);
+    expect(buyWindow(at("2026-10-30", "16:00")).open).toBe(true);
+  });
+});

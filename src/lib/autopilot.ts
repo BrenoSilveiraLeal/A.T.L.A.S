@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MarketHistory, MarketQuote } from "@/providers/types";
 import { autopilotDecision, corporateActionSuspected, ruleVersion, STEADY_RULE } from "@/core/autopilot";
 import { paperReferencePrice } from "@/core/paper";
-import { b3Session } from "@/core/b3-calendar";
+import { b3Session, buyWindow } from "@/core/b3-calendar";
 import { applyPaperCorporateActions } from "./corporate-actions";
 import { loadBars } from "./market-bars";
 import { adjustStoredBars } from "@/core/strategies";
@@ -136,6 +136,7 @@ export async function runPaperAutopilot(db: SupabaseClient, input: {
     // Owner's rule: buy near the 6-month low, sell near the 6-month high (never at a loss).
     range: trailing ? { closes: trailing.closes, levelCloses: trailing.levelCloses, history: nearLowHistory(trailing.closes, RANGE_DEFAULTS.window, RANGE_DEFAULTS.nearPct, 63) } : undefined,
     boughtToday: trailing?.boughtToday ?? false,
+    buyWindow: buyWindow(new Date()),
     steady: trailing ? undefined : steady,
   });
   // Money missing for a purchase the rule wants: tell the owner (once a day per agent).

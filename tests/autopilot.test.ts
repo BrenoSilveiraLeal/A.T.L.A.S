@@ -132,6 +132,15 @@ describe("paper autopilot rule", () => {
     expect(autopilotDecision(input({ ...steady("18.00"), ...held, minSellPrice: "20.00" }, rising, "16.50")).action).toBe("HOLD");
     expect(autopilotDecision(input({ ...steady("16.00"), position: held.position, budgetRoom: "300.00" }, falling, "10.10")).action).toBe("BUY");
   });
+  it("buys only in the last hour of the session, when the day's price is nearly final (03/11/2026)", () => {
+    const early = autopilotDecision(input({ buyWindow: { open: false, from: "16:50" } }));
+    expect(early.action).toBe("HOLD");
+    expect(early.reason).toContain("a partir das 16:50");
+    expect(autopilotDecision(input({ buyWindow: { open: true, from: "16:50" } })).action).toBe("BUY");
+    // Selling is not held back by the window.
+    expect(autopilotDecision(input({ buyWindow: { open: false, from: "16:50" }, position: { quantity: 40, averageCost: "11.00" } }, falling, "10.10")).action).toBe("SELL");
+  });
+
   it("one purchase a day: the next part waits for another session (owner, 29/10/2026)", () => {
     const again = autopilotDecision(input({ boughtToday: true }));
     expect(again.action).toBe("HOLD");

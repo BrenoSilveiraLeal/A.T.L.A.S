@@ -73,6 +73,8 @@ export interface AutopilotInput {
   range?: { closes: readonly number[]; levelCloses?: readonly number[]; options?: RangeOptions; history?: { samples: number; upShare: number; average: number } | null };
   /** The agent already bought today (one purchase a day: the next part waits for another session). */
   boughtToday?: boolean;
+  /** Purchases only in the last hour of the session (core/b3-calendar buyWindow); undefined = any time. */
+  buyWindow?: { open: boolean; from: string };
 }
 
 /** Share of what the boss releases that one purchase may use (buying in parts). */
@@ -134,6 +136,8 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
     // Owner, 29/10/2026: "não gastar todo o dinheiro de uma vez só" — at most half of what the boss
     // releases per purchase (less when the council asks), one purchase a day.
     if (input.boughtToday) return hold("já comprou hoje: a próxima parte só em outro pregão, se cair mais e virar para cima de novo.");
+    if (input.buyWindow && !input.buyWindow.open)
+      return hold(`hora boa de comprar, mas só na última hora do pregão (a partir das ${input.buyWindow.from}), quando o preço do dia já está quase definido.`);
     const share = Math.min(BUY_PART, input.council ? input.council.fraction : input.context?.action === "REDUCE" ? 0.5 : 1);
     const room = fullRoom.times(share);
     const perShare = limit.times(1 + input.feeBps / 10000);

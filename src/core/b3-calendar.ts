@@ -59,6 +59,15 @@ export function closingCall(date: string): string | null {
 }
 /** The end of the session (closing call included): 17:00 or 18:00; the conservative 17:00 when not known. */
 export const sessionEnd = (date: string) => addMinutes(closingCall(date) ?? "16:55", 5);
+/**
+ * Purchases only in the last hour of the safe window (03/11/2026): the history the rule was tested on
+ * decides on the day's close, while live decisions used intraday prices and bought a passing spike
+ * (EQTL3 on 27/10/2026). In the last hour the day's price is nearly final.
+ */
+export function buyWindow(at: Date) {
+  const clock = saoPauloClock(at), window = safeWindow(clock.date), from = addMinutes(window.close, -60);
+  return { open: b3Session(at).status === "OPEN" && clock.time >= from, from };
+}
 /** The safe trading window of that date: 5 minutes after the open, 5 minutes before the closing call. */
 export function safeWindow(date: string) {
   const call = closingCall(date);
