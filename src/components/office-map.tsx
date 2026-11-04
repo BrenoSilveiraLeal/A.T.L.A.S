@@ -33,6 +33,8 @@ export interface OfficeAgent {
   marketOpen?: boolean;
   /** Where the price now comes from: "MT5" (live, every 5 s) or "brapi" (every 30 min). */
   priceSource?: string;
+  /** Most recent quote, with its actual source timestamp; may be delayed when MT5 is unavailable. */
+  liveQuote?: { price: number; at: string; source: string } | null;
   /** Real history (trades at Genial, orders, decisions), newest first. */
   events?: { at: string; text: string; tone: "up" | "down" | "info" }[];
 }
@@ -248,7 +250,7 @@ export function AgentCard({ agent, now, onSelect }: { agent: OfficeAgent | null;
       <AgentForecast agent={agent} />
       </div>
       </div>
-      {agent.range && agent.bars6m && agent.bars6m.length > 1 && <PriceHistory ticker={agent.ticker} bars={agent.bars6m} levels={agent.range} />}
+      {agent.range && agent.bars6m && agent.bars6m.length > 1 && <PriceHistory ticker={agent.ticker} bars={agent.bars6m} levels={agent.range} liveQuote={agent.liveQuote} />}
       <div className="agent-history">
         <span className="score-kicker">Histórico real</span>
         {agent.events?.length ? <ul>{agent.events.map((e, i) => <li key={`${e.at}-${i}`} className={e.tone}>

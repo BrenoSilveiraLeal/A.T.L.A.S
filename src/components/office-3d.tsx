@@ -1000,10 +1000,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 
     // Snack bar (front right): counter along the right wall with coffee machine and fridges,
     // stools, two high tables, and the pool table next to it.
-    box(0.8, 1.05, 6.0, 22.6, 0.52, 9.5, matte("#f07b2b", 0.7));
-    box(0.95, 0.06, 6.2, 22.55, 1.07, 9.5, darkWood);
+    // The counter follows the right wall, then turns into the back corner. Keep its front end
+    // inside the tower's rounded outline; the former long run and fridge sat beyond the slab.
+    box(0.8, 1.05, 4.2, 22.6, 0.52, 8.6, matte("#f07b2b", 0.7));
+    box(0.95, 0.06, 4.35, 22.55, 1.07, 8.6, darkWood);
+    box(0.8, 1.05, 3.8, 19.95, 0.52, 11.0, matte("#f07b2b", 0.7));
+    box(0.95, 0.06, 3.95, 19.95, 1.07, 11.0, darkWood);
     box(0.5, 0.7, 0.6, 22.7, 1.45, 7.2, metal); box(0.05, 0.2, 0.35, 22.42, 1.6, 7.2, matte("#ffb24a", 0.4));
-    box(0.7, 2.2, 1.0, 23.5, 1.1, 12.9, steel); box(0.7, 2.2, 1.0, 23.5, 1.1, 5.9, steel);
+    box(0.7, 2.2, 1.0, 21.6, 1.1, 11.8, steel); box(0.7, 2.2, 1.0, 23.2, 1.1, 5.9, steel);
     for (const [, z] of BAR_SPOTS) { cyl(0.22, 0.22, 0.05, 21.9, 0.78, z, fabric("#1f2a44")); cyl(0.03, 0.03, 0.76, 21.9, 0.38, z, metal); }
     for (const [x, z] of KITCHEN_TABLES) { cyl(0.55, 0.55, 0.05, x, 1.1, z, wood); cyl(0.05, 0.05, 1.08, x, 0.54, z, metal); cyl(0.3, 0.3, 0.03, x, 0.015, z, metal); }
     {
@@ -1106,16 +1110,22 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const logo = canvasTexture(1024, 384), g = logo.g;
       g.clearRect(0, 0, 1024, 384); g.textAlign = "center"; g.textBaseline = "middle";
       g.shadowColor = "rgba(255, 207, 138, 0.8)"; g.shadowBlur = 24;
-      g.fillStyle = "#fff4e2"; g.font = "bold 190px sans-serif"; g.fillText(office.name, 512, 145);
-      // Keep the English expansion readable beneath the office name on the wall plaque.
+      g.fillStyle = "#fff4e2"; g.font = "bold 190px sans-serif"; g.fillText(office.name, 512, 125);
+      // Both expansions sit beneath the office name, with the Portuguese description last.
       g.shadowBlur = 0; g.fillStyle = "#ffe0b8";
-      let subtitleSize = 54;
-      g.font = `600 ${subtitleSize}px sans-serif`;
-      while (g.measureText(office.fullName ?? "").width > 960 && subtitleSize > 38) {
-        subtitleSize -= 1;
-        g.font = `600 ${subtitleSize}px sans-serif`;
-      }
-      g.fillText(office.fullName ?? "", 512, 280, 960);
+      const fitSubtitle = (text: string, initial: number, minimum: number) => {
+        let size = initial;
+        g.font = `600 ${size}px sans-serif`;
+        while (g.measureText(text).width > 960 && size > minimum) {
+          size -= 1;
+          g.font = `600 ${size}px sans-serif`;
+        }
+        return size;
+      };
+      fitSubtitle(office.fullName ?? "", 50, 34);
+      g.fillText(office.fullName ?? "", 512, 235, 960);
+      fitSubtitle(office.tagline ?? "", 46, 28);
+      g.fillText(office.tagline ?? "", 512, 315, 960);
       logo.texture.needsUpdate = true;
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 2.1), new THREE.MeshBasicMaterial({ map: logo.texture, transparent: true, toneMapped: false }));
       sign.position.set(-19.5, 1.75, 6.34); scene.add(sign);
@@ -1230,7 +1240,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     hang(posterTexture("Compre na baixa, venda na alta", "regra nº 1 do ATLAS", "#1f3b5c", "#f07b2b"), 1.4, 1.75, -10.2, 1.85, 13.86, Math.PI, frontWall);
     hang(muralTexture(55, PALETTE), 5.6, 1.1, -2, 2.6, 13.86, Math.PI, frontWall);
     hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d"), 1.4, 1.75, 6.0, 1.85, 13.86, Math.PI, frontWall);
-    hang(posterTexture("Nunca vender com prejuízo", "só com lucro", "#5a2340", "#1fa3b8"), 1.4, 1.75, 19.5, 1.85, 13.86, Math.PI, frontWall);
+    hang(posterTexture("Nunca vender com prejuízo", "só com lucro", "#5a2340", "#1fa3b8"), 1.4, 1.75, 18.9, 1.85, 13.86, Math.PI, frontWall);
     hang(muralTexture(61, PALETTE), 2.4, 1.4, 15.6, 1.9, 13.86, Math.PI, frontWall);
     {
       const neon = canvasTexture(1024, 256), g = neon.g;
@@ -1244,7 +1254,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     hang(muralTexture(71, PALETTE), 2.2, 1.3, -23.86, 1.9, 9.8, Math.PI / 2, leftWall);
     // Meeting room: posters beside the screen and the whiteboard with the team's goals.
     hang(posterTexture("Risco controlado", "conselho antes de comprar", "#2e4057", "#22a06b"), 1.3, 1.6, 12.4, 1.9, -13.86, 0, backWall);
-    hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), 1.3, 1.6, 22.2, 1.9, -13.86, 0, backWall);
+    hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), 1.3, 1.6, 18.2, 1.9, -13.86, 0, backWall);
     {
       const board = canvasTexture(1024, 560), g = board.g;
       g.fillStyle = "#fbfbf8"; g.fillRect(0, 0, 1024, 560); g.textBaseline = "top";
@@ -1499,7 +1509,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       desks[desk].alertUntil = performance.now() + 5000;
       drawDesk(desk, agent, true);
       window.setTimeout(() => drawDesk(desk, desks[desk].agent, true), 5200);
-      show(r.bubbleEl, agent.zone === "MEETING" ? "bip! reunião do conselho" : "bip! hora de trabalhar", 5, "speech-bubble beep");
+      show(r.bubbleEl, agent.zone === "MEETING" ? "Reunião do conselho" : "Hora de trabalhar", 5, "speech-bubble beep");
       say(`${agent.name}, sua vez: ${agent.zone === "MEETING" ? "conselho" : "computador"}!`);
       if (soundOn && officeHasStaff) beep(audio);
     };

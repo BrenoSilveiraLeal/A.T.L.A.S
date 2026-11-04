@@ -409,9 +409,20 @@ p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
 .speech-bubble { padding: 5px 10px; border-radius: 12px; background: #fff; color: #1b1e24; font-size: 12px; font-weight: 700; white-space: nowrap;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); pointer-events: none; position: relative; }
 .speech-bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #fff; border-bottom: 0; }
-.speech-bubble.beep { background: #ffc65c; animation: beep-pop 0.6s ease-in-out infinite alternate; }
-.speech-bubble.beep::after { border-top-color: #ffc65c; }
-@keyframes beep-pop { from { transform: scale(1); } to { transform: scale(1.08); } }
+.speech-bubble.beep {
+  display: grid; justify-items: center; gap: 2px; min-width: 128px; padding: 7px 12px 8px;
+  border: 1px solid rgba(255, 210, 119, 0.9); border-radius: 12px;
+  background: linear-gradient(145deg, #fff2d2, #ffd57e); color: #33240c;
+  box-shadow: 0 5px 16px rgba(7, 9, 12, 0.4);
+  animation: beep-glow 1.1s ease-in-out infinite alternate;
+}
+.speech-bubble.beep::before { content: "BIP"; color: #81500b; font-size: 9px; font-weight: 900; letter-spacing: 0.12em; }
+.speech-bubble.beep::after { border-top-color: #ffd57e; }
+/* CSS2DRenderer positions each label with `transform`; the animation must never replace it. */
+@keyframes beep-glow {
+  from { box-shadow: 0 5px 16px rgba(7, 9, 12, 0.4), 0 0 0 rgba(255, 198, 92, 0); }
+  to { box-shadow: 0 5px 16px rgba(7, 9, 12, 0.4), 0 0 12px rgba(255, 198, 92, 0.45); }
+}
 @media (prefers-reduced-motion: reduce) { .speech-bubble.beep { animation: none; } }
 .staff-plate strong { font-size: 12px; }
 
@@ -455,9 +466,14 @@ p.health-chip { border-radius: 12px; padding: 8px 12px; font-size: 13px; }
 .ph-down line, .ph-down rect { stroke: #ff5d7d; fill: #ff5d7d; }
 .ph-buy { stroke: #3dffa8; stroke-dasharray: 5 4; opacity: 0.8; }
 .ph-sell { stroke: #ff9db1; stroke-dasharray: 5 4; opacity: 0.8; }
+.ph-close-line { fill: none; stroke: #e3c28d; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; opacity: 0.78; vector-effect: non-scaling-stroke; }
+.ph-live-link, .ph-current-line { fill: none; stroke: #65d9e8; stroke-width: 1.5; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.ph-current-line { opacity: 0.62; }
+.ph-current-dot { fill: #65d9e8; stroke: #101820; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .ph-label { font-size: 11px; font-weight: 700; }
 .ph-label.buy { fill: #3dffa8; }
 .ph-label.sell { fill: #ff9db1; }
+.ph-label.current { fill: #65d9e8; }
 .ph-mark { stroke: #fff; stroke-width: 2; }
 .ph-mark.low { fill: #3dffa8; }
 .ph-mark.high { fill: #ff5d7d; }

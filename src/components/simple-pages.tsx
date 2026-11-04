@@ -118,7 +118,7 @@ export function GenialBalance({ connected, compact = false }: { connected: boole
 export function OfficePage({ connected }: { connected: boolean }) {
   return <>
     <Heading title="Escritório" note="O que cada IA está fazendo agora, ao vivo.">
-      <Link className="button secondary" href="/tv"><Tv size={16} /> Modo TV</Link>
+      <Link className="button secondary" href="/tv" aria-label="Abrir o escritório em modo TV"><Tv size={17} aria-hidden="true" /> <span>Modo TV</span></Link>
     </Heading>
     <Offline connected={connected} />
     <AgentFloor connected={connected} revision={0} mode="full" />
@@ -128,7 +128,7 @@ export function OfficePage({ connected }: { connected: boolean }) {
 
 type LiveView = {
   agents: { id: string; name: string; ticker: string; realBudget: number }[];
-  positions: Row[]; orders: Row[]; fills: Row[];
+  positions: Row[]; orders: Row[]; fills: Row[]; dividends: Row[];
 };
 const ORDER_STATUS: Record<string, string> = { PENDING: "preparando", DISPATCHED: "enviada", OPEN: "aberta na Genial", PARTIALLY_FILLED: "executada em parte",
   FILLED: "executada", CANCELLED: "cancelada", REJECTED: "recusada", EXPIRED: "expirou", UNKNOWN: "sem confirmação da Genial" };
@@ -172,16 +172,26 @@ function RealWallet({ connected }: { connected: boolean }) {
     const order = live.orders.find((o) => o.agent_id === a.id && ACTIVE.includes(String(o.status)));
     return { ...a, quantity, cost, price, value: price !== null ? quantity * price : cost, free: Math.max(0, a.realBudget - cost + realized), order };
   });
-  return (
+  return <>
     <section className="panel wallet">
       <div className="section-heading"><h2>Ações de cada IA na Genial</h2><span className="muted">dinheiro real · atualiza a cada 20 s</span></div>
       <div className="table-scroll"><table>
-        <thead><tr><th>IA</th><th>Ações</th><th>Preço médio</th><th>Preço agora</th><th>Ganho</th><th>Em ações</th><th>Ordem em andamento</th></tr></thead>
+        <thead><tr><th>IA</th><th>Ações</th><th>Compras por preço (com taxas)</th><th>Preço médio</th><th>Preço agora</th><th>Ganho</th><th>Em ações</th><th>Ordem em andamento</th></tr></thead>
         <tbody>{rows.map((r) => {
           const gain = r.quantity && r.price !== null ? r.value - r.cost : null;
           return <tr key={r.id}>
             <td><b>{r.name}</b> {r.ticker}</td>
             <td>{r.quantity || "—"}</td>
+            <td>{r.quantity ? (() => {
+              const lots = live.fills.filter((f) => f.agent_id === r.id && f.ticker === r.ticker && f.side === "BUY");
+              const grouped = new Map<string, number>();
+              for (const fill of lots) {
+                const quantity = Number(fill.quantity);
+                const price = ((quantity * Number(fill.price) + Number(fill.fee ?? 0)) / quantity).toFixed(2);
+                grouped.set(price, (grouped.get(price) ?? 0) + quantity);
+              }
+              return grouped.size ? [...grouped].map(([price, quantity]) => `${quantity} a ${brl(Number(price))}`).join(" · ") : "Histórico de lotes indisponível";
+            })() : "—"}</td>
             <td>{r.quantity ? brl(r.cost / r.quantity) : "—"}</td>
             <td>{r.price !== null ? brl(r.price) : "—"}</td>
             <td className={gain === null || Math.abs(gain) < 0.005 ? "" : gain > 0 ? "up" : "down"}>{gain === null ? "—" : `${gain >= 0 ? "+" : "−"}${brl(Math.abs(gain))}`}</td>
@@ -192,7 +202,8 @@ function RealWallet({ connected }: { connected: boolean }) {
       </table></div>
       <p className="muted">O dinheiro fica no caixa do Chefe. Ele libera para uma IA quando o preço da ação dela chega perto da menor dos últimos 6 meses; ela vende perto da maior, nunca abaixo do que pagou, e o dinheiro volta para o caixa.</p>
     </section>
-  );
+    <DividendHistory live={live} />
+  </>;
 }
 
 export function TradesPage({ connected }: { connected: boolean }) {
@@ -202,6 +213,50 @@ export function TradesPage({ connected }: { connected: boolean }) {
     <GenialBalance connected={connected} />
     <RealWallet connected={connected} />
   </>;
+}
+
+/** Official B3 cash events, matched against shares held on the record date. */
+function DividendHistory({ live }: { live: LiveView }) {
+  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+  const rows = live.dividends ?? [];
+  const paid = rows.filter((r) => String(r.payment_date) <= today);
+  const upcoming = rows.filter((r) => String(r.payment_date) > today);
+  const total = (items: Row[]) => items.reduce((sum, r) => sum + Number(r.net ?? 0), 0);
+  const date = (value: unknown) => String(value ?? "").split("-").reverse().join("/");
+  const agents = new Map(live.agents.map((a) => [a.id, a.name]));
+  const eventName = (label: unknown) => label === "JRS CAP PROPRIO" ? "JCP" : label === "RENDIMENTO" ? "Rendimento" : "Dividendo";
+  return (
+    <section className="panel dividend-history" aria-labelledby="dividend-history-title">
+      <div className="section-heading"><h2 id="dividend-history-title">Dividendos e JCP</h2><span className="muted">eventos oficiais da B3 · valores por ação e por posição</span></div>
+      <div className="genial-main dividend-totals">
+        <div><span>Na data prevista ou anteriores</span><strong className={paid.length ? "up" : ""}>{brl(total(paid))}</strong></div>
+        <div><span>Pagamentos futuros anunciados</span><strong>{brl(total(upcoming))}</strong></div>
+        <div><span>Eventos no registro</span><strong>{rows.length}</strong></div>
+      </div>
+      {rows.length ? <div className="table-scroll"><table>
+        <thead><tr><th>Ativo / agente</th><th>Provento por ação</th><th>Quantidade com direito</th><th>Data com</th><th>Pagamento</th><th>Bruto</th><th>IR retido</th><th>Líquido</th><th>Situação</th></tr></thead>
+        <tbody>{rows.map((r) => {
+          const paymentDate = String(r.payment_date ?? "");
+          const isPaidByDate = paymentDate <= today;
+          const quantity = Number(r.quantity ?? 0);
+          const rate = Number(r.rate ?? 0);
+          return <tr key={String(r.id)}>
+            <td><b>{String(r.ticker)}</b><small>{agents.get(String(r.agent_id)) ?? "Carteira Genial"} · {eventName(r.label)}</small>
+              {r.source && <small><a href={String(r.source)} target="_blank" rel="noreferrer">Fonte oficial B3</a></small>}</td>
+            <td>{brl(rate)} por ação</td>
+            <td>{quantity}</td>
+            <td>{date(r.last_date_prior)}</td>
+            <td>{date(paymentDate)}</td>
+            <td>{brl(Number(r.gross ?? rate * quantity))}</td>
+            <td>{brl(Number(r.tax ?? 0))}</td>
+            <td><b>{brl(Number(r.net ?? 0))}</b></td>
+            <td><span className={`status-label ${isPaidByDate ? "success" : "warning"}`}>{isPaidByDate ? "Data prevista passada" : "A receber"}</span></td>
+          </tr>;
+        })}</tbody>
+      </table></div> : <p className="muted">Ainda não há proventos anunciados para as posições registradas. Quando uma empresa divulgar o valor por ação, a data com e o pagamento, o ATLAS calcula a estimativa para a quantidade elegível.</p>}
+      <p className="muted">A conta usa <b>valor por ação × quantidade elegível</b>; JCP mostra o imposto retido e o valor líquido. A data com define quem tem direito. “Data de pagamento” segue o calendário oficial informado pela empresa/B3; confirme o crédito efetivo no extrato da Genial.</p>
+    </section>
+  );
 }
 
 /** What the agents decided, with the reason in plain words (orders follow these decisions). */

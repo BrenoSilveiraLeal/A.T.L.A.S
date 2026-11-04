@@ -8,7 +8,8 @@ import type { CorporateEvent } from "./corporate-actions";
  * with income tax withheld at the source (JCP_TAX); dividends are exempt below R$ 50 mil a month from
  * one company, far above this account. The net counts as cash only from its payment date.
  */
-export const JCP_TAX = 0.15;
+/** IRRF applied to JCP paid from 2026-01-01; payments before that date used 15%. */
+export const JCP_TAX = 0.175;
 export interface DividendFill { side: "BUY" | "SELL"; quantity: number; date: string }
 export interface DividendRow {
   label: string; isin: string; lastDatePrior: string; paymentDate: string; rate: string;
@@ -26,7 +27,8 @@ export function dividendRows(fills: readonly DividendFill[], events: readonly Co
     const quantity = fills.filter((f) => f.date <= e.lastDatePrior).reduce((q, f) => q + (f.side === "BUY" ? f.quantity : -f.quantity), 0);
     if (quantity <= 0) continue;
     const gross = new Decimal(e.value).times(quantity).toDecimalPlaces(2, Decimal.ROUND_DOWN);
-    const tax = /JRS CAP PROPRIO/.test(e.label) ? gross.times(JCP_TAX).toDecimalPlaces(2, Decimal.ROUND_UP) : new Decimal(0);
+    const jcpTax = e.paymentDate >= "2026-01-01" ? JCP_TAX : 0.15;
+    const tax = /JRS CAP PROPRIO/.test(e.label) ? gross.times(jcpTax).toDecimalPlaces(2, Decimal.ROUND_UP) : new Decimal(0);
     rows.push({ label: e.label, isin: e.isin, lastDatePrior: e.lastDatePrior, paymentDate: e.paymentDate, rate: e.value, quantity,
       gross: gross.toFixed(2), tax: tax.toFixed(2), net: gross.minus(tax).toFixed(2) });
   }

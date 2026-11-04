@@ -428,6 +428,36 @@ small {
   margin-bottom: 0;
   font-size: 12px;
 }
+.heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.heading-actions > a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 10px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+.heading-actions > a.button.secondary {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+.heading-actions > a.button.secondary:hover {
+  border-color: var(--green);
+  background: var(--panel-raised);
+  color: var(--green);
+}
 .icon-button {
   padding: 10px;
   min-width: 38px;

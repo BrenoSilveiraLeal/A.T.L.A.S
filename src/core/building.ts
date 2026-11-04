@@ -19,10 +19,10 @@ export const TOWER = {
 
 /**
  * The elevator (owner, 01/11/2026: "trocar a porta por um elevador, já que vai ser um prédio"): its
- * doors sit where the office's entrance door was (front wall, x -21.5 to -17) and its shaft runs up the
+ * doors sit on the straight part of the rounded front façade (x -20 to -17) and its shaft runs up the
  * front of the tower, outside that wall. Centre x, width along the wall, depth out of the façade.
  */
-export const ELEVATOR = { x: -19.25, width: 4.5, depth: 3.2 } as const;
+export const ELEVATOR = { x: -18.5, width: 3, depth: 3.2 } as const;
 
 /** Height of a floor above the street (floor 0 is the lobby at street level). */
 /**

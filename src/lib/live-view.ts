@@ -53,11 +53,12 @@ export async function loadLive(db: SupabaseClient, ownerId: string) {
     db.from("assets").select("id,ticker"),
     db.from("live_positions").select("*").eq("owner_id", ownerId),
     db.from("live_orders").select("*").eq("owner_id", ownerId).order("created_at", { ascending: false }).limit(30),
-    db.from("live_fills").select("*").eq("owner_id", ownerId).order("executed_at", { ascending: false }).limit(30),
+    db.from("live_fills").select("*").eq("owner_id", ownerId).order("executed_at", { ascending: false }).limit(500),
     db.from("system_state").select("live_trading_enabled,global_kill_switch,kill_switch_reason").eq("owner_id", ownerId).maybeSingle(),
     bridgeExecution(),
     db.from("live_fills").select("side,quantity,price,fee").eq("owner_id", ownerId),
-    db.from("live_dividends").select("ticker,label,net,payment_date").eq("owner_id", ownerId),
+    db.from("live_dividends").select("id,agent_id,ticker,label,last_date_prior,payment_date,rate,quantity,gross,tax,net,created_at,source")
+      .eq("owner_id", ownerId).order("payment_date", { ascending: false }).order("ticker"),
   ]);
   for (const r of [settings, plan, withdrawals, agents, assets, positions, orders, fills, state, allFills, dividends]) if (r.error) throw new Error("LIVE_DATABASE_UNAVAILABLE");
   const ceiling = Number(plan.data?.ceiling ?? 0);
@@ -81,7 +82,7 @@ export async function loadLive(db: SupabaseClient, ownerId: string) {
     ceiling, reserved, assigned: (agents.data ?? []).reduce((s, a) => s + Number(a.real_budget), 0),
     agents: (agents.data ?? []).map((a) => ({ id: a.id, name: a.name, status: a.status, autopilot: a.autopilot, realBudget: Number(a.real_budget),
       ticker: assets.data?.find((x) => x.id === a.asset_id)?.ticker ?? "" })),
-    positions: positions.data, orders: orders.data, fills: fills.data,
+    positions: positions.data, orders: orders.data, fills: fills.data, dividends: dividends.data,
   };
 }
 

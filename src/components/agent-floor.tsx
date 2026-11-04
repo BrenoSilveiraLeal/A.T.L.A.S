@@ -268,7 +268,9 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       events: agentEvents(text(agent.id), floor.live, paper.paper_proposals ?? [], String(paper.paper_book_restarts?.[0]?.started_at ?? "")),
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
       headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null,
-      chart: { bars, last, prev: prevClose ?? null }, health, debate, range, priceSource: live.source, forecast, history, bars6m: ranges[ticker]?.bars6m ?? [],
+      chart: { bars, last, prev: prevClose ?? null }, health, debate, range, priceSource: live.source,
+      liveQuote: quote ? { price: quote.price, at: quote.at, source: live.source } : null,
+      forecast, history, bars6m: ranges[ticker]?.bars6m ?? [],
       marketOpen: session.status === "OPEN" };
   });
   const items = news.items ?? [];

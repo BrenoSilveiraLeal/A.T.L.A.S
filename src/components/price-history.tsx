@@ -15,8 +15,9 @@ const brl = (v: number) => formatBrl(v.toFixed(2));
 const day = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 const pct = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(1)}%`;
 
-export function PriceHistory({ ticker, bars, levels }: {
+export function PriceHistory({ ticker, bars, levels, liveQuote = null }: {
   ticker: string; bars: readonly Bar[]; levels: { low: number; high: number; buyBelow: number; sellAbove: number };
+  liveQuote?: { price: number; at: string; source: string } | null;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [compact, setCompact] = useState(false);
@@ -30,10 +31,21 @@ export function PriceHistory({ ticker, bars, levels }: {
   if (bars.length < 2) return null;
   // A taller mobile viewBox keeps six months of candles legible in a narrow card.
   const W = compact ? 520 : 640, H = compact ? 300 : 230, left = 56, right = 10, top = 12, bottom = compact ? 258 : 196;
-  const lo = Math.min(...bars.map((b) => b.low), levels.buyBelow), hi = Math.max(...bars.map((b) => b.high), levels.sellAbove);
+  const lastDate = bars.at(-1)!.date;
+  const quoteTime = liveQuote ? Date.parse(liveQuote.at) : NaN;
+  const quoteDate = Number.isFinite(quoteTime) ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(quoteTime)) : "";
+  const current = liveQuote && Number.isFinite(quoteTime) && Number.isFinite(liveQuote.price) && liveQuote.price > 0 && quoteDate >= lastDate
+    ? liveQuote : null;
+  const currentIndex = current ? bars.length : -1;
+  const slots = bars.length + (current ? 1 : 0);
+  const lo = Math.min(...bars.map((b) => b.low), levels.buyBelow, ...(current ? [current.price] : [])), hi = Math.max(...bars.map((b) => b.high), levels.sellAbove, ...(current ? [current.price] : []));
   const y = (v: number) => bottom - ((v - lo) / (hi - lo || 1)) * (bottom - top);
-  const step = (W - left - right) / bars.length;
+  const step = (W - left - right) / slots;
   const x = (i: number) => left + step * (i + 0.5);
+  const closePath = bars.map((b, i) => `${i ? "L" : "M"}${x(i)} ${y(b.close)}`).join(" ");
+  const currentX = current ? x(currentIndex) : null;
+  const quoteAge = current ? Date.now() - quoteTime : Infinity;
+  const currentLabel = current ? `${current.source === "MT5" && quoteAge >= 0 && quoteAge <= 30000 ? "AO VIVO" : "ÚLTIMA COTAÇÃO"} · ${new Date(quoteTime).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "";
   const lowIndex = bars.reduce((m, b, i) => (b.close < bars[m].close ? i : m), 0);
   const highIndex = bars.reduce((m, b, i) => (b.close > bars[m].close ? i : m), 0);
   const ticks = [0, 1, 2, 3].map((k) => lo + ((hi - lo) * k) / 3);
@@ -50,10 +62,10 @@ export function PriceHistory({ ticker, bars, levels }: {
   };
   return (
     <div className="price-history">
-      <span className="score-kicker">{ticker} · últimos 6 meses (fechamento)</span>
+      <span className="score-kicker">{ticker} · últimos 6 meses (fechamento){current ? ` · ${currentLabel}` : ` · último pregão ${lastDate.split("-").reverse().join("/")}`}</span>
       <div className="price-history-body">
         <div className="price-history-chart">
-          <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Gráfico de ${ticker} nos últimos 6 meses: mínima ${brl(levels.low)}, máxima ${brl(levels.high)}.`}
+          <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Gráfico de ${ticker} nos últimos 6 meses: mínima ${brl(levels.low)}, máxima ${brl(levels.high)}.${current ? ` Última cotação ${brl(current.price)} em ${currentLabel}.` : ` Último pregão exibido em ${lastDate}.`}`}
             onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
             {ticks.map((v) => <g key={v}><line x1={left} x2={W - right} y1={y(v)} y2={y(v)} className="ph-grid" />
               <text x={left - 6} y={y(v) + 4} className="ph-axis" textAnchor="end">{v.toFixed(2).replace(".", ",")}</text></g>)}
@@ -62,6 +74,13 @@ export function PriceHistory({ ticker, bars, levels }: {
             <text x={W - right} y={y(levels.buyBelow) - 4} className="ph-label buy" textAnchor="end">compra até {brl(levels.buyBelow)}</text>
             {SELLS_NEAR_HIGH && <line x1={left} x2={W - right} y1={y(levels.sellAbove)} y2={y(levels.sellAbove)} className="ph-sell" />}
             {SELLS_NEAR_HIGH && <text x={W - right} y={y(levels.sellAbove) + 12} className="ph-label sell" textAnchor="end">vende a partir de {brl(levels.sellAbove)}</text>}
+            <path d={closePath} className="ph-close-line" />
+            {current && currentX !== null && <>
+              {currentIndex === bars.length && <path d={`M${x(bars.length - 1)} ${y(bars.at(-1)!.close)} L${currentX} ${y(current.price)}`} className="ph-live-link" />}
+              <line x1={left} x2={W - right} y1={y(current.price)} y2={y(current.price)} className="ph-current-line" />
+              <circle cx={currentX} cy={y(current.price)} r="4.5" className="ph-current-dot"><title>{currentLabel}: {brl(current.price)}</title></circle>
+              <text x={W - right} y={Math.min(bottom - 5, Math.max(top + 11, y(current.price) - 7))} className="ph-label current" textAnchor="end">{brl(current.price)}</text>
+            </>}
             {bars.map((b, i) => {
               const up = b.close >= b.open;
               return <g key={b.date} className={up ? "ph-up" : "ph-down"}>
