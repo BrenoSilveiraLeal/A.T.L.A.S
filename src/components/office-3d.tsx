@@ -835,7 +835,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Keep the elevator opening clear; its entrance starts just past the rounded left corner.
     const frontWall = wall(-17, 14, 20, 14, H, paint, true, [0, 1]);
     const accents = ["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"];
-    [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
+    const officePartitions = [-17.33, -10.67, -4, 2.67, 10.67]
+      .map((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
+    const meetingPartitionWall = officePartitions[officePartitions.length - 1];
     for (const r of COUNCILS) { glassWall(r.x1 + 0.1, -6, r.door - 0.8, -6); glassWall(r.door + 0.8, -6, r.x2 - 0.1, -6); }
     glassWall(2.77, -6, BOSS_X - 0.8, -6); glassWall(BOSS_X + 0.8, -6, 10.57, -6);
     // Meeting room front: glass with the door (the market screen stands on its own in front of it).
@@ -1335,10 +1337,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
       g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
       board.texture.needsUpdate = true;
-      // Centre the whiteboard in the usable wall span between the meeting-room glass
-      // partition (z=-6) and the bookshelf, clear of the partition's end frame.
-      const clearWall = { from: -6, to: -0.5 - 1.2, x: 23.86 };
-      hang(board.texture, 2.6, 1.42, clearWall.x, H / 2, (clearWall.from + clearWall.to) / 2, -Math.PI / 2, rightWall);
+      // Mount it on the meeting room's interior partition, centred between its glass walls.
+      hang(board.texture, 2.6, 1.42, 10.79, Hi / 2, (-14 + -6) / 2, Math.PI / 2, meetingPartitionWall);
     }
     const bookshelf = (x: number, z: number, turn: number) => {
       const g = new THREE.Group();
@@ -1425,9 +1425,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           return { lo, hi, gap: zlo > 0 ? zlo : zhi < 0 ? -zhi : 0 };
         };
         const blocked: [number, number][] = w.items.map((item) => { const a = along(new THREE.Box3().setFromObject(item)); return [a.lo, a.hi]; });
-        // On the right side, the span beside the meeting room is a painted interior wall,
-        // not a floor-to-ceiling window. Keep the whiteboard centred on that solid span.
-        if (w === rightWall) blocked.push([-10, -1.7]);
         // Tall furniture against the wall (bookshelves); merged or room-sized meshes are skipped.
         for (const b of blockers) { const a = along(b); if (a.gap < 0.9 && a.hi - a.lo < 6 && a.hi > -len / 2 && a.lo < len / 2) blocked.push([a.lo, a.hi]); }
         const solid: THREE.BufferGeometry[] = [], panes: THREE.BufferGeometry[] = [], frames: THREE.BufferGeometry[] = [];

@@ -107,7 +107,9 @@ export async function runLocal() {
     console.error(error.code === "ENOENT" ? "Configure .env.local antes de iniciar o ATLAS." : error.message);
     process.exitCode = 1; return;
   }
-  try { await access(".next/BUILD_ID"); }
+  const lowDiskBuild = await access(".next-low-disk/BUILD_ID").then(() => true, () => false);
+  const buildDir = lowDiskBuild ? ".next-low-disk" : ".next";
+  try { await access(`${buildDir}/BUILD_ID`); }
   catch { console.error("Execute npm run build antes de npm run local."); process.exitCode = 1; return; }
   try { await requireAvailablePort(); }
   catch (error) { console.error(error.message); process.exitCode = 1; return; }
@@ -128,7 +130,7 @@ export async function runLocal() {
       const fail = () => { clearTimeout(timer); reject(new Error("Não foi possível iniciar o servidor local. Confira o build e a porta 3000.")); };
       server = spawn(process.execPath, [resolve("node_modules/next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", "3000"], {
         cwd: process.cwd(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, ...env, NODE_ENV: "production", FORCE_COLOR: "0" },
+        env: { ...process.env, ...env, ...(lowDiskBuild ? { ATLAS_LOW_DISK_BUILD: "true" } : {}), NODE_ENV: "production", FORCE_COLOR: "0" },
       });
       server.once("error", fail);
       server.once("exit", () => {

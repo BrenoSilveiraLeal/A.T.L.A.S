@@ -3,7 +3,7 @@ const config: NextConfig = {
   poweredByHeader: false,
   turbopack: { root: process.cwd() },
   // Opt-in for constrained local builds; production builds keep the default cache and workers.
-  ...(process.env.ATLAS_LOW_DISK_BUILD === "true" ? { experimental: { cpus: 2 } } : {}),
+  ...(process.env.ATLAS_LOW_DISK_BUILD === "true" ? { distDir: ".next-low-disk", experimental: { cpus: 2 } } : {}),
   webpack(webpackConfig) {
     if (process.env.ATLAS_LOW_DISK_BUILD === "true") webpackConfig.cache = false;
     return webpackConfig;

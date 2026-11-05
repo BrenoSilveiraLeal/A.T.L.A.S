@@ -34,7 +34,7 @@ const navigation = [
 ];
 /** Every other page of the office, grouped; all of them existed before (some were reachable only by address). */
 const more = [
-  { group: "Equipe", items: [{ path: "/app/agents", label: "Agentes" }, { path: "/app/office", label: "Sala e reuniões" }, { path: "/tv", label: "Modo TV" }] },
+  { group: "Equipe", items: [{ path: "/app/agents", label: "Agentes" }, { path: "/app/office", label: "Sala e Reuniões" }, { path: "/tv", label: "Modo TV" }] },
   { group: "Dinheiro", items: [{ path: "/app/portfolio", label: "Conta e patrimônio" }, { path: "/app/treasury", label: "Tesouraria" }, { path: "/app/orders", label: "Livro de ordens" }, { path: "/app/paper", label: "Simulação" }] },
   { group: "Mercado", items: [{ path: "/app/market", label: "Mercado e ativos" }, { path: "/app/news", label: "Notícias" }, { path: "/app/research", label: "Pesquisa" }] },
   { group: "Sistema", items: [{ path: "/app/risk", label: "Risco e limites" }, { path: "/app/audit", label: "Auditoria" }, { path: "/app/health", label: "Saúde do sistema" }, { path: "/app/settings", label: "Configuração" }] },

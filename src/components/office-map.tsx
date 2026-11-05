@@ -111,7 +111,7 @@ export function OfficeLegend() {
       <li><Monitor size={15} /> <b>Computador</b> = trabalhando</li>
       <li><Users size={15} /> <b>Reunião</b> = debatendo com os 4 analistas</li>
       <li><Coffee size={15} /> <b>Lanchonete</b>, <CircleDot size={15} /> <b>Sala de TV</b> e <b>Sofás do Mercado</b> = descansando</li>
-      <li><Users size={15} /> <b>Sala de reuniões</b> = reunião de fim de dia (17h10) com o Chefe e a Supervisora</li>
+      <li><Users size={15} /> <b>Sala de Reuniões</b> = reunião de fim de dia (17h10) com o Chefe e a Supervisora</li>
       <li>Camisa <span className="dot risk" /> Risco · <span className="dot balance" /> Balanço · <span className="dot forecast" /> Previsão · <span className="dot strategy" /> Estratégia</li>
       <li><span className="dot gain" /> verde sobe · <span className="dot loss" /> vermelho cai</li>
     </ul>
