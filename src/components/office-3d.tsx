@@ -665,13 +665,17 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 
     const scene = new THREE.Scene();
     const displayMeshes: THREE.Mesh[] = [];
-    let displaysPowered = true;
+    let displaysPowered = false;
     const setDisplaysPowered = (on: boolean) => {
       if (displaysPowered === on) return;
       displaysPowered = on;
       for (const display of displayMeshes) (display.material as THREE.MeshBasicMaterial).color.setScalar(on ? 1 : 0);
     };
-    const registerDisplay = <T extends THREE.Mesh>(display: T) => { displayMeshes.push(display); return display; };
+    const registerDisplay = <T extends THREE.Mesh>(display: T) => {
+      displayMeshes.push(display);
+      (display.material as THREE.MeshBasicMaterial).color.setScalar(displaysPowered ? 1 : 0);
+      return display;
+    };
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     // Sky, the tower below this floor and the city around it (sets the background and the fog).
@@ -1017,9 +1021,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     chair(BOSS_X, -11.6, 0, "#2b2e34");
     sofa(2.0, BOSS_X - 2.3, -7.4, Math.PI, "#8c8274");
     const bossScreen = canvasTexture(1000, 560);
-    const bossFrame = box(4.6, 2.6, 0.08, BOSS_X, 2.2, -13.85, metal);
+    const bossPanelY = 2.0;
+    const bossFrame = box(4.6, 2.6, 0.08, BOSS_X, bossPanelY, -13.85, metal);
     const bossTv = new THREE.Mesh(new THREE.PlaneGeometry(4.45, 2.45), new THREE.MeshBasicMaterial({ map: bossScreen.texture, toneMapped: false }));
-    bossTv.position.set(BOSS_X, 2.2, -13.8); scene.add(registerDisplay(bossTv));
+    bossTv.position.set(BOSS_X, bossPanelY, -13.8); scene.add(registerDisplay(bossTv));
     backWall.items.push(bossFrame, bossTv);
     let bossKey = "";
     const drawBoss = (list: OfficeAgent[], cash: Money) => {
@@ -1167,9 +1172,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         drawOfficePlaque(logo.g, office);
         logo.texture.needsUpdate = true;
       });
-      box(6.5, 2.35, 0.08, -19.5, 1.75, 6.37, new THREE.MeshStandardMaterial({ color: "#9c8a6c", roughness: 0.45, metalness: 0.65 }));
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.25), new THREE.MeshBasicMaterial({ map: logo.texture, toneMapped: false }));
-      sign.position.set(-19.5, 1.75, 6.418); scene.add(sign);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.25), new THREE.MeshBasicMaterial({ map: logo.texture, transparent: true, toneMapped: false }));
+      sign.position.set(-19.5, 1.5, 6.328); scene.add(sign);
     }
     box(3.6, 1.05, 0.8, -19.5, 0.52, 9.4, white); box(3.8, 0.06, 0.95, -19.5, 1.07, 9.4, wood);
     // Reception computer (the receptionist also takes care of the team's HR) and the counter decoration.
@@ -1213,15 +1217,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     }
     pouf(-21.8, 12.2, "#1fa3b8"); pouf(-20.6, 12.4, "#f2b33d"); pouf(-17.4, 12.2, "#d6336c");
 
-    // TV lounge: the news TV between the work area and the sofas, with a screen on both sides.
+    // TV lounge: wall-mounted news TV facing the sofas, keeping the room's floor clear.
     const tvCanvas = document.createElement("canvas"); tvCanvas.width = 1280; tvCanvas.height = 380;
     const tvTexture = new THREE.CanvasTexture(tvCanvas); tvTexture.colorSpace = THREE.SRGBColorSpace;
-    box(5.8, 0.5, 0.6, -2, 0.25, 7.6, darkWood);
-    box(5.4, 1.75, 0.08, -2, 1.55, 7.6, metal);
-    for (const [z, turn] of [[7.66, 0], [7.54, Math.PI]] as [number, number][]) {
-      const screen = new THREE.Mesh(new THREE.PlaneGeometry(5.25, 1.6), new THREE.MeshBasicMaterial({ map: tvTexture, toneMapped: false }));
-      screen.position.set(-2, 1.55, z); screen.rotation.y = turn; scene.add(registerDisplay(screen));
-    }
+    box(5.4, 1.75, 0.08, -2, 2.35, 13.9, metal);
+    const loungeTv = new THREE.Mesh(new THREE.PlaneGeometry(5.25, 1.6), new THREE.MeshBasicMaterial({ map: tvTexture, toneMapped: false }));
+    loungeTv.position.set(-2, 2.35, 13.84); loungeTv.rotation.y = Math.PI;
+    scene.add(registerDisplay(loungeTv)); frontWall.items.push(loungeTv);
     sofa(4.6, -5, 10.6, Math.PI, "#f07b2b"); sofa(4.6, 1.2, 10.6, Math.PI, "#d6336c");
     sofa(2.4, -8.6, 9.4, Math.PI * 0.78, "#1fa3b8"); sofa(2.4, 4.8, 9.4, -Math.PI * 0.78, "#2f6fd6");
     cyl(0.6, 0.6, 0.06, -2, 0.45, 9.0, white); cyl(0.08, 0.14, 0.42, -2, 0.21, 9.0, metal); cyl(0.3, 0.3, 0.03, -2, 0.015, 9.0, metal);
@@ -1280,12 +1282,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Front wall, seen from inside (facing the room).
     hang(posterTexture("Compre na baixa, venda na alta", "regra nº 1 do ATLAS", "#1f3b5c", "#f07b2b"), 1.4, 1.75, -10.2, 1.85, 13.86, Math.PI, frontWall);
     hang(muralTexture(55, PALETTE), 5.6, 1.1, -2, 2.6, 13.86, Math.PI, frontWall);
-    hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d"), 1.4, 1.75, 6.0, 1.85, 13.86, Math.PI, frontWall);
+    hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d"), 1.4, 1.75, 6.4, 1.85, 13.86, Math.PI, frontWall);
     hang(posterTexture("Nunca vender com prejuízo", "só com lucro", "#5a2340", "#1fa3b8"), 1.4, 1.75, 18.9, 1.85, 13.86, Math.PI, frontWall);
     // Keep the snack-bar artwork and lettering on one visual centreline, with breathing room
     // below the ceiling and a full metre between their outer edges.
-    const snackWall = { artX: 15.6, signX: 11.6, y: 2.05, signWidth: 3.4 };
-    hang(muralTexture(61, PALETTE), 2.4, 1.4, snackWall.artX, snackWall.y, 13.86, Math.PI, frontWall);
+    const snackWall = { signX: 12.45, y: 2.05, signWidth: 3.4 };
     {
       const neon = canvasTexture(1024, 256), g = neon.g;
       g.fillStyle = "#14161b"; g.fillRect(0, 0, 1024, 256);
@@ -1307,9 +1308,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
       g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
       board.texture.needsUpdate = true;
-      // Centre within the meeting room's straight side wall, from the corner at z=-10
-      // to the glass partition at z=-6, and halfway up the wall.
-      hang(board.texture, 2.6, 1.42, 23.86, H / 2, (-10 + -6) / 2, -Math.PI / 2, rightWall);
+      // Centre in the clear wall span between the rounded corner and bookshelf, and
+      // halfway up the wall so the frame has even margins around it.
+      const clearWall = { from: -10, to: -0.5 - 1.2, x: 23.86 };
+      hang(board.texture, 2.6, 1.42, clearWall.x, H / 2, (clearWall.from + clearWall.to) / 2, -Math.PI / 2, rightWall);
     }
     const bookshelf = (x: number, z: number, turn: number) => {
       const g = new THREE.Group();
