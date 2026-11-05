@@ -6,6 +6,7 @@ import { saoPauloClock } from "@/core/b3-calendar";
 import { b3EventsUrl, fetchB3Events } from "@/providers/b3-events";
 import { softCached } from "./context";
 import { notify } from "./notify";
+import { allLiveFills } from "./live-fills";
 
 const brl = (v: string | number) => `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const day = (iso: string) => iso.split("-").reverse().join("/");
@@ -19,13 +20,15 @@ const day = (iso: string) => iso.split("-").reverse().join("/");
 export async function creditDividends(db: SupabaseClient, owner: string) {
   const rate = await db.rpc("consume_rate_limit", { p_key: `atlas-dividends:${owner}`, p_limit: 1, p_window_seconds: 21600 });
   if (rate.error || !rate.data) return { recorded: 0, skipped: true };
-  const fills = await db.from("live_fills").select("agent_id,ticker,side,quantity,executed_at").eq("owner_id", owner);
-  if (fills.error) throw new Error("DIVIDENDS_FILLS_UNAVAILABLE");
-  const groups = new Map<string, { agentId: string; ticker: string; fills: { side: "BUY" | "SELL"; quantity: number; date: string }[] }>();
-  for (const f of fills.data ?? []) {
-    const key = `${f.agent_id}:${f.ticker}`;
-    if (!groups.has(key)) groups.set(key, { agentId: String(f.agent_id), ticker: String(f.ticker), fills: [] });
-    groups.get(key)!.fills.push({ side: f.side as "BUY" | "SELL", quantity: Number(f.quantity), date: saoPauloClock(new Date(String(f.executed_at))).date });
+  const fills = await allLiveFills(db, owner);
+  const today = saoPauloClock(new Date()).date;
+  const groups = new Map<string, { agentId: string | null; ticker: string; fills: { side: "BUY" | "SELL"; quantity: number; date: string }[] }>();
+  for (const f of fills) {
+    const key = f.ticker;
+    if (!groups.has(key)) groups.set(key, { agentId: f.agent_id, ticker: f.ticker, fills: [] });
+    const group = groups.get(key)!;
+    if (group.agentId !== f.agent_id) group.agentId = null;
+    group.fills.push({ side: f.side, quantity: f.quantity, date: saoPauloClock(new Date(f.executed_at)).date });
   }
   let recorded = 0;
   for (const g of groups.values()) {
@@ -34,6 +37,8 @@ export async function creditDividends(db: SupabaseClient, owner: string) {
       b3EventsUrl(issuer), () => fetchB3Events(issuer), undefined, 1800).catch(() => null);
     if (!events) continue;
     for (const row of dividendRows(g.fills, events, isinPrefix(g.ticker))) {
+      // Holdings may still change on the data com; only a completed record date defines a right.
+      if (row.lastDatePrior >= today) continue;
       const result = await db.rpc("live_record_dividend", { p_owner_id: owner, p_event: { agentId: g.agentId, ticker: g.ticker, ...row, source: b3EventsUrl(issuer) } });
       if (result.error) throw new Error("DIVIDENDS_RECORD_FAILED");
       if (result.data !== "RECORDED") continue;

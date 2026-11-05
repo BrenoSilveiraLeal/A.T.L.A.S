@@ -2,6 +2,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { formatBrl } from "@/core/format";
+import { appendQuotePoint } from "@/core/price-series";
 import { CandleChart, type ChartMarker } from "./candle-chart";
 import { readingOf, useCdi, useNews, type NewsItem } from "./news-tv";
 import { AgentCard, OfficeLegend, Scoreboard, useNow, type AgentChart, type OfficeAgent } from "./office-map";
@@ -63,24 +64,40 @@ type Bar6m = { date: string; open: number; high: number; low: number; close: num
  * seen, to draw today's candle.
  */
 function usePrices(connected: boolean) {
-  type Session = Record<string, { day: string; high: number; low: number }>;
-  const [state, setState] = useState<{ source: string; prices: Record<string, { price: number; at: string }>; session: Session }>({ source: "", prices: {}, session: {} });
+  type Session = Record<string, { day: string; high: number; low: number; points: { price: number; at: string }[] }>;
+  type Quotes = Record<string, { price: number; at: string; source: string }>;
+  const [state, setState] = useState<{ source: string; prices: Quotes; session: Session }>({ source: "", prices: {}, session: {} });
+  const acceptedPrices = useRef<Quotes>({});
   const session = useRef<Session>({});
   useEffect(() => {
     if (!connected) return;
-    let stop = false, timer = 0;
-    const read = () => fetch("/api/atlas/prices").then((r) => (r.ok ? r.json() : null)).then((b) => {
-      if (stop || !b) return;
-      const day = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
-      for (const [ticker, q] of Object.entries(b.prices as Record<string, { price: number }>)) {
-        const seen = session.current[ticker];
-        session.current[ticker] = seen && seen.day === day ? { day, high: Math.max(seen.high, q.price), low: Math.min(seen.low, q.price) } : { day, high: q.price, low: q.price };
-      }
-      setState({ source: b.source, prices: b.prices, session: { ...session.current } });
-      timer = window.setTimeout(read, (b.source === "MT5" ? 5 : 60) * 1000);
-    }).catch(() => { if (!stop) timer = window.setTimeout(read, 60000); });
-    read();
-    return () => { stop = true; window.clearTimeout(timer); };
+    let stop = false, timer = 0, source = "";
+    const controller = new AbortController();
+    const read = async () => {
+      try {
+        const response = await fetch("/api/atlas/prices", { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]) });
+        if (!response.ok) throw new Error("PRICES_UNAVAILABLE");
+        const b = await response.json();
+        if (stop) return;
+        source = b.source;
+        for (const [ticker, q] of Object.entries(b.prices as Record<string, { price: number; at: string }>)) {
+          if (!(q.price > 0) || !Number.isFinite(q.price) || !Number.isFinite(Date.parse(q.at))) continue;
+          const previous = acceptedPrices.current[ticker];
+          if (previous && Date.parse(previous.at) > Date.parse(q.at)) continue;
+          acceptedPrices.current[ticker] = { ...q, source: b.source };
+          const day = new Date(q.at).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+          const seen = session.current[ticker];
+          const points = appendQuotePoint(seen?.points ?? [], q);
+          session.current[ticker] = seen && seen.day === day
+            ? { day, high: Math.max(seen.high, q.price), low: Math.min(seen.low, q.price), points }
+            : { day, high: q.price, low: q.price, points };
+        }
+        setState({ source: b.source, prices: { ...acceptedPrices.current }, session: { ...session.current } });
+      } catch { /* Keep the last known prices and retry, including non-2xx responses. */ }
+      finally { if (!stop) timer = window.setTimeout(read, source === "MT5" ? 5000 : 15000); }
+    };
+    void read();
+    return () => { stop = true; controller.abort(); window.clearTimeout(timer); };
   }, [connected]);
   return state;
 }
@@ -242,7 +259,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     const today = saoPauloClock(new Date(now)).date;
     const done = daily.filter((b) => !b.date || b.date < today);
     const prevClose = done.at(-1)?.close;
-    const bars = quote && prevClose && session.status === "OPEN"
+    const bars = quote && prevClose && session.status === "OPEN" && seen?.day === today
       ? [...done.slice(-59), { open: prevClose, high: Math.max(prevClose, seen?.high ?? quote.price), low: Math.min(prevClose, seen?.low ?? quote.price), close: quote.price }]
       : daily;
     // What the boss would release to this agent now (0 when its stock is not in its buy zone).
@@ -268,8 +285,8 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
       events: agentEvents(text(agent.id), floor.live, paper.paper_proposals ?? [], String(paper.paper_book_restarts?.[0]?.started_at ?? "")),
       maxLoss: (budget * maxLossPct) / 100, nextAnalysisAt: agent.next_analysis_at ? String(agent.next_analysis_at) : null,
       headline: headline ? { title: headline.item.title, url: headline.item.url, direction: headline.tag.direction } : null,
-      chart: { bars, last, prev: prevClose ?? null }, health, debate, range, priceSource: live.source,
-      liveQuote: quote ? { price: quote.price, at: quote.at, source: live.source } : null,
+      chart: { bars, last, prev: prevClose ?? null }, health, debate, range, priceSource: quote?.source ?? live.source,
+      liveQuote: quote ? { price: quote.price, at: quote.at, source: quote.source, points: seen?.points ?? [] } : null,
       forecast, history, bars6m: ranges[ticker]?.bars6m ?? [],
       marketOpen: session.status === "OPEN" };
   });

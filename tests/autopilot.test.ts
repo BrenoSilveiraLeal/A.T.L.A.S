@@ -31,6 +31,17 @@ function input(overrides: Partial<AutopilotInput> = {}, closes = rising, price =
 }
 
 describe("paper autopilot rule", () => {
+  it("distinguishes a zero allocation from an empty pot for a R$12 stock", () => {
+    const closes = Array.from({ length: 130 }, () => 12.5);
+    const common = { range: { closes, options: { window: 126, nearPct: 15, minGainPct: 3, confirmBuy: false, confirmSell: false, minUpShare: 0 } },
+      minOrderValue: 40, fixedFee: 0.99, availableCash: "510" };
+    const waiting = autopilotDecision(input({ ...common, budgetRoom: "0" }, closes, "12.72"));
+    expect(waiting.action).toBe("HOLD");
+    expect(waiting.reason).toContain("aguarda a vez");
+    expect(waiting.reason).not.toContain("falta dinheiro");
+    expect(autopilotDecision(input({ ...common, budgetRoom: "255" }, closes, "12.72")).action).toBe("BUY");
+    expect(autopilotDecision(input({ ...common, budgetRoom: "0", availableCash: "0" }, closes, "12.72")).reason).toContain("falta dinheiro");
+  });
   it("buys in an uptrend, half of the tightest of budget, order limit and cash (buying in parts)", () => {
     const decision = autopilotDecision(input());
     expect(decision.action).toBe("BUY");

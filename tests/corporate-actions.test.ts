@@ -8,7 +8,7 @@ const event = (patch: Partial<CorporateEvent>): CorporateEvent => ({ kind: "CASH
   value: "0.47", lastDatePrior: "2026-10-01", paymentDate: "2026-10-15", ...patch });
 
 describe("B3 corporate events", () => {
-  it("parses official cash and stock events, skipping unknown labels and unset payments", () => {
+  it("parses official events, preserving payment dates yet to be defined and skipping unknown labels", () => {
     const events = parseB3Events([{ code: "MGLU", cashDividends: [
       { isinCode: "BRMGLUACNOR2", label: "DIVIDENDO", rate: "0,08130019210", lastDatePrior: "24/04/2026", paymentDate: "08/05/2026" },
       { isinCode: "BRMGLUACNOR2", label: "JRS CAP PROPRIO", rate: "0,1", lastDatePrior: "24/04/2026", paymentDate: "" },
@@ -20,6 +20,7 @@ describe("B3 corporate events", () => {
     ] }]);
     expect(events).toEqual([
       { kind: "CASH", label: "DIVIDENDO", isin: "BRMGLUACNOR2", value: "0.08130019210", lastDatePrior: "2026-04-24", paymentDate: "2026-05-08" },
+      { kind: "CASH", label: "JRS CAP PROPRIO", isin: "BRMGLUACNOR2", value: "0.1", lastDatePrior: "2026-04-24", paymentDate: null },
       { kind: "GROUPING", label: "GRUPAMENTO", isin: "BRMGLUACNOR2", value: "0.10000000000", lastDatePrior: "2024-05-24", paymentDate: null },
       { kind: "SPLIT", label: "DESDOBRAMENTO", isin: "BRMGLUACNOR2", value: "300.00000000000", lastDatePrior: "2020-10-13", paymentDate: null },
       { kind: "SPLIT", label: "DESDOBRAMENTO", isin: "BRMGLUACNOR2", value: "4900.00000000000", lastDatePrior: "2009-06-08", paymentDate: null },

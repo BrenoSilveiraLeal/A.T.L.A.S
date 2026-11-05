@@ -10,5 +10,6 @@ export default defineConfig([
     "next-env.d.ts",
     "supabase/functions/**",
     "artifacts/**",
+    "output/**",
   ]),
 ]);

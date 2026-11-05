@@ -131,6 +131,8 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
   const buy = (why: string): AutopilotDecision => {
     if (input.context?.action === "BLOCK_BUY" || input.context?.action === "EXIT")
       return hold(`sinal de compra bloqueado pelo contexto: ${input.context.summary}`);
+    if (new D(input.budgetRoom).lte(0) && new D(input.availableCash).gt(0))
+      return hold("preço bom, mas aguarda a vez na divisão do caixa pelo Chefe; o saldo está reservado às oportunidades prioritárias.");
     const limit = toTick(price.times(1 + (input.slippageBps + LIMIT_BUFFER_BPS) / 10000), tick, "up");
     const fullRoom = D.min(new D(input.budgetRoom), new D(input.maxOrderValue), new D(input.availableCash)).minus(input.fixedFee ?? 0);
     // Owner, 29/10/2026: "não gastar todo o dinheiro de uma vez só" — at most half of what the boss
@@ -153,7 +155,7 @@ export function autopilotDecision(input: AutopilotInput): AutopilotDecision {
   };
   if (input.range) {
     const decision = rangeDecision({ closes: input.range.closes, levelCloses: input.range.levelCloses, price: price.toNumber(), quantity: input.position.quantity,
-      cost: new D(input.position.averageCost).times(input.position.quantity).toNumber(), cash: Number(input.budgetRoom),
+      cost: new D(input.position.averageCost).times(input.position.quantity).toNumber(), cash: Number(input.availableCash),
       minOrder: input.minOrderValue ?? 0, history: input.range.history ?? null }, input.range.options ?? RANGE_DEFAULTS);
     if (decision.action === "SELL" && input.position.quantity > 0) return sellAll(decision.reason);
     if (decision.action === "BUY") return buy(decision.reason);

@@ -18,6 +18,7 @@ export class NavGrid {
     private readonly rects: readonly Rect[],
     private readonly cell = 0.4,
     private readonly pad = 0.32,
+    private readonly cornerRadius = 0,
   ) {
     this.nx = Math.ceil((bounds[2] - bounds[0]) / cell);
     this.nz = Math.ceil((bounds[3] - bounds[1]) / cell);
@@ -32,6 +33,11 @@ export class NavGrid {
   blocks(x: number, z: number, r: number) {
     const [bx1, bz1, bx2, bz2] = this.bounds;
     if (x - r < bx1 || x + r > bx2 || z - r < bz1 || z + r > bz2) return true;
+    if (this.cornerRadius > 0) {
+      const cx = Math.max(bx1 + this.cornerRadius, Math.min(bx2 - this.cornerRadius, x));
+      const cz = Math.max(bz1 + this.cornerRadius, Math.min(bz2 - this.cornerRadius, z));
+      if ((x - cx) ** 2 + (z - cz) ** 2 > (this.cornerRadius - r) ** 2) return true;
+    }
     return this.rects.some(([x1, z1, x2, z2]) => {
       const dx = Math.max(x1 - x, 0, x - x2), dz = Math.max(z1 - z, 0, z - z2);
       return dx * dx + dz * dz < r * r;

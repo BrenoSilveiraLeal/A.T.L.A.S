@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { AgentFloor } from "./agent-floor";
 
 /** Broadcast view: refreshes the floor every 20 seconds, like a live trading room. */
@@ -17,10 +19,11 @@ export function TvMode() {
     <main className="tv-mode">
       <header className="tv-header">
         <strong>ATLAS · Trading Floor</strong>
-        <span><span className="live-dot" aria-hidden="true" /> AO VIVO · simulação · {clock}</span>
+        <span>Atualização automática · {clock}</span>
+        <Link className="tv-back-link" href="/app"><ArrowLeft size={16} aria-hidden="true" /> Voltar ao escritório</Link>
       </header>
       <AgentFloor connected revision={revision} tv />
-      <p className="tv-footer">Resultados de simulação com cotação atrasada. Não é recomendação de investimento.</p>
+      <p className="tv-footer">Dados da mesma equipe e carteira do escritório. A atualização das cotações depende da fonte indicada em cada ativo.</p>
     </main>
   );
 }

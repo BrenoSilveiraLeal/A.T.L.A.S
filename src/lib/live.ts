@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { GatewayError, HttpExecutionGateway } from "@/providers/execution-gateway";
 import { bossRelease } from "./boss";
-import { b3Session } from "@/core/b3-calendar";
+import { b3Session, saoPauloClock } from "@/core/b3-calendar";
 import { mergeFractionalPositions } from "@/core/lots";
 import { custodyShortfalls, liveIntent, minimumSellPrice, quoteProblem, sendOutcome, sizeLiveBuy, sizeLiveSell, TRADING_SWITCH_OFF } from "@/core/live";
 import { adminClient } from "./supabase";
@@ -169,10 +169,14 @@ export async function runLive(now = new Date()) {
         if (problem) { events.push(`${agent.name}: ${problem}`); continue; }
         // The boss's pot: deposits + realized results − cost of all shares held − buy orders in flight.
         const plan = await db.from("capital_plans").select("ceiling").eq("owner_id", owner).maybeSingle();
+        const dividends = await db.from("live_dividends").select("net").eq("owner_id", owner)
+          .lte("payment_date", saoPauloClock(now).date);
+        if (plan.error || dividends.error || positions.error || stillActive.error) throw new Error("LIVE_DATABASE_UNAVAILABLE");
         const deposited = Number(plan.data?.ceiling ?? 0);
         const pool = deposited + (positions.data ?? []).reduce((s, p) => s + Number(p.realized_pnl) - Number(p.cost), 0)
+          + (dividends.data ?? []).reduce((s, d) => s + Number(d.net), 0)
           - (stillActive.data ?? []).filter((o) => o.side === "BUY").reduce((s, o) => s + Number(o.reserved_cash), 0);
-        const room = await bossRelease(db, owner, agent.id, pool, { [ticker]: Number(quote.ask) });
+        const room = await bossRelease(db, owner, agent.id, pool, { [ticker]: Number(quote.ask) }, "live");
         const size = sizeLiveBuy(room, Number(settings.data!.max_order), quote.ask!);
         if ("skip" in size) { events.push(`${agent.name}: ${size.skip}`); continue; }
         // Never more than the council decided (it halves a purchase when the context calls for caution).

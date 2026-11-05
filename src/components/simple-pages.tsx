@@ -6,6 +6,9 @@ import { formatBrl } from "@/core/format";
 import { AgentFloor } from "./agent-floor";
 import { LivePanel } from "./live-panel";
 import { CostsPanel } from "./costs-panel";
+import { purchaseLots } from "@/core/purchase-lots";
+import type { LiveFill } from "@/lib/live-fills";
+import { DividendsPanel } from "./dividends-panel";
 
 /**
  * The owner's three screens (24/10/2026: "o controle das compras e vendas, o histórico e o que a
@@ -38,7 +41,7 @@ function usePaper(connected: boolean, revision = 0) {
   return state;
 }
 
-type Genial = { deposited: number; spent: number; received: number; fees: number; free: number; dividends?: number; upcomingDividends?: number };
+type Genial = { deposited: number; spent: number; received: number; fees: number; free: number; dividends?: number; upcomingDividends?: number; confirmedDividends?: number };
 type Bridge = { available: boolean; reason?: string; balance?: { balance: string; equity: string; observedAt: string } | null };
 
 /**
@@ -95,7 +98,8 @@ export function GenialBalance({ connected, compact = false }: { connected: boole
             <div><span>Gasto em compras</span><strong>{brl(genial.spent)}</strong></div>
             <div><span>Recebido de vendas</span><strong>{brl(genial.received)}</strong></div>
             <div><span>Taxas pagas</span><strong className="down">{brl(genial.fees)}</strong></div>
-            <div><span>Dividendos e JCP recebidos</span><strong className={genial.dividends ? "up" : ""}>{brl(genial.dividends ?? 0)}</strong></div>
+            <div><span>Proventos pelo calendário até hoje</span><strong>{brl(genial.dividends ?? 0)}</strong></div>
+            <div><span>Proventos confirmados no extrato</span><strong className={genial.confirmedDividends ? "up" : ""}>{brl(genial.confirmedDividends ?? 0)}</strong></div>
             {genial.upcomingDividends ? <div><span>Dividendos a receber</span><strong>{brl(genial.upcomingDividends)}</strong></div> : null}
           </>}
         </div>
@@ -128,7 +132,7 @@ export function OfficePage({ connected }: { connected: boolean }) {
 
 type LiveView = {
   agents: { id: string; name: string; ticker: string; realBudget: number }[];
-  positions: Row[]; orders: Row[]; fills: Row[]; dividends: Row[];
+  positions: Row[]; orders: Row[]; fills: LiveFill[]; dividends: Row[];
 };
 const ORDER_STATUS: Record<string, string> = { PENDING: "preparando", DISPATCHED: "enviada", OPEN: "aberta na Genial", PARTIALLY_FILLED: "executada em parte",
   FILLED: "executada", CANCELLED: "cancelada", REJECTED: "recusada", EXPIRED: "expirou", UNKNOWN: "sem confirmação da Genial" };
@@ -151,12 +155,13 @@ function useLive(connected: boolean) {
     }).catch((e) => !controller.signal.aborted && setState({ live: null, error: e instanceof Error ? e.message : "Indisponível." }));
     return () => controller.abort();
   }, [connected, tick]);
-  return state;
+  const refresh = useCallback(() => setTick((value) => value + 1), []);
+  return { ...state, refresh };
 }
 
 /** Each agent's real shares at Genial, its money and any order in progress. */
 function RealWallet({ connected }: { connected: boolean }) {
-  const { live, error } = useLive(connected);
+  const { live, error, refresh } = useLive(connected);
   const { paper } = usePaper(connected);
   if (!connected) return null;
   if (error) return <p className="notice error-text" role="alert">{error}</p>;
@@ -176,22 +181,20 @@ function RealWallet({ connected }: { connected: boolean }) {
     <section className="panel wallet">
       <div className="section-heading"><h2>Ações de cada IA na Genial</h2><span className="muted">dinheiro real · atualiza a cada 20 s</span></div>
       <div className="table-scroll"><table>
-        <thead><tr><th>IA</th><th>Ações</th><th>Compras por preço (com taxas)</th><th>Preço médio</th><th>Preço agora</th><th>Ganho</th><th>Em ações</th><th>Ordem em andamento</th></tr></thead>
+        <thead><tr><th>IA</th><th>Ações</th><th>Compras executadas por preço</th><th>Preço médio com taxas</th><th>Preço agora</th><th>Ganho</th><th>Em ações</th><th>Ordem em andamento</th></tr></thead>
         <tbody>{rows.map((r) => {
           const gain = r.quantity && r.price !== null ? r.value - r.cost : null;
           return <tr key={r.id}>
             <td><b>{r.name}</b> {r.ticker}</td>
             <td>{r.quantity || "—"}</td>
-            <td>{r.quantity ? (() => {
-              const lots = live.fills.filter((f) => f.agent_id === r.id && f.ticker === r.ticker && f.side === "BUY");
-              const grouped = new Map<string, number>();
-              for (const fill of lots) {
-                const quantity = Number(fill.quantity);
-                const price = ((quantity * Number(fill.price) + Number(fill.fee ?? 0)) / quantity).toFixed(2);
-                grouped.set(price, (grouped.get(price) ?? 0) + quantity);
-              }
-              return grouped.size ? [...grouped].map(([price, quantity]) => `${quantity} a ${brl(Number(price))}`).join(" · ") : "Histórico de lotes indisponível";
-            })() : "—"}</td>
+            <td>{(() => {
+              const lots = purchaseLots(live.fills.filter((f) => f.agent_id === r.id && f.ticker === r.ticker));
+              return lots.length ? <ul className="purchase-lots">{lots.map((lot) => <li key={lot.price}>
+                <b>{lot.quantity} × R$ {Number(lot.price).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</b>
+                <small>+ {brl(Number(lot.fees))} em taxas · total {brl(Number(lot.total))}</small>
+                <small>{when(lot.firstAt)}{lot.lastAt !== lot.firstAt ? ` a ${when(lot.lastAt)}` : ""}</small>
+              </li>)}</ul> : "—";
+            })()}</td>
             <td>{r.quantity ? brl(r.cost / r.quantity) : "—"}</td>
             <td>{r.price !== null ? brl(r.price) : "—"}</td>
             <td className={gain === null || Math.abs(gain) < 0.005 ? "" : gain > 0 ? "up" : "down"}>{gain === null ? "—" : `${gain >= 0 ? "+" : "−"}${brl(Math.abs(gain))}`}</td>
@@ -200,9 +203,9 @@ function RealWallet({ connected }: { connected: boolean }) {
           </tr>;
         })}</tbody>
       </table></div>
-      <p className="muted">O dinheiro fica no caixa do Chefe. Ele libera para uma IA quando o preço da ação dela chega perto da menor dos últimos 6 meses; ela vende perto da maior, nunca abaixo do que pagou, e o dinheiro volta para o caixa.</p>
+      <p className="muted">As compras executadas mostram o preço de cada ação e as taxas separadamente. O preço médio inclui essas taxas. O Chefe distribui o caixa entre as oportunidades aprovadas, respeitando os limites configurados; a estratégia atual acumula ações para dividendos.</p>
     </section>
-    <DividendHistory live={live} />
+    <DividendsPanel records={live.dividends} onRecorded={refresh} />
   </>;
 }
 
@@ -215,48 +218,15 @@ export function TradesPage({ connected }: { connected: boolean }) {
   </>;
 }
 
-/** Official B3 cash events, matched against shares held on the record date. */
-function DividendHistory({ live }: { live: LiveView }) {
-  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
-  const rows = live.dividends ?? [];
-  const paid = rows.filter((r) => String(r.payment_date) <= today);
-  const upcoming = rows.filter((r) => String(r.payment_date) > today);
-  const total = (items: Row[]) => items.reduce((sum, r) => sum + Number(r.net ?? 0), 0);
-  const date = (value: unknown) => String(value ?? "").split("-").reverse().join("/");
-  const agents = new Map(live.agents.map((a) => [a.id, a.name]));
-  const eventName = (label: unknown) => label === "JRS CAP PROPRIO" ? "JCP" : label === "RENDIMENTO" ? "Rendimento" : "Dividendo";
-  return (
-    <section className="panel dividend-history" aria-labelledby="dividend-history-title">
-      <div className="section-heading"><h2 id="dividend-history-title">Dividendos e JCP</h2><span className="muted">eventos oficiais da B3 · valores por ação e por posição</span></div>
-      <div className="genial-main dividend-totals">
-        <div><span>Na data prevista ou anteriores</span><strong className={paid.length ? "up" : ""}>{brl(total(paid))}</strong></div>
-        <div><span>Pagamentos futuros anunciados</span><strong>{brl(total(upcoming))}</strong></div>
-        <div><span>Eventos no registro</span><strong>{rows.length}</strong></div>
-      </div>
-      {rows.length ? <div className="table-scroll"><table>
-        <thead><tr><th>Ativo / agente</th><th>Provento por ação</th><th>Quantidade com direito</th><th>Data com</th><th>Pagamento</th><th>Bruto</th><th>IR retido</th><th>Líquido</th><th>Situação</th></tr></thead>
-        <tbody>{rows.map((r) => {
-          const paymentDate = String(r.payment_date ?? "");
-          const isPaidByDate = paymentDate <= today;
-          const quantity = Number(r.quantity ?? 0);
-          const rate = Number(r.rate ?? 0);
-          return <tr key={String(r.id)}>
-            <td><b>{String(r.ticker)}</b><small>{agents.get(String(r.agent_id)) ?? "Carteira Genial"} · {eventName(r.label)}</small>
-              {r.source && <small><a href={String(r.source)} target="_blank" rel="noreferrer">Fonte oficial B3</a></small>}</td>
-            <td>{brl(rate)} por ação</td>
-            <td>{quantity}</td>
-            <td>{date(r.last_date_prior)}</td>
-            <td>{date(paymentDate)}</td>
-            <td>{brl(Number(r.gross ?? rate * quantity))}</td>
-            <td>{brl(Number(r.tax ?? 0))}</td>
-            <td><b>{brl(Number(r.net ?? 0))}</b></td>
-            <td><span className={`status-label ${isPaidByDate ? "success" : "warning"}`}>{isPaidByDate ? "Data prevista passada" : "A receber"}</span></td>
-          </tr>;
-        })}</tbody>
-      </table></div> : <p className="muted">Ainda não há proventos anunciados para as posições registradas. Quando uma empresa divulgar o valor por ação, a data com e o pagamento, o ATLAS calcula a estimativa para a quantidade elegível.</p>}
-      <p className="muted">A conta usa <b>valor por ação × quantidade elegível</b>; JCP mostra o imposto retido e o valor líquido. A data com define quem tem direito. “Data de pagamento” segue o calendário oficial informado pela empresa/B3; confirme o crédito efetivo no extrato da Genial.</p>
-    </section>
-  );
+export function DividendsPage({ connected }: { connected: boolean }) {
+  const { live, error, refresh } = useLive(connected);
+  return <>
+    <Heading title="Dividendos" note="Anúncios, valor por ação e registro dos créditos recebidos na Genial." />
+    <Offline connected={connected} />
+    {error && <p className="notice error-text" role="alert">{error}</p>}
+    {connected && !live && !error && <p role="status">Carregando os seus proventos…</p>}
+    {live && <DividendsPanel records={live.dividends} onRecorded={refresh} />}
+  </>;
 }
 
 /** What the agents decided, with the reason in plain words (orders follow these decisions). */

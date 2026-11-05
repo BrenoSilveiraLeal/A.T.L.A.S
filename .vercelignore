@@ -15,5 +15,8 @@ gateways/profitdll/runtime/
 .venv-mt5/
 artifacts/
 .playwright-cli/
+.impeccable/
+*.tsbuildinfo
+*.log
 output/
 security_best_practices_report.md

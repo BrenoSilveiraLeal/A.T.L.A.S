@@ -15,9 +15,32 @@ const brl = (v: number) => formatBrl(v.toFixed(2));
 const day = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 const pct = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(1)}%`;
 
-export function PriceHistory({ ticker, bars, levels, liveQuote = null }: {
+function ObservedQuotes({ ticker, points, source }: { ticker: string; points: readonly { price: number; at: string }[]; source: string }) {
+  if (!points.length) return null;
+  const first = points[0], last = points[points.length - 1];
+  const min = Math.min(...points.map((point) => point.price)), max = Math.max(...points.map((point) => point.price));
+  const padding = Math.max((max - min) * 0.15, max * 0.001, 0.01);
+  const start = Date.parse(first.at), end = Date.parse(last.at);
+  const x = (at: string) => start === end ? 320 : 64 + (Date.parse(at) - start) / (end - start) * 560;
+  const y = (price: number) => 100 - (price - min + padding) / (max - min + 2 * padding) * 80;
+  const time = (at: string) => new Date(at).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return <div className="observed-quotes">
+    <div><b>Cotação intradiária observada · {ticker}</b><span>{source === "MT5" ? "MT5 · consulta a cada 5 s" : "Fonte com atraso"}</span></div>
+    <svg viewBox="0 0 640 135" role="img" aria-label={`Cotações observadas de ${ticker}, de ${time(first.at)} a ${time(last.at)}; última ${brl(last.price)}.`}>
+      <text x="3" y="30" className="ph-axis">{brl(max)}</text>
+      <text x="3" y="100" className="ph-axis">{brl(min)}</text>
+      <path d={points.map((point, i) => `${i ? "L" : "M"}${x(point.at)} ${y(point.price)}`).join(" ")} className="ph-observed-line" />
+      <circle cx={x(last.at)} cy={y(last.price)} r="4" className="ph-current-dot" />
+      <text x="64" y="125" className="ph-axis">{time(first.at)}</text><text x="624" y="125" textAnchor="end" className="ph-axis">{time(last.at)}</text>
+    </svg>
+    <small>{new Date(last.at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} · {points.length === 1 ? "Aguardando a próxima cotação do feed." : `${points.length} amostras reais recebidas pelo aplicativo.`} A linha registra o período observado; o histórico completo do dia depende da fonte.</small>
+  </div>;
+}
+
+export function PriceHistory({ ticker, bars, levels, liveQuote = null, now }: {
   ticker: string; bars: readonly Bar[]; levels: { low: number; high: number; buyBelow: number; sellAbove: number };
-  liveQuote?: { price: number; at: string; source: string } | null;
+  liveQuote?: { price: number; at: string; source: string; points?: { price: number; at: string }[] } | null;
+  now: number;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [compact, setCompact] = useState(false);
@@ -38,13 +61,14 @@ export function PriceHistory({ ticker, bars, levels, liveQuote = null }: {
     ? liveQuote : null;
   const currentIndex = current ? bars.length : -1;
   const slots = bars.length + (current ? 1 : 0);
-  const lo = Math.min(...bars.map((b) => b.low), levels.buyBelow, ...(current ? [current.price] : [])), hi = Math.max(...bars.map((b) => b.high), levels.sellAbove, ...(current ? [current.price] : []));
+  const lo = Math.min(...bars.map((b) => b.low), levels.buyBelow, ...(current ? [current.price] : []));
+  const hi = Math.max(...bars.map((b) => b.high), ...(SELLS_NEAR_HIGH ? [levels.sellAbove] : []), ...(current ? [current.price] : []));
   const y = (v: number) => bottom - ((v - lo) / (hi - lo || 1)) * (bottom - top);
   const step = (W - left - right) / slots;
   const x = (i: number) => left + step * (i + 0.5);
   const closePath = bars.map((b, i) => `${i ? "L" : "M"}${x(i)} ${y(b.close)}`).join(" ");
   const currentX = current ? x(currentIndex) : null;
-  const quoteAge = current ? Date.now() - quoteTime : Infinity;
+  const quoteAge = current ? now - quoteTime : Infinity;
   const currentLabel = current ? `${current.source === "MT5" && quoteAge >= 0 && quoteAge <= 30000 ? "AO VIVO" : "ÚLTIMA COTAÇÃO"} · ${new Date(quoteTime).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "";
   const lowIndex = bars.reduce((m, b, i) => (b.close < bars[m].close ? i : m), 0);
   const highIndex = bars.reduce((m, b, i) => (b.close > bars[m].close ? i : m), 0);
@@ -62,6 +86,7 @@ export function PriceHistory({ ticker, bars, levels, liveQuote = null }: {
   };
   return (
     <div className="price-history">
+      {liveQuote && <ObservedQuotes ticker={ticker} points={liveQuote.points ?? []} source={liveQuote.source} />}
       <span className="score-kicker">{ticker} · últimos 6 meses (fechamento){current ? ` · ${currentLabel}` : ` · último pregão ${lastDate.split("-").reverse().join("/")}`}</span>
       <div className="price-history-body">
         <div className="price-history-chart">

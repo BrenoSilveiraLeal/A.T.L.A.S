@@ -118,8 +118,8 @@ const LOUNGE_LANE = 9;
 const BOSS_X = 6.67;
 // Plants (x, z, size) and floor lamps: drawn by the scene and kept out of everyone's way.
 const PLANTS: [number, number, number][] = [
-  ...COUNCILS.map((r): [number, number, number] => [r.x1 + 0.7, -13.2, 0.7]),
-  [BOSS_X - 3.3, -13.2, 0.8], [11.4, -13.2, 0.8], [23.3, -13.2, 0.8], [-23, 7, 0.9], [-12.8, 12.6, 1], [22.9, -3.9, 1.0]];
+  ...COUNCILS.map((r, i): [number, number, number] => [i === 0 ? -19.3 : r.x1 + 0.7, -13.2, 0.7]),
+  [BOSS_X - 3.3, -13.2, 0.8], [11.4, -13.2, 0.8], [21.6, -12.8, 0.8], [-23, 7, 0.9], [-12.8, 12.6, 1], [22.9, -3.9, 1.0]];
 const FLOOR_LAMPS: V2[] = [[-10.6, 12.8], [6.6, 12.8], [-22.6, 11.4]];
 // Team meeting room: six chairs each side for the agents, the boss at the head of the table and the
 // supervisor at the other end (owner, 26/10/2026); the door is where the fifth council room's was.
@@ -153,7 +153,14 @@ function officeObstacles(): Rect[] {
   // Reception, TV lounge, snack bar and pool.
   box(-19.5, 6.2, 7.4, 0.3); box(-19.5, 9.4, 3.6, 0.8);
   box(-2, 7.6, 5.8, 0.6); box(-5, 10.6, 4.6, 0.9); box(1.2, 10.6, 4.6, 0.9); box(-8.6, 9.4, 1.8, 1.8); box(4.8, 9.4, 1.8, 1.8); box(-2, 9.0, 1.2, 1.2);
-  box(22.6, 9.5, 0.8, 6.0); box(23.5, 12.9, 0.7, 1.0); box(23.5, 5.9, 0.7, 1.0);
+  box(23.3, 8.2, 0.8, 5.2); // straight counter on the right wall
+  // The curved counter and two refrigerators in the rounded front-right kitchen corner.
+  for (let i = 0; i < 4; i++) {
+    const a = (i + 0.5) * Math.PI / 8, radius = 3.3;
+    const turn = a + Math.PI / 2, c = Math.abs(Math.cos(turn)), s = Math.abs(Math.sin(turn));
+    box(20 + radius * Math.cos(a), 10 + radius * Math.sin(a), c * 1.34 + s * 0.9, s * 1.34 + c * 0.9);
+  }
+  box(19.2, 13.25, 0.9, 1.1); box(23.35, 4.8, 0.9, 1.1);
   for (const [x, z] of KITCHEN_TABLES) box(x, z, 1.1, 1.1);
   box(POOL_TABLE[0], POOL_TABLE[1], 3.2, 1.7);
   // Plants and floor lamps (owner, 27/10/2026: people were standing inside the plants).
@@ -163,11 +170,40 @@ function officeObstacles(): Rect[] {
   return r;
 }
 
+/** Rectangle clipped to the same rounded-rectangle outline as the tower floor. */
+function roundedFloorPatch(w: number, d: number, radius: number, x: number, z: number, patchW: number, patchD: number) {
+  type P = [number, number];
+  const outline = roundedRect(w, d, radius).getPoints(16).map((p): P => [p.x, p.y]);
+  const signedArea = outline.reduce((sum, p, i) => sum + p[0] * outline[(i + 1) % outline.length][1] - outline[(i + 1) % outline.length][0] * p[1], 0);
+  const sign = Math.sign(signedArea) || 1;
+  let poly: P[] = [[x - patchW / 2, -z - patchD / 2], [x + patchW / 2, -z - patchD / 2], [x + patchW / 2, -z + patchD / 2], [x - patchW / 2, -z + patchD / 2]];
+  for (let i = 0; i < outline.length && poly.length; i++) {
+    const a = outline[i], b = outline[(i + 1) % outline.length];
+    const inside = (p: P) => sign * ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) >= -1e-7;
+    const crossing = (p: P, q: P): P => {
+      const dx = q[0] - p[0], dy = q[1] - p[1], ex = b[0] - a[0], ey = b[1] - a[1];
+      const t = ((a[0] - p[0]) * ey - (a[1] - p[1]) * ex) / (dx * ey - dy * ex);
+      return [p[0] + dx * t, p[1] + dy * t];
+    };
+    const next: P[] = [];
+    for (let j = 0; j < poly.length; j++) {
+      const p = poly[j], q = poly[(j + 1) % poly.length], pi = inside(p), qi = inside(q);
+      if (pi && qi) next.push(q);
+      else if (pi && !qi) next.push(crossing(p, q));
+      else if (!pi && qi) next.push(crossing(p, q), q);
+    }
+    poly = next;
+  }
+  const shape = new THREE.Shape();
+  if (poly.length) { shape.moveTo(...poly[0]); poly.slice(1).forEach((p) => shape.lineTo(...p)); shape.closePath(); }
+  return new THREE.ShapeGeometry(shape, 4);
+}
+
 function meetingSlot(i: number): Slot {
   const { pos, face } = MEETING_SEATS[i % MEETING_SEATS.length], [x] = pos;
   const door: V2[] = [[MEETING_DOOR, CORRIDOR_Z], [MEETING_DOOR, -7.2]];
   const route: V2[] = face === Math.PI ? [...door, [x, -7.6]]
-    : face === 0 ? [...door, [23.5, -7.2], [23.5, -12.5], [x, -12.5]]
+    : face === 0 ? [...door, [23.0, -7.2], [23.0, -11.8], [22.5, -12.2], [x, -12.2]]
       : [...door, [x, -7.2]];
   return { pos, face, pose: "talk", route };
 }
@@ -711,7 +747,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // deep blue-slate walls, a coloured rug for each area and the coloured council walls.
     const floor = new THREE.Mesh(new THREE.ShapeGeometry(roundedRect(TOWER.width, TOWER.depth, 4), 10), matte("#a07f5f", 0.7));
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-    const rug = (w: number, d: number, x: number, z: number, c: string) => box(w, 0.02, d, x, 0.011, z, matte(c, 1), false);
+    const rug = (w: number, d: number, x: number, z: number, c: string) => {
+      const patch = new THREE.Mesh(roundedFloorPatch(TOWER.width, TOWER.depth, 4, x, z, w, d), matte(c, 1));
+      patch.rotation.x = -Math.PI / 2; patch.position.y = 0.021; patch.receiveShadow = true; scene.add(patch);
+    };
     rug(29, 8.4, -7.75, 0.4, "#2f3b52");
     rug(16, 5.8, -2, 10.4, "#6b3a48");
     rug(16.4, 7.6, 15.8, 10.1, "#c98b5e");
@@ -913,10 +952,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       cyl(0.18, 0.3, 0.92, tx, 0.46, tz, metal);
       for (let s = 0; s < 5; s++) { const { pos, face } = councilSeat(roomIndex, s); chair(pos[0], pos[1], face, s < 4 ? "#3b3f47" : "#f07b2b"); }
       const screen = canvasTexture(900, 380);
-      const frame = box(3.9, 1.75, 0.08, tx, 2.25, -13.85, metal);
-      const tv = new THREE.Mesh(new THREE.PlaneGeometry(3.75, 1.6), new THREE.MeshBasicMaterial({ map: screen.texture, toneMapped: false }));
-      tv.position.set(tx, 2.25, -13.8); scene.add(registerDisplay(tv));
-      backWall.items.push(frame, tv);
+      const cornerRoom = roomIndex === 0;
+      const frame = cornerRoom ? box(0.08, 1.75, 3.7, -23.85, 2.25, -8.1, metal) : box(3.9, 1.75, 0.08, tx, 2.25, -13.85, metal);
+      const tv = new THREE.Mesh(new THREE.PlaneGeometry(cornerRoom ? 3.55 : 3.75, 1.6), new THREE.MeshBasicMaterial({ map: screen.texture, toneMapped: false }));
+      if (cornerRoom) { tv.position.set(-23.8, 2.25, -8.1); tv.rotation.y = Math.PI / 2; }
+      else tv.position.set(tx, 2.25, -13.8);
+      scene.add(registerDisplay(tv));
+      (cornerRoom ? leftWall : backWall).items.push(frame, tv);
       const bubbleEl = document.createElement("div"); bubbleEl.className = "debate-bubble"; bubbleEl.hidden = true;
       const bubble = new CSS2DObject(bubbleEl); bubble.position.set(tx, 2.2, tz + 2.6); scene.add(bubble);
       return { screen, bubbleEl, key: "" };
@@ -1002,12 +1044,17 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // stools, two high tables, and the pool table next to it.
     // The counter follows the right wall, then turns into the back corner. Keep its front end
     // inside the tower's rounded outline; the former long run and fridge sat beyond the slab.
-    box(0.8, 1.05, 4.2, 22.6, 0.52, 8.6, matte("#f07b2b", 0.7));
-    box(0.95, 0.06, 4.35, 22.55, 1.07, 8.6, darkWood);
-    box(0.8, 1.05, 3.8, 19.95, 0.52, 11.0, matte("#f07b2b", 0.7));
-    box(0.95, 0.06, 3.95, 19.95, 1.07, 11.0, darkWood);
-    box(0.5, 0.7, 0.6, 22.7, 1.45, 7.2, metal); box(0.05, 0.2, 0.35, 22.42, 1.6, 7.2, matte("#ffb24a", 0.4));
-    box(0.7, 2.2, 1.0, 21.6, 1.1, 11.8, steel); box(0.7, 2.2, 1.0, 23.2, 1.1, 5.9, steel);
+    box(0.8, 1.05, 5.2, 23.3, 0.52, 8.2, matte("#f07b2b", 0.7));
+    box(0.95, 0.06, 5.35, 23.2, 1.07, 8.2, darkWood);
+    // Four short tangent sections follow the tower's rounded corner, staying inside its slab.
+    for (let i = 0; i < 4; i++) {
+      const a = (i + 0.5) * Math.PI / 8, radius = 3.3, length = 1.34;
+      const x = 20 + radius * Math.cos(a), z = 10 + radius * Math.sin(a), turn = Math.PI / 2 - a;
+      const cabinet = box(length, 1.05, 0.8, x, 0.52, z, matte("#f07b2b", 0.7)); cabinet.rotation.y = turn;
+      const top = box(length + 0.15, 0.06, 0.95, x, 1.07, z, darkWood); top.rotation.y = turn;
+    }
+    box(0.5, 0.7, 0.6, 23.25, 1.45, 7.2, metal); box(0.05, 0.2, 0.35, 22.98, 1.6, 7.2, matte("#ffb24a", 0.4));
+    box(0.8, 2.2, 1.0, 19.2, 1.1, 13.25, steel); box(0.8, 2.2, 1.0, 23.35, 1.1, 4.8, steel);
     for (const [, z] of BAR_SPOTS) { cyl(0.22, 0.22, 0.05, 21.9, 0.78, z, fabric("#1f2a44")); cyl(0.03, 0.03, 0.76, 21.9, 0.38, z, metal); }
     for (const [x, z] of KITCHEN_TABLES) { cyl(0.55, 0.55, 0.05, x, 1.1, z, wood); cyl(0.05, 0.05, 1.08, x, 0.54, z, metal); cyl(0.3, 0.3, 0.03, x, 0.015, z, metal); }
     {
@@ -1044,9 +1091,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       chair(BOSS_SEAT[0], BOSS_SEAT[1], Math.PI / 2, "#1f2a44"); chair(SUPERVISOR_SEAT[0], SUPERVISOR_SEAT[1], -Math.PI / 2, "#b8860b");
     }
     const meetingScreen = canvasTexture(1600, 520);
-    const meetingFrame = box(7.2, 2.4, 0.08, MEETING_TABLE[0], 2.0, -13.85, metal);
-    const meetingTv = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 2.25), new THREE.MeshBasicMaterial({ map: meetingScreen.texture, toneMapped: false }));
-    meetingTv.position.set(MEETING_TABLE[0], 2.0, -13.8); scene.add(registerDisplay(meetingTv));
+    const meetingScreenX = 16.0;
+    const meetingFrame = box(4.8, 1.75, 0.08, meetingScreenX, 2.0, -13.85, metal);
+    const meetingTv = new THREE.Mesh(new THREE.PlaneGeometry(4.65, 1.60), new THREE.MeshBasicMaterial({ map: meetingScreen.texture, toneMapped: false }));
+    meetingTv.position.set(meetingScreenX, 2.0, -13.8); scene.add(registerDisplay(meetingTv));
     backWall.items.push(meetingFrame, meetingTv);
     let meetingKey = "";
     // Wraps text into lines of at most `width` pixels; stops at `bottom`. Returns the next y.
@@ -1251,10 +1299,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       sign.position.set(11.6, 2.75, 13.88); sign.rotation.y = Math.PI; scene.add(sign); frontWall.items.push(sign);
     }
     // Reception and the left wall by the entrance.
-    hang(muralTexture(71, PALETTE), 2.2, 1.3, -23.86, 1.9, 9.8, Math.PI / 2, leftWall);
+    hang(muralTexture(71, PALETTE), 2.2, 1.3, -23.86, 1.9, 8.3, Math.PI / 2, leftWall);
     // Meeting room: posters beside the screen and the whiteboard with the team's goals.
     hang(posterTexture("Risco controlado", "conselho antes de comprar", "#2e4057", "#22a06b"), 1.3, 1.6, 12.4, 1.9, -13.86, 0, backWall);
-    hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), 1.3, 1.6, 18.2, 1.9, -13.86, 0, backWall);
+    hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), 1.3, 1.6, 19.2, 1.9, -13.86, 0, backWall);
     {
       const board = canvasTexture(1024, 560), g = board.g;
       g.fillStyle = "#fbfbf8"; g.fillRect(0, 0, 1024, 560); g.textBaseline = "top";
@@ -1263,7 +1311,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
       g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
       board.texture.needsUpdate = true;
-      hang(board.texture, 2.6, 1.42, 23.86, 1.75, -10, -Math.PI / 2, rightWall);
+      hang(board.texture, 2.6, 1.42, 23.86, 1.75, -8.3, -Math.PI / 2, rightWall);
     }
     const bookshelf = (x: number, z: number, turn: number) => {
       const g = new THREE.Group();
@@ -1318,9 +1366,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     menu.texture.needsUpdate = true;
     const menuBoard = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshBasicMaterial({ map: menu.texture }));
     menuBoard.position.set(23.88, 2.5, 9.5); menuBoard.rotation.y = -Math.PI / 2; scene.add(menuBoard); rightWall.items.push(menuBoard);
-    cyl(0.25, 0.15, 0.12, 22.5, 1.16, 10.6, matte("#f4f1ec", 0.4));
+    cyl(0.25, 0.15, 0.12, 23.2, 1.16, 9.8, matte("#f4f1ec", 0.4));
     [0xff5d4d, 0xffc65c, 0x7ed957].forEach((c, i) => {
-      const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), matte(c, 0.5)); fruit.position.set(22.45 + (i % 2) * 0.06, 1.26, 10.5 + i * 0.09); scene.add(fruit);
+      const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), matte(c, 0.5)); fruit.position.set(23.15 + (i % 2) * 0.06, 1.26, 9.7 + i * 0.09); scene.add(fruit);
     });
 
     // Glass outside walls (owner, 01/11/2026: the office is a floor of the ATLAS tower, "tem que ter
@@ -1483,7 +1531,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const people = new Map<string, Walker>();
     const pickables: THREE.Object3D[] = [];
     const obstacles = officeObstacles();
-    const nav = new NavGrid([-24, -14, 24, 14], obstacles);
+    const nav = new NavGrid([-24, -14, 24, 14], obstacles, 0.4, 0.32, 4);
     // Break spots clear of furniture, plants and lamps (after the grid exists: 28/10/2026 the office
     // crashed on load when this ran before it).
     const breakSpots = BREAK_SPOTS.map(([pos], i) => (nav.blocks(pos[0], pos[1], 0.35) ? -1 : i)).filter((i) => i >= 0);

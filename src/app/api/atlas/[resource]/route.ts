@@ -2,6 +2,7 @@ import { loadNews } from "@/lib/news";
 import { loadContribution, mutateContribution } from "@/lib/contribution";
 import { loadLive, mutateLive } from "@/lib/live-view";
 import { loadCosts } from "@/lib/costs";
+import { loadDividendAgenda, confirmDividendReceipt } from "@/lib/dividend-agenda";
 import { cdiSince } from "@/lib/benchmark";
 import { z } from "zod";
 import { ApiError, requireOwner } from "@/lib/auth";
@@ -75,6 +76,7 @@ export async function GET(request: Request, context: RouteContext) {
       return json(await cdiSince(z.iso.date().parse(url.searchParams.get("from"))));
     if (resource === "contribution") return json(await loadContribution(adminClient(), user.id));
     if (resource === "live") return json(await loadLive(adminClient(), user.id));
+    if (resource === "dividends") return json(await loadDividendAgenda(adminClient(), user.id));
     if (resource === "costs") return json(await loadCosts(adminClient(), user.id));
     if (resource === "notifications") {
       const rows = await adminClient().from("notifications").select("id,level,title,body,read_at,created_at").eq("owner_id", user.id)
@@ -291,6 +293,7 @@ export async function POST(request: Request, context: RouteContext) {
     if (resource === "controls") return json(await mutateControls(admin, user.id, body));
     if (resource === "contribution") return json(await mutateContribution(admin, user.id, body));
     if (resource === "live") return json(await mutateLive(admin, user.id, body));
+    if (resource === "dividends") return json(await confirmDividendReceipt(admin, user.id, body));
     if (resource === "notifications" && (body as { action?: string } | null)?.action === "test") {
       await notify({ level: "info", email: true, title: "Teste de aviso do ATLAS", lines: ["Se você recebeu este e-mail, os avisos estão funcionando."] });
       return json({ ok: true, email: Boolean(process.env.RESEND_API_KEY) });

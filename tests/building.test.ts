@@ -19,7 +19,8 @@ describe("ATLAS tower", () => {
   });
 
   it("puts the elevator where the office's entrance was, on the front wall", () => {
-    expect(ELEVATOR.x - ELEVATOR.width / 2).toBeCloseTo(-21.5);
+    // The rounded façade's straight front starts at x=-20; the shaft must not cross the curve.
+    expect(ELEVATOR.x - ELEVATOR.width / 2).toBeCloseTo(-20);
     expect(ELEVATOR.x + ELEVATOR.width / 2).toBeCloseTo(-17);
     expect(Math.abs(ELEVATOR.x) + ELEVATOR.width / 2).toBeLessThanOrEqual(TOWER.width / 2);
   });

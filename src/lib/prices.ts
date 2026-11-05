@@ -53,13 +53,14 @@ export async function loadPrices(db: SupabaseClient, ownerId: string) {
     try {
       const gateway = await HttpExecutionGateway.connect({ url, token, expectedAccountId: accountId, expectedProviderId: providerId, timeoutMs: 6000 });
       const prices: Record<string, { price: number; at: string }> = {};
-      for (const ticker of tickers) {
+      // A slow/unavailable symbol must not serialize a timeout for every stock in the team.
+      for (let i = 0; i < tickers.length; i += 4) await Promise.all(tickers.slice(i, i + 4).map(async (ticker) => {
         try {
           const q = await gateway.getQuote(ticker);
           const price = Number(q.last ?? q.bid ?? q.ask);
-          if (price > 0) prices[ticker] = { price, at: q.quotedAt };
+          if (Number.isFinite(price) && price > 0 && Number.isFinite(Date.parse(q.quotedAt))) prices[ticker] = { price, at: q.quotedAt };
         } catch { /* this stock has no quote right now */ }
-      }
+      }));
       if (Object.keys(prices).length) return { source: "MT5" as const, refreshSeconds: 5, prices };
     } catch { /* bridge off: fall back to brapi */ }
   }

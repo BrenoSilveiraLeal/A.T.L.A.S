@@ -7,6 +7,7 @@ import {
   Building,
   Building2,
   Wallet,
+  Coins,
   SlidersHorizontal,
   History,
   ShieldCheck,
@@ -27,6 +28,7 @@ const OFFICE = officeById("dividendos")!;
 const navigation = [
   { path: "/app", label: "Escritório", icon: Building2 },
   { path: "/app/trades", label: "Carteira", icon: Wallet },
+  { path: "/app/dividends", label: "Dividendos", icon: Coins },
   { path: "/app/history", label: "Histórico", icon: History },
   { path: "/app/controls", label: "Ajustes", icon: SlidersHorizontal },
 ];
@@ -129,7 +131,7 @@ export function Shell({
         </div>
         <nav className="office-tabs" aria-label="Navegação principal">
           {navigation.map(({ path, label, icon: Icon }) => (
-            <Link key={path} href={path} aria-current={pathname === path ? "page" : undefined}>
+            <Link key={path} href={path} aria-label={label} title={label} aria-current={pathname === path ? "page" : undefined}>
               <Icon size={16} strokeWidth={1.8} />
               <span>{label}</span>
             </Link>

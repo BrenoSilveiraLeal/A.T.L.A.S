@@ -17,6 +17,13 @@ const crosses = (path: V2[], from: V2) => {
 };
 
 describe("office floor: furniture and walls block the way", () => {
+  it("keeps walking bodies inside the tower's rounded corners", () => {
+    const tower = new NavGrid([-24, -14, 24, 14], [], 0.4, 0.32, 4);
+    expect(tower.blocks(23, 13, 0.3)).toBe(true);
+    expect(tower.blocks(22, 12, 0.3)).toBe(false);
+    expect(tower.blocks(0, 13.5, 0.3)).toBe(false);
+    expect(tower.blocks(-23.9, -13.9, 0.3)).toBe(true);
+  });
   it("walks around the table instead of through it", () => {
     const path = room.path([1, 4.5], [7, 4.5])!;
     expect(path.at(-1)).toEqual([7, 4.5]);

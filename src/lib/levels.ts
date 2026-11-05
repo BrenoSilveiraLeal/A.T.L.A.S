@@ -10,10 +10,13 @@ import { consensusFor } from "./forecast";
 import { focusOutlook, valuationFor } from "./market-data";
 import { softCached } from "./context";
 import { saoPauloClock } from "@/core/b3-calendar";
+import { adjustedCandles, normalizePriceSeries } from "@/core/price-series";
 
 /** The agent's price plan from the long official history, adjusted by official stock events. */
 export async function agentLevels(db: SupabaseClient, ticker: string) {
-  const bars = await loadBars(db, ticker, 1000);
+  let bars: Awaited<ReturnType<typeof loadBars>>;
+  try { bars = normalizePriceSeries(await loadBars(db, ticker, 1000)); }
+  catch { return { ticker, available: false as const, bars: 0, reason: "Histórico de preços inconsistente; níveis não calculados." }; }
   if (bars.length < 21) return { ticker, available: false as const, bars: bars.length, reason: "Histórico insuficiente para calcular os níveis." };
   const prefix = isinPrefix(ticker);
   const events = prefix ? await softCached<CorporateEvent[]>("b3", `EVENTS:${ticker.slice(0, 4)}`, 12 * 3600000, 7 * 86400000, 100,
@@ -40,6 +43,5 @@ export async function agentLevels(db: SupabaseClient, ticker: string) {
     // The council's valuation and economists' outlook, as the autopilot reads them (lib/market-data).
     valuation: await valuationFor(ticker).catch(() => null), macro: await focusOutlook().catch(() => null),
     // Daily candles of the same 6 months, for the chart in the agent's card.
-    bars6m: adjusted.slice(-RANGE_DEFAULTS.window).map((b, i) => ({ date: recent[i].trade_date,
-      open: Number(recent[i].open) * (Number(b.close) / Number(recent[i].close)), high: Number(b.high), low: Number(b.low), close: Number(b.close) })) };
+    bars6m: adjustedCandles(recent, adjusted.slice(-RANGE_DEFAULTS.window).map((b) => Number(b.close))) };
 }

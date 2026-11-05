@@ -6,6 +6,7 @@ import { cachedCompanyHealth } from "./company-health";
 import { consensusFor } from "./forecast";
 import { forecastOpinion, type ConsensusView } from "@/core/forecast";
 import { entryCheck, historyAgrees } from "@/core/range";
+import { saoPauloClock } from "@/core/b3-calendar";
 
 /**
  * The boss's view of the team: which agents' stocks are in their buy zone now (price near the
@@ -43,8 +44,21 @@ async function watchList(db: SupabaseClient, owner: string): Promise<Watch[]> {
   return rows;
 }
 
-export async function teamCandidates(db: SupabaseClient, owner: string, overrides: Record<string, number> = {}): Promise<Candidate[]> {
+export async function teamCandidates(db: SupabaseClient, owner: string, overrides: Record<string, number> = {}, book: "paper" | "live" = "paper"): Promise<Candidate[]> {
+  // Eligibility changes after each order/fill; never cache it with the price levels.
+  const today = saoPauloClock(new Date()).date;
+  const [orders, fills] = await Promise.all([
+    book === "paper"
+      ? db.from("paper_orders").select("agent_id").eq("owner_id", owner).eq("status", "OPEN")
+      : db.from("live_orders").select("agent_id").eq("owner_id", owner)
+        .in("status", ["PENDING", "DISPATCHED", "OPEN", "PARTIALLY_FILLED", "UNKNOWN"]),
+    db.from(`${book}_fills`).select("agent_id").eq("owner_id", owner).eq("side", "BUY")
+      .gte(book === "paper" ? "filled_at" : "executed_at", new Date(`${today}T00:00:00-03:00`).toISOString()),
+  ]);
+  if (orders.error || fills.error) throw new Error("BOSS_DATABASE_UNAVAILABLE");
+  const waiting = new Set([...orders.data, ...fills.data].map((r) => r.agent_id));
   return (await watchList(db, owner))
+    .filter((w) => !waiting.has(w.agentId))
     .map((w) => ({ ...w, price: overrides[w.ticker] ?? w.price }))
     // In its buy zone, already turning up, and not vetoed by the analysts' forecast.
     .filter((w) => w.price <= w.buyBelow && entryCheck(w.turnCloses, w.price, w.low).ok && forecastOpinion(w.price, w.consensus).vote !== "CONTRA")
@@ -53,6 +67,6 @@ export async function teamCandidates(db: SupabaseClient, owner: string, override
 }
 
 /** How much of the free pot the boss releases to this agent now (0 when it is not its turn). */
-export async function bossRelease(db: SupabaseClient, owner: string, agentId: string, pool: number, overrides: Record<string, number> = {}) {
-  return allocatePot(pool, await teamCandidates(db, owner, overrides))[agentId] ?? 0;
+export async function bossRelease(db: SupabaseClient, owner: string, agentId: string, pool: number, overrides: Record<string, number> = {}, book: "paper" | "live" = "paper") {
+  return allocatePot(pool, await teamCandidates(db, owner, overrides, book))[agentId] ?? 0;
 }

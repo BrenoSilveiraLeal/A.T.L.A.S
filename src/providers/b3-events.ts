@@ -44,9 +44,9 @@ export function parseB3Events(json: unknown): B3Event[] {
   const events: B3Event[] = [];
   for (const row of company.cashDividends ?? []) {
     const kind = KINDS[row.label.trim()];
-    if (kind !== "CASH" || !row.paymentDate) continue; // payment date not set yet: nothing to credit
+    if (kind !== "CASH") continue;
     events.push({ kind, label: row.label.trim(), isin: row.isinCode, value: plain(row.rate),
-      lastDatePrior: iso(row.lastDatePrior), paymentDate: iso(row.paymentDate) });
+      lastDatePrior: iso(row.lastDatePrior), paymentDate: row.paymentDate ? iso(row.paymentDate) : null });
   }
   for (const row of company.stockDividends ?? []) {
     const kind = KINDS[row.label.trim()];
