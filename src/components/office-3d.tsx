@@ -20,6 +20,7 @@ import { ELEVATOR, OFFICE_GLASS, officeById, TOWER, wallSegments } from "@/core/
 import { NIGHT_SKY, prefersNight, roundedRect, setNight as applyNight, SKY } from "./building/city";
 import { buildSurroundings, SHAFT } from "./building/tower";
 import { CITY_NIGHT_STORAGE_KEY } from "./building/time-of-day";
+import { drawOfficePlaque } from "./building/office-plaque";
 
 /** This office's floor in the ATLAS tower. */
 const FLOOR = officeById("dividendos")!.floor;
@@ -154,13 +155,13 @@ function officeObstacles(): Rect[] {
   box(-19.5, 6.2, 7.4, 0.3); box(-19.5, 9.4, 3.6, 0.8);
   box(-2, 7.6, 5.8, 0.6); box(-5, 10.6, 4.6, 0.9); box(1.2, 10.6, 4.6, 0.9); box(-8.6, 9.4, 1.8, 1.8); box(4.8, 9.4, 1.8, 1.8); box(-2, 9.0, 1.2, 1.2);
   box(23.3, 8.2, 0.8, 5.2); // straight counter on the right wall
-  // The curved counter and two refrigerators in the rounded front-right kitchen corner.
+  // The curved counter and the refrigerator against the right wall.
   for (let i = 0; i < 4; i++) {
     const a = (i + 0.5) * Math.PI / 8, radius = 3.3;
     const turn = a + Math.PI / 2, c = Math.abs(Math.cos(turn)), s = Math.abs(Math.sin(turn));
     box(20 + radius * Math.cos(a), 10 + radius * Math.sin(a), c * 1.34 + s * 0.9, s * 1.34 + c * 0.9);
   }
-  box(19.2, 13.25, 0.9, 1.1); box(23.35, 4.8, 0.9, 1.1);
+  box(23.35, 4.8, 0.9, 1.1);
   for (const [x, z] of KITCHEN_TABLES) box(x, z, 1.1, 1.1);
   box(POOL_TABLE[0], POOL_TABLE[1], 3.2, 1.7);
   // Plants and floor lamps (owner, 27/10/2026: people were standing inside the plants).
@@ -708,7 +709,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     sun.shadow.bias = -0.0004;
     scene.add(sun);
     // Night on the map is night here too: softer daylight, the city lit outside the windows.
-    if (surroundings.userData.night) { sky.intensity = 0.6; sun.intensity = 0.55; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.5; renderer.toneMappingExposure = 0.95; }
+    if (surroundings.userData.night) { sky.intensity = 0.12; sun.intensity = 0.12; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.1; renderer.toneMappingExposure = 0.8; }
     // The office's own lights (owner, 01/11/2026: "a luz do escritório apaga quando não tem ninguém"):
     // on while anyone is in, off when the last one leaves; at night the office then goes dark, by day
     // only the daylight is left. See `officeLights` in the frame loop.
@@ -720,10 +721,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       scene.background = new THREE.Color(color);
       if (scene.fog instanceof THREE.Fog) scene.fog.color.setHex(color);
       applyNight(scene, on ? 1 : 0);
-      sky.intensity = on ? 0.6 : 0.7; baseSky = sky.intensity;
-      sun.intensity = on ? 0.55 : 1.8; sun.color.set(on ? 0x9fb4ff : 0xfff4e6);
-      scene.environmentIntensity = on ? 0.5 : 0.4;
-      renderer.toneMappingExposure = on ? 0.95 : 0.85;
+      sky.intensity = on ? 0.12 : 0.7; baseSky = sky.intensity;
+      sun.intensity = on ? 0.12 : 1.8; sun.color.set(on ? 0x9fb4ff : 0xfff4e6);
+      scene.environmentIntensity = on ? 0.1 : 0.4;
+      renderer.toneMappingExposure = on ? 0.8 : 0.85;
     };
     let lightsOn = 1;
 
@@ -1054,7 +1055,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       const top = box(length + 0.15, 0.06, 0.95, x, 1.07, z, darkWood); top.rotation.y = turn;
     }
     box(0.5, 0.7, 0.6, 23.25, 1.45, 7.2, metal); box(0.05, 0.2, 0.35, 22.98, 1.6, 7.2, matte("#ffb24a", 0.4));
-    box(0.8, 2.2, 1.0, 19.2, 1.1, 13.25, steel); box(0.8, 2.2, 1.0, 23.35, 1.1, 4.8, steel);
+    box(0.8, 2.2, 1.0, 23.35, 1.1, 4.8, steel);
     for (const [, z] of BAR_SPOTS) { cyl(0.22, 0.22, 0.05, 21.9, 0.78, z, fabric("#1f2a44")); cyl(0.03, 0.03, 0.76, 21.9, 0.38, z, metal); }
     for (const [x, z] of KITCHEN_TABLES) { cyl(0.55, 0.55, 0.05, x, 1.1, z, wood); cyl(0.05, 0.05, 1.08, x, 0.54, z, metal); cyl(0.3, 0.3, 0.03, x, 0.015, z, metal); }
     {
@@ -1091,10 +1092,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       chair(BOSS_SEAT[0], BOSS_SEAT[1], Math.PI / 2, "#1f2a44"); chair(SUPERVISOR_SEAT[0], SUPERVISOR_SEAT[1], -Math.PI / 2, "#b8860b");
     }
     const meetingScreen = canvasTexture(1600, 520);
-    const meetingScreenX = 16.0;
-    const meetingFrame = box(4.8, 1.75, 0.08, meetingScreenX, 2.0, -13.85, metal);
+    // Distribute all three frames over the straight wall, with equal inner and outer gaps.
+    const meetingArt = { from: 10.67, to: TOWER.width / 2 - 4, width: 4.8, height: 1.75, posterWidth: 1.3, border: 0.12, y: 2.0 };
+    const meetingScreenX = (meetingArt.from + meetingArt.to) / 2;
+    const meetingArtGap = (meetingArt.to - meetingArt.from - meetingArt.width - 2 * (meetingArt.posterWidth + meetingArt.border)) / 4;
+    const meetingPosterOffset = meetingArt.width / 2 + meetingArtGap + (meetingArt.posterWidth + meetingArt.border) / 2;
+    const meetingFrame = box(meetingArt.width, meetingArt.height, 0.08, meetingScreenX, meetingArt.y, -13.85, metal);
     const meetingTv = new THREE.Mesh(new THREE.PlaneGeometry(4.65, 1.60), new THREE.MeshBasicMaterial({ map: meetingScreen.texture, toneMapped: false }));
-    meetingTv.position.set(meetingScreenX, 2.0, -13.8); scene.add(registerDisplay(meetingTv));
+    meetingTv.position.set(meetingScreenX, meetingArt.y, -13.8); scene.add(registerDisplay(meetingTv));
     backWall.items.push(meetingFrame, meetingTv);
     let meetingKey = "";
     // Wraps text into lines of at most `width` pixels; stops at `bottom`. Returns the next y.
@@ -1155,28 +1160,16 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // not a label that turns with the camera.
     {
       const office = officeById("dividendos")!;
-      const logo = canvasTexture(1024, 384), g = logo.g;
-      g.clearRect(0, 0, 1024, 384); g.textAlign = "center"; g.textBaseline = "middle";
-      g.shadowColor = "rgba(255, 207, 138, 0.8)"; g.shadowBlur = 24;
-      g.fillStyle = "#fff4e2"; g.font = "bold 190px sans-serif"; g.fillText(office.name, 512, 125);
-      // Both expansions sit beneath the office name, with the Portuguese description last.
-      g.shadowBlur = 0; g.fillStyle = "#ffe0b8";
-      const fitSubtitle = (text: string, initial: number, minimum: number) => {
-        let size = initial;
-        g.font = `600 ${size}px sans-serif`;
-        while (g.measureText(text).width > 960 && size > minimum) {
-          size -= 1;
-          g.font = `600 ${size}px sans-serif`;
-        }
-        return size;
-      };
-      fitSubtitle(office.fullName ?? "", 50, 34);
-      g.fillText(office.fullName ?? "", 512, 235, 960);
-      fitSubtitle(office.tagline ?? "", 46, 28);
-      g.fillText(office.tagline ?? "", 512, 315, 960);
+      const logo = canvasTexture(2048, 720);
+      drawOfficePlaque(logo.g, office);
       logo.texture.needsUpdate = true;
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 2.1), new THREE.MeshBasicMaterial({ map: logo.texture, transparent: true, toneMapped: false }));
-      sign.position.set(-19.5, 1.75, 6.34); scene.add(sign);
+      void document.fonts.ready.then(() => {
+        drawOfficePlaque(logo.g, office);
+        logo.texture.needsUpdate = true;
+      });
+      box(6.5, 2.35, 0.08, -19.5, 1.75, 6.37, new THREE.MeshStandardMaterial({ color: "#9c8a6c", roughness: 0.45, metalness: 0.65 }));
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.25), new THREE.MeshBasicMaterial({ map: logo.texture, toneMapped: false }));
+      sign.position.set(-19.5, 1.75, 6.418); scene.add(sign);
     }
     box(3.6, 1.05, 0.8, -19.5, 0.52, 9.4, white); box(3.8, 0.06, 0.95, -19.5, 1.07, 9.4, wood);
     // Reception computer (the receptionist also takes care of the team's HR) and the counter decoration.
@@ -1289,20 +1282,23 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     hang(muralTexture(55, PALETTE), 5.6, 1.1, -2, 2.6, 13.86, Math.PI, frontWall);
     hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d"), 1.4, 1.75, 6.0, 1.85, 13.86, Math.PI, frontWall);
     hang(posterTexture("Nunca vender com prejuízo", "só com lucro", "#5a2340", "#1fa3b8"), 1.4, 1.75, 18.9, 1.85, 13.86, Math.PI, frontWall);
-    hang(muralTexture(61, PALETTE), 2.4, 1.4, 15.6, 1.9, 13.86, Math.PI, frontWall);
+    // Keep the snack-bar artwork and lettering on one visual centreline, with breathing room
+    // below the ceiling and a full metre between their outer edges.
+    const snackWall = { artX: 15.6, signX: 11.6, y: 2.05, signWidth: 3.4 };
+    hang(muralTexture(61, PALETTE), 2.4, 1.4, snackWall.artX, snackWall.y, 13.86, Math.PI, frontWall);
     {
       const neon = canvasTexture(1024, 256), g = neon.g;
       g.fillStyle = "#14161b"; g.fillRect(0, 0, 1024, 256);
       g.shadowColor = "#ff9a3c"; g.shadowBlur = 40; g.fillStyle = "#ffcf8a"; g.font = "bold 150px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
       g.fillText("LANCHONETE", 512, 136); neon.texture.needsUpdate = true;
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.9), new THREE.MeshBasicMaterial({ map: neon.texture, toneMapped: false }));
-      sign.position.set(11.6, 2.75, 13.88); sign.rotation.y = Math.PI; scene.add(sign); frontWall.items.push(sign);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(snackWall.signWidth, 0.85), new THREE.MeshBasicMaterial({ map: neon.texture, toneMapped: false }));
+      sign.position.set(snackWall.signX, snackWall.y, 13.88); sign.rotation.y = Math.PI; scene.add(sign); frontWall.items.push(sign);
     }
     // Reception and the left wall by the entrance.
     hang(muralTexture(71, PALETTE), 2.2, 1.3, -23.86, 1.9, 8.3, Math.PI / 2, leftWall);
     // Meeting room: posters beside the screen and the whiteboard with the team's goals.
-    hang(posterTexture("Risco controlado", "conselho antes de comprar", "#2e4057", "#22a06b"), 1.3, 1.6, 12.4, 1.9, -13.86, 0, backWall);
-    hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), 1.3, 1.6, 19.2, 1.9, -13.86, 0, backWall);
+    hang(posterTexture("Risco controlado", "conselho antes de comprar", "#2e4057", "#22a06b"), meetingArt.posterWidth, meetingArt.height - meetingArt.border, meetingScreenX - meetingPosterOffset, meetingArt.y, -13.86, 0, backWall);
+    hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), meetingArt.posterWidth, meetingArt.height - meetingArt.border, meetingScreenX + meetingPosterOffset, meetingArt.y, -13.86, 0, backWall);
     {
       const board = canvasTexture(1024, 560), g = board.g;
       g.fillStyle = "#fbfbf8"; g.fillRect(0, 0, 1024, 560); g.textBaseline = "top";
@@ -1311,7 +1307,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
       g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
       board.texture.needsUpdate = true;
-      hang(board.texture, 2.6, 1.42, 23.86, 1.75, -8.3, -Math.PI / 2, rightWall);
+      // Centre within the meeting room's straight side wall, from the corner at z=-10
+      // to the glass partition at z=-6, and halfway up the wall.
+      hang(board.texture, 2.6, 1.42, 23.86, H / 2, (-10 + -6) / 2, -Math.PI / 2, rightWall);
     }
     const bookshelf = (x: number, z: number, turn: number) => {
       const g = new THREE.Group();
@@ -1330,7 +1328,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       g.position.set(x, 0, z); g.rotation.y = turn; scene.add(g);
     };
     bookshelf(-23.4, -4.2, Math.PI / 2); bookshelf(-23.4, 3.4, Math.PI / 2); bookshelf(23.4, -0.5, -Math.PI / 2);
-    mural(4.2, 2.2, 23.88, 1.9, 3.05, -Math.PI / 2, 21, rightWall);
+    // Fit the artwork between the bookshelf (ending at z=0.7) and fridge (starting at
+    // z=4.3), with 0.4 m clear on either side and its original aspect ratio preserved.
+    mural(2.8, 2.8 * 2.2 / 4.2, 23.88, 1.9, (0.7 + 4.3) / 2, -Math.PI / 2, 21, rightWall);
     const floorLamp = (x: number, z: number) => {
       cyl(0.03, 0.03, 1.9, x, 0.95, z, metal); cyl(0.22, 0.22, 0.04, x, 0.02, z, metal);
       const shade = cyl(0.28, 0.36, 0.4, x, 2.0, z, matte("#fff6e5", 0.6));
@@ -1360,12 +1360,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     }
     // Coffee bar extras: menu board and a fruit bowl.
     const menu = canvasTexture(512, 256);
-    menu.g.fillStyle = "#1b1e24"; menu.g.fillRect(0, 0, 512, 256); menu.g.fillStyle = "#ffc65c"; menu.g.font = "bold 44px sans-serif";
-    menu.g.fillText("LANCHONETE ATLAS", 30, 70); menu.g.fillStyle = "#e8f6ff"; menu.g.font = "30px sans-serif";
-    ["espresso · pão de queijo", "cappuccino · sanduíche", "suco · salada de frutas"].forEach((line, i) => menu.g.fillText(`· ${line}`, 40, 130 + i * 40));
+    menu.g.fillStyle = "#1b1e24"; menu.g.fillRect(0, 0, 512, 256); menu.g.fillStyle = "#ffc65c"; menu.g.font = "bold 36px sans-serif";
+    menu.g.textAlign = "center"; menu.g.textBaseline = "middle";
+    menu.g.fillText("LANCHONETE ATLAS", 256, 52); menu.g.fillStyle = "#e8f6ff"; menu.g.font = "30px sans-serif";
+    ["espresso · pão de queijo", "cappuccino · sanduíche", "suco · salada de frutas"].forEach((line, i) => menu.g.fillText(line, 256, 116 + i * 44));
     menu.texture.needsUpdate = true;
     const menuBoard = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshBasicMaterial({ map: menu.texture }));
-    menuBoard.position.set(23.88, 2.5, 9.5); menuBoard.rotation.y = -Math.PI / 2; scene.add(menuBoard); rightWall.items.push(menuBoard);
+    // Centre over the straight counter wall, stopping before the rounded corner at z=10.
+    menuBoard.position.set(23.88, (1.1 + H) / 2, (5.6 + 10) / 2); menuBoard.rotation.y = -Math.PI / 2; scene.add(menuBoard); rightWall.items.push(menuBoard);
     cyl(0.25, 0.15, 0.12, 23.2, 1.16, 9.8, matte("#f4f1ec", 0.4));
     [0xff5d4d, 0xffc65c, 0x7ed957].forEach((c, i) => {
       const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), matte(c, 0.5)); fruit.position.set(23.15 + (i % 2) * 0.06, 1.26, 9.7 + i * 0.09); scene.add(fruit);
@@ -1985,7 +1987,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         }
         lightsOn += ((anyone ? 1 : 0) - lightsOn) * Math.min(1, dt * 1.5);
         officeLight.intensity = lightsOn * (nightTime ? 0.55 : 0.2);
-        sky.intensity = nightTime ? 0.2 + (baseSky - 0.2) * lightsOn : baseSky - 0.25 * (1 - lightsOn);
+        sky.intensity = nightTime ? baseSky * (0.25 + 0.75 * lightsOn) : baseSky - 0.25 * (1 - lightsOn);
         ceilingPanel.emissiveIntensity = 0.9 * lightsOn;
       }
       for (const r of people.values()) {
@@ -2328,6 +2330,10 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
   useEffect(() => { if (assistantTip) api.current?.tip(assistantTip); }, [assistantTip]);
   useEffect(() => { api.current?.firstPerson(firstPerson); }, [firstPerson]);
   useEffect(() => {
+    api.current?.night(night);
+    try { localStorage.setItem(CITY_NIGHT_STORAGE_KEY, night ? "1" : "0"); } catch { /* storage blocked */ }
+  }, [night]);
+  useEffect(() => {
     api.current?.sound(sound);
     try { localStorage.setItem("atlas-office-sound", sound ? "on" : "off"); } catch { /* storage blocked */ }
   }, [sound]);
@@ -2346,10 +2352,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           aria-label={firstPerson ? "Sair do modo Chefe" : "Andar pelo escritório como o Chefe"} title={firstPerson ? "Sair do modo Chefe" : "Andar como o Chefe"}>
           <PersonStanding size={18} />
         </button>
-        <button type="button" className="icon-button secondary" onClick={() => setNightMode((on) => {
-          const next = !on; try { localStorage.setItem(CITY_NIGHT_STORAGE_KEY, next ? "1" : "0"); } catch { /* storage blocked */ }
-          api.current?.night(next); return next;
-        })} aria-pressed={night} aria-label={night ? "Mudar escritório para dia" : "Mudar escritório para noite"} title={night ? "Mudar para dia" : "Mudar para noite"}>
+        <button type="button" className="icon-button secondary" onClick={() => setNightMode((on) => !on)} aria-pressed={night} aria-label={night ? "Mudar escritório para dia" : "Mudar escritório para noite"} title={night ? "Mudar para dia" : "Mudar para noite"}>
           {night ? <Moon size={18} /> : <Sun size={18} />}
         </button>
         <button type="button" className="icon-button secondary" onClick={() => { setFirstPerson(false); api.current?.reset(); }} aria-label="Centralizar o escritório" title="Centralizar">

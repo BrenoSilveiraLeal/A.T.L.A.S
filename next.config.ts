@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 const config: NextConfig = {
   poweredByHeader: false,
   turbopack: { root: process.cwd() },
+  // Opt-in for constrained local builds; production builds keep the default cache and workers.
+  ...(process.env.ATLAS_LOW_DISK_BUILD === "true" ? { experimental: { cpus: 2 } } : {}),
+  webpack(webpackConfig) {
+    if (process.env.ATLAS_LOW_DISK_BUILD === "true") webpackConfig.cache = false;
+    return webpackConfig;
+  },
   async headers() {
     return [
       {

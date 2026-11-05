@@ -103,8 +103,8 @@ function railing(group: THREE.Group, m: TowerMaterials, hw: number, hd: number, 
  * 01/11/2026: "não gostei dessas varandinhas, tire"). The office scene stands on the same slab.
  */
 export function officeSlab(m: TowerMaterials) {
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(W + 0.8, 0.45, D + 0.8), m.slab);
-  slab.position.y = -0.24; slab.receiveShadow = true;
+  const slab = new THREE.Mesh(roundedSlab(W + 0.8, D + 0.8, R + 0.4, 0.45, -0.465), m.slab);
+  slab.receiveShadow = true;
   return slab;
 }
 
