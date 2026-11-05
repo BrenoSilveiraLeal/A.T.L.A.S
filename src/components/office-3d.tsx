@@ -431,9 +431,29 @@ function drawChart(g: CanvasRenderingContext2D, x0: number, y0: number, w: numbe
 
 /** A colourful modern wall mural: overlapping circles, arcs, stripes and dots (deterministic). */
 /** A framed poster with a short phrase about investing (wall decoration). */
-export function posterTexture(title: string, subtitle: string, background: string, accent: string) {
+export function posterTexture(title: string, subtitle: string, background: string, accent: string, clean = false) {
   const t = canvasTexture(512, 640), g = t.g;
   g.fillStyle = background; g.fillRect(0, 0, 512, 640);
+  if (clean) {
+    // Keep the graphic accents in the margins so they never compete with the message.
+    g.fillStyle = accent; g.globalAlpha = 0.95;
+    g.beginPath(); g.arc(448, 62, 24, 0, Math.PI * 2); g.fill();
+    g.fillRect(40, 112, 72, 8); g.globalAlpha = 1;
+    g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = "#ffffff";
+    g.font = "bold 52px sans-serif";
+    const words = title.split(" "); let line = ""; const lines: string[] = [];
+    for (const word of words) {
+      if (g.measureText(`${line} ${word}`).width > 420 && line) { lines.push(line); line = word; }
+      else line = line ? `${line} ${word}` : word;
+    }
+    if (line) lines.push(line);
+    const lineHeight = 66, titleStart = 292 - ((lines.length - 1) * lineHeight) / 2;
+    lines.forEach((row, i) => g.fillText(row, 256, titleStart + i * lineHeight));
+    g.strokeStyle = accent; g.lineWidth = 4; g.beginPath(); g.moveTo(72, 474); g.lineTo(440, 474); g.stroke();
+    g.fillStyle = "rgba(255,255,255,0.85)"; g.font = "26px sans-serif"; g.fillText(subtitle, 256, 526, 420);
+    t.texture.needsUpdate = true;
+    return t.texture;
+  }
   g.fillStyle = accent; g.globalAlpha = 0.85;
   g.beginPath(); g.arc(400, 120, 150, 0, Math.PI * 2); g.fill();
   g.globalAlpha = 0.35; g.beginPath(); g.arc(90, 560, 120, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
@@ -1271,7 +1291,6 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       m.position.set(x, y, z); m.rotation.y = turn; scene.add(m); onWall.items.push(m);
     };
     mural(9, 2.6, -23.88, 1.7, -0.5, Math.PI / 2, 7, leftWall);
-    mural(4.6, 0.8, BOSS_X, 3.1, -13.88, 0, 47, backWall);
     // Wall decoration (owner, 26/10/2026: "as paredes muito vazias"): posters, frames, a neon sign and
     // the meeting room's whiteboard. Items on a wall hide with it in the cutaway.
     const hang = (texture: THREE.Texture, w: number, h: number, x: number, y: number, z: number, turn: number, onWall: { items: THREE.Object3D[] }) => {
@@ -1285,10 +1304,12 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const frontWallStart = -17, frontWallEnd = 20;
     const frontBayWidth = (frontWallEnd - frontWallStart) / Math.round((frontWallEnd - frontWallStart) / TOWER.bay);
     const frontBayCenter = (x: number) => frontWallStart + (Math.floor((x - frontWallStart) / frontBayWidth) + 0.5) * frontBayWidth;
-    const posterY = H / 2;
+    // Keep the frames visually centred in the façade panels; perspective makes the
+    // full-height window wall read top-heavy at the geometric midpoint.
+    const posterY = H / 2 - 0.22;
     hang(posterTexture("Compre na baixa, venda na alta", "regra nº 1 do ATLAS", "#1f3b5c", "#f07b2b"), 1.4, 1.75, -10.2, posterY, 13.86, Math.PI, frontWall);
     hang(muralTexture(55, PALETTE), 5.6, 1.1, -2, 2.6, 13.86, Math.PI, frontWall);
-    hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d"), 1.4, 1.75, frontBayCenter(6.4), posterY, 13.86, Math.PI, frontWall);
+    hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d", true), 1.4, 1.75, frontBayCenter(6.4), posterY, 13.86, Math.PI, frontWall);
     hang(posterTexture("Nunca vender com prejuízo", "só com lucro", "#5a2340", "#1fa3b8"), 1.4, 1.75, frontBayCenter(18.9), posterY, 13.86, Math.PI, frontWall);
     // Keep the snack-bar artwork and lettering on one visual centreline, with breathing room
     // below the ceiling and a full metre between their outer edges.
@@ -1314,9 +1335,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
       g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
       board.texture.needsUpdate = true;
-      // This is an interior-facing meeting-room wall area. Keep the façade opaque here
-      // (there was never a picture-window behind the board) and centre the board in it.
-      const clearWall = { from: -10, to: -0.5 - 1.2, x: 23.86 };
+      // Centre the whiteboard in the usable wall span between the meeting-room glass
+      // partition (z=-6) and the bookshelf, clear of the partition's end frame.
+      const clearWall = { from: -6, to: -0.5 - 1.2, x: 23.86 };
       hang(board.texture, 2.6, 1.42, clearWall.x, H / 2, (clearWall.from + clearWall.to) / 2, -Math.PI / 2, rightWall);
     }
     const bookshelf = (x: number, z: number, turn: number) => {
