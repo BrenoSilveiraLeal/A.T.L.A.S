@@ -16,7 +16,7 @@ export function drawOfficePlaque(g: CanvasRenderingContext2D, office: { name: st
   g.fillStyle = "#fff0df"; g.fillText(office.fullName ?? "", centerX, 334);
 
   g.strokeStyle = "#f5b47f"; g.lineWidth = 2;
-  g.beginPath(); g.moveTo(180, 382); g.lineTo(width - 180, 382); g.stroke();
+  g.beginPath(); g.moveTo(320, 382); g.lineTo(width - 320, 382); g.stroke();
 
   const words = (office.tagline ?? "").split(/\s+/).filter(Boolean);
   g.font = `600 64px ${family}`;

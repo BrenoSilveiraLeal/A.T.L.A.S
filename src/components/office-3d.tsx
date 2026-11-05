@@ -835,13 +835,15 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Keep the elevator opening clear; its entrance starts just past the rounded left corner.
     const frontWall = wall(-17, 14, 20, 14, H, paint, true, [0, 1]);
     const accents = ["#f07b2b", "#2f6fd6", "#f2b33d", "#1fa3b8"];
-    const officePartitions = [-17.33, -10.67, -4, 2.67, 10.67]
-      .map((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
-    const meetingPartitionWall = officePartitions[officePartitions.length - 1];
+    [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
     for (const r of COUNCILS) { glassWall(r.x1 + 0.1, -6, r.door - 0.8, -6); glassWall(r.door + 0.8, -6, r.x2 - 0.1, -6); }
     glassWall(2.77, -6, BOSS_X - 0.8, -6); glassWall(BOSS_X + 0.8, -6, 10.57, -6);
-    // Meeting room front: glass with the door (the market screen stands on its own in front of it).
-    glassWall(10.77, -6, MEETING_DOOR - 0.8, -6); glassWall(MEETING_DOOR + 0.8, -6, 23.9, -6);
+    // Meeting room front: glass by the door, then a solid panel for the whiteboard
+    // between that glass partition and the side window of the office.
+    const meetingBoardWallFrom = 19.1, meetingBoardWallTo = 23.9;
+    glassWall(10.77, -6, MEETING_DOOR - 0.8, -6);
+    glassWall(MEETING_DOOR + 0.8, -6, meetingBoardWallFrom, -6);
+    const meetingBoardWall = wall(meetingBoardWallFrom, -6, meetingBoardWallTo, -6, Hi, paint, false, [0, 1]);
 
     // Elevator (owner, 01/11/2026: "trocar a porta por um elevador, já que vai ser um prédio"): steel
     // frame and sliding doors in the old doorway, the floor display above, the call buttons beside it
@@ -1337,8 +1339,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
       g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
       board.texture.needsUpdate = true;
-      // Mount it on the meeting room's interior partition, centred between its glass walls.
-      hang(board.texture, 2.6, 1.42, 10.79, Hi / 2, (-14 + -6) / 2, Math.PI / 2, meetingPartitionWall);
+      // Face the meeting room and centre the board on the new solid end panel.
+      hang(board.texture, 2.6, 1.42, (meetingBoardWallFrom + meetingBoardWallTo) / 2, Hi / 2, -6.12, Math.PI, meetingBoardWall);
     }
     const bookshelf = (x: number, z: number, turn: number) => {
       const g = new THREE.Group();
