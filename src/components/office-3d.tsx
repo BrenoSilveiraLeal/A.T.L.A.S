@@ -1217,13 +1217,15 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     }
     pouf(-21.8, 12.2, "#1fa3b8"); pouf(-20.6, 12.4, "#f2b33d"); pouf(-17.4, 12.2, "#d6336c");
 
-    // TV lounge: wall-mounted news TV facing the sofas, keeping the room's floor clear.
+    // TV lounge: the news TV stands between the sofas, with the screen visible from both sides.
     const tvCanvas = document.createElement("canvas"); tvCanvas.width = 1280; tvCanvas.height = 380;
     const tvTexture = new THREE.CanvasTexture(tvCanvas); tvTexture.colorSpace = THREE.SRGBColorSpace;
-    box(5.4, 1.75, 0.08, -2, 2.35, 13.9, metal);
-    const loungeTv = new THREE.Mesh(new THREE.PlaneGeometry(5.25, 1.6), new THREE.MeshBasicMaterial({ map: tvTexture, toneMapped: false }));
-    loungeTv.position.set(-2, 2.35, 13.84); loungeTv.rotation.y = Math.PI;
-    scene.add(registerDisplay(loungeTv)); frontWall.items.push(loungeTv);
+    box(5.8, 0.5, 0.6, -2, 0.25, 7.6, darkWood);
+    box(5.4, 1.75, 0.08, -2, 1.55, 7.6, metal);
+    for (const [z, turn] of [[7.66, 0], [7.54, Math.PI]] as [number, number][]) {
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(5.25, 1.6), new THREE.MeshBasicMaterial({ map: tvTexture, toneMapped: false }));
+      screen.position.set(-2, 1.55, z); screen.rotation.y = turn; scene.add(registerDisplay(screen));
+    }
     sofa(4.6, -5, 10.6, Math.PI, "#f07b2b"); sofa(4.6, 1.2, 10.6, Math.PI, "#d6336c");
     sofa(2.4, -8.6, 9.4, Math.PI * 0.78, "#1fa3b8"); sofa(2.4, 4.8, 9.4, -Math.PI * 0.78, "#2f6fd6");
     cyl(0.6, 0.6, 0.06, -2, 0.45, 9.0, white); cyl(0.08, 0.14, 0.42, -2, 0.21, 9.0, metal); cyl(0.3, 0.3, 0.03, -2, 0.015, 9.0, metal);
@@ -1280,10 +1282,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       g.position.set(x, y, z); g.rotation.y = turn; scene.add(g); onWall.items.push(g);
     };
     // Front wall, seen from inside (facing the room).
-    hang(posterTexture("Compre na baixa, venda na alta", "regra nº 1 do ATLAS", "#1f3b5c", "#f07b2b"), 1.4, 1.75, -10.2, 1.85, 13.86, Math.PI, frontWall);
+    const frontWallStart = -17, frontWallEnd = 20;
+    const frontBayWidth = (frontWallEnd - frontWallStart) / Math.round((frontWallEnd - frontWallStart) / TOWER.bay);
+    const frontBayCenter = (x: number) => frontWallStart + (Math.floor((x - frontWallStart) / frontBayWidth) + 0.5) * frontBayWidth;
+    const posterY = H / 2;
+    hang(posterTexture("Compre na baixa, venda na alta", "regra nº 1 do ATLAS", "#1f3b5c", "#f07b2b"), 1.4, 1.75, -10.2, posterY, 13.86, Math.PI, frontWall);
     hang(muralTexture(55, PALETTE), 5.6, 1.1, -2, 2.6, 13.86, Math.PI, frontWall);
-    hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d"), 1.4, 1.75, 6.4, 1.85, 13.86, Math.PI, frontWall);
-    hang(posterTexture("Nunca vender com prejuízo", "só com lucro", "#5a2340", "#1fa3b8"), 1.4, 1.75, 18.9, 1.85, 13.86, Math.PI, frontWall);
+    hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d"), 1.4, 1.75, frontBayCenter(6.4), posterY, 13.86, Math.PI, frontWall);
+    hang(posterTexture("Nunca vender com prejuízo", "só com lucro", "#5a2340", "#1fa3b8"), 1.4, 1.75, frontBayCenter(18.9), posterY, 13.86, Math.PI, frontWall);
     // Keep the snack-bar artwork and lettering on one visual centreline, with breathing room
     // below the ceiling and a full metre between their outer edges.
     const snackWall = { signX: 12.45, y: 2.05, signWidth: 3.4 };
@@ -1308,8 +1314,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
       g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
       board.texture.needsUpdate = true;
-      // Centre in the clear wall span between the rounded corner and bookshelf, and
-      // halfway up the wall so the frame has even margins around it.
+      // This is an interior-facing meeting-room wall area. Keep the façade opaque here
+      // (there was never a picture-window behind the board) and centre the board in it.
       const clearWall = { from: -10, to: -0.5 - 1.2, x: 23.86 };
       hang(board.texture, 2.6, 1.42, clearWall.x, H / 2, (clearWall.from + clearWall.to) / 2, -Math.PI / 2, rightWall);
     }
@@ -1398,6 +1404,9 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           return { lo, hi, gap: zlo > 0 ? zlo : zhi < 0 ? -zhi : 0 };
         };
         const blocked: [number, number][] = w.items.map((item) => { const a = along(new THREE.Box3().setFromObject(item)); return [a.lo, a.hi]; });
+        // On the right side, the span beside the meeting room is a painted interior wall,
+        // not a floor-to-ceiling window. Keep the whiteboard centred on that solid span.
+        if (w === rightWall) blocked.push([-10, -1.7]);
         // Tall furniture against the wall (bookshelves); merged or room-sized meshes are skipped.
         for (const b of blockers) { const a = along(b); if (a.gap < 0.9 && a.hi - a.lo < 6 && a.hi > -len / 2 && a.lo < len / 2) blocked.push([a.lo, a.hi]); }
         const solid: THREE.BufferGeometry[] = [], panes: THREE.BufferGeometry[] = [], frames: THREE.BufferGeometry[] = [];
