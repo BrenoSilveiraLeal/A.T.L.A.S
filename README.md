@@ -2,7 +2,7 @@
 
 **Autonomous Trading & Learning Agent System** — plataforma pessoal de análise, agentes por ativo, controles de risco e auditoria para ações à vista B3.
 
-**Estado (22/10/2026): análise e simulação na nuvem; execução real bloqueada.** O painel roda na Vercel em https://atlas-pi-bice.vercel.app (login com senha + TOTP) e o Supabase Cron chama a função `atlas-tick` a cada minuto, então agentes, Paper Trading com piloto automático e "vida" dos agentes funcionam **com o PC desligado**. A ponte MT5 com a conta Genial (`GENIAL_MT5_SWING`) foi validada somente leitura e só roda com o PC ligado e o MetaTrader aberto; ordens reais continuam bloqueadas até homologação e decisão do proprietário. Não há PIX automático nem ordem real enviada.
+**Estado do projeto (08/11/2026):** análise e simulação estão configuradas para funcionar na nuvem; execução real permanece bloqueada. O painel publicado é https://atlas-pi-bice.vercel.app (login com senha + TOTP). O Supabase Cron chama `atlas-tick` a cada minuto; a implantação foi documentada em 22/10/2026. A ponte MT5 com o perfil Genial (`GENIAL_MT5_SWING`) foi validada somente para leitura e depende do PC ligado e do MetaTrader aberto. Nenhuma ordem real foi enviada e não há PIX automático. Consulte [LIVE_READINESS.md](docs/LIVE_READINESS.md) antes de qualquer operação real.
 
 Comece pela [decisão do Executor/gateway](docs/EXECUTION_GATEWAY_DECISION.md), [pesquisa de corretoras](docs/BROKER_RESEARCH.md), [custos](COST.md) e [roadmap](docs/ROADMAP.md). Os 37 tópicos do pedido estão na [matriz de requisitos](docs/REQUIREMENTS.md).
 
@@ -16,14 +16,14 @@ flowchart LR
   P --> DB[(PostgreSQL: memória e auditoria)]
   DB --> UI[Painel Next.js]
   L[Rotina local a cada minuto] --> J[Scheduler com leases]
-  CR[Supabase Cron: futuro] --> E[Edge atlas-tick: futuro]
+  CR[Supabase Cron] --> E[Edge atlas-tick]
   E --> J[Scheduler com leases]
   J --> A
   C --> PA[Paper: análise e proposta guiada]
   PA --> PR[Risco e aprovação manual]
   PR --> PV[(Ordens, fills e ledger virtuais)]
   PV --> UI
-  F[Proposta de trade: integração futura] --> R[Risco central]
+  F[Proposta de trade: bloqueada] --> R[Risco central]
   R --> O[OMS e reserva]
   O --> Q[(Fila durável Supabase)]
   Q --> X[ATLAS Executor]
@@ -143,7 +143,7 @@ Entre com seu e-mail/senha e o código atual de seis dígitos do autenticador. S
 4. Em **Risco e limites**, registre um perfil completo. Os valores não vêm preenchidos com recomendações de investimento. O perfil é preservado como uma versão; salvar não aprova trading live nem vincula automaticamente a carteira.
 5. Em **Agentes → Estratégias de observação**, publique uma revisão SMA20/SMA50. Em **Configuração do agente**, selecione o agente pausado, a revisão, o perfil de risco e o intervalo. A revisão e os limites utilizados são preservados nas evidências de cada análise.
 6. Abra o agente e clique **Ativar análise**. O motor registra HOLD e bloqueios de execução; isso não é uma estratégia de trading homologada. Publicar outra revisão não altera automaticamente agentes já configurados.
-7. Com `npm run local` aberto, o scheduler encontra os agentes vencidos, preserva os dados utilizados e grava decisão, memória e auditoria atomicamente. Consulte o detalhe do agente e a auditoria. A execução automática em nuvem foi adiada; a seção 11 descreve essa etapa futura.
+7. O scheduler processa agentes vencidos, preserva os dados utilizados e grava decisão, memória e auditoria atomicamente. Na instalação local, use `npm run local`; na implantação, o Supabase Cron aciona o scheduler pela Edge Function `atlas-tick`. Consulte o detalhe do agente e a auditoria.
 
 Uma falha de fonte coloca o agente em `RISK_BLOCKED`; revise o erro no banco/saúde antes de reativar a análise. O limite brapi é conservador: até 150 consultas lógicas/dia, cada uma com no máximo três tentativas, compartilhadas entre UI e scheduler. Cache: cotação 30min, histórico 12h, notícias 15min e macro 6h. Aumentar polling não remove atraso.
 
@@ -182,7 +182,7 @@ Remove-Item Env:ATLAS_PUBLIC_DATA_SMOKE
 
 Esse smoke consulta dados públicos reais, sem enviar ordem. Ele não comprova SLA, licença profissional, autenticação de broker, sessão de mercado ou qualidade point-in-time de dataset.
 
-## Implantação atual (22/10/2026)
+## Implantação documentada (22/10/2026)
 
 | Componente | Onde | Observação |
 | --- | --- | --- |
@@ -190,13 +190,13 @@ Esse smoke consulta dados públicos reais, sem enviar ordem. Ele não comprova S
 | Scheduler | Supabase Cron `atlas-central-scheduler` (`* * * * *`) → Edge Function `atlas-tick` → `/api/cron` | URL e segredo no Vault; comprovado com o agendador local desligado |
 | Ponte MT5 + Executor | PC do proprietário | `C:\atlas-data\start-gateway.ps1` e `npm run local` + `npm run executor`; execução desligada |
 
-A rede do proprietário bloqueia a porta 5432 do pooler, por isso migrations são aplicadas pelo SQL Editor. Para operar ordens reais sem o PC, falta uma VPS Windows (seção abaixo).
+A implantação descrita acima foi conferida em 22/10/2026. A rede do proprietário bloqueia a porta 5432 do pooler, por isso migrations são aplicadas pelo SQL Editor. O Executor e a ponte MT5 permanecem desativados para envio de ordens reais.
 
 ## 10. Hospedar o frontend/backend
 
-**Etapa futura, ainda não contratada.** A configuração atual é local + Supabase Free. Para eliminar a dependência do PC, a opção prioritária avaliada é VPS Windows com ATLAS/backend, scheduler, gateway Python e terminal MT5 supervisionados; consulte a [decisão](docs/EXECUTION_GATEWAY_DECISION.md) e [custos](COST.md). A contratação depende do orçamento do proprietário e de compatibilidade/dimensionamento verificados.
+O painel e a API já estão publicados na Vercel, com Supabase para autenticação, banco e scheduler. Para criar outra implantação, consulte a [decisão](docs/EXECUTION_GATEWAY_DECISION.md) e [custos](COST.md), e siga os passos abaixo. A ponte MT5 exige um terminal Windows supervisionado; uma VPS Windows continua sendo uma opção avaliada para esse componente, sujeita a orçamento e validação de compatibilidade.
 
-Vercel continua alternativa para hospedar o backend separado do gateway; não hospeda o terminal MT5. A conta consultada usa **Hobby**, cuja adequação ao uso financeiro não foi presumida e cujo cron diário não atende este scheduler. O procedimento opcional de deploy Next é:
+Vercel hospeda o frontend/backend, mas não o terminal MT5. Para uma nova implantação Next:
 
 1. Envie os commits ao seu repositório GitHub quando revisados.
 2. No Vercel, clique **Add New → Project**, importe o repositório e selecione Next.js, raiz do projeto, `npm run build` e `npm ci`.
@@ -208,13 +208,13 @@ Também é possível hospedar o Next em um servidor Node compatível, com HTTPS 
 
 ## 11. Scheduler na nuvem
 
-1. Depois do deploy Next, confira no CLI `npx supabase functions deploy --help` e publique a função `atlas-tick` no projeto ATLAS. O `supabase/config.toml` usa autenticação própria por `CRON_SECRET`; nenhuma chamada anônima sem segredo é aceita.
+1. Confira no CLI `npx supabase functions deploy --help` e publique a função `atlas-tick` no projeto Supabase. O `supabase/config.toml` usa autenticação própria por `CRON_SECRET`; nenhuma chamada anônima sem segredo é aceita.
 2. Em **Edge Functions → Secrets**, configure `ATLAS_APP_URL` e `CRON_SECRET` idênticos aos do servidor Next. Não grave secrets no SQL do repositório.
 3. Ative **Cron (pg_cron)** e **pg_net** nas integrações do Supabase.
 4. Em **Vault**, crie `atlas_tick_url` com a URL HTTPS da função publicada e `atlas_cron_secret` com o segredo correspondente.
 5. Execute `supabase/setup-scheduler.sql` no SQL Editor. Ele instala um único cron central a cada minuto. O intervalo de cada agente determina quando analisar; nenhum loop infinito roda em Vercel.
 6. Consulte os registros Cron/Edge e `/app/health`. O scheduler processa até três agentes por chamada, usa lease de 120s e grava health com validade de três minutos.
-7. Faça uma análise, desligue seu computador e confira depois os registros posteriores ao desligamento. Só esse teste valida o requisito cloud; ainda não foi executado nesta entrega.
+7. Faça uma análise, desligue o computador que executa o scheduler local e confira depois se há novos registros. A implantação de 22/10/2026 foi documentada como validada com o scheduler local desligado; repita a verificação após alterações de infraestrutura.
 
 O Free pode pausar e não tem SLA de disponibilidade. Antes de live, backup/restore, monitoramento externo e alertas fora do painel precisam ser implementados e testados.
 
