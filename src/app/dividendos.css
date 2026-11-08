@@ -81,3 +81,33 @@ button:hover { background: #8fe2b8; }
   .office-tabs > a { padding: 0 12px; }
   .office-more-menu { grid-template-columns: 1fr; max-height: 70vh; overflow: auto; }
 }
+
+/* Keep the office dashboard legible and proportionate on 4K TVs and ultrawide displays. */
+@media (min-width: 2560px) {
+  .office-bar,
+  .office-frame .safety-strip,
+  .office-frame .footer {
+    padding-left: clamp(34px, 2vw, 72px);
+    padding-right: clamp(34px, 2vw, 72px);
+  }
+
+  .office-frame .main-content {
+    max-width: min(3000px, 80vw);
+    padding: clamp(48px, 2.2vw, 84px);
+  }
+
+  .office-badge b { width: 48px; height: 48px; font-size: 20px; }
+  .office-badge strong { font-size: 18px; }
+  .office-tabs > a,
+  .office-more > button { height: 44px; font-size: 15px; }
+  .office-frame .main-content h1 { font-size: 42px; }
+  .office-frame .main-content h2 { font-size: 20px; }
+  .office-frame .main-content h3 { font-size: 18px; }
+  .office-frame .main-content p { font-size: 16px; }
+  .office-frame .main-content small,
+  .office-frame .main-content .muted { font-size: 13px; }
+  .office-frame .main-content button,
+  .office-frame .main-content input,
+  .office-frame .main-content select { font-size: 15px; }
+  .office-frame .panel { padding: 32px; }
+}
