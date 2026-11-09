@@ -58,6 +58,13 @@ export function Shell({
   const menu = useRef<HTMLDivElement>(null);
   const inMore = moreItems.find((i) => pathname === i.path || pathname.startsWith(`${i.path}/`));
   useEffect(() => {
+    // Prevent the browser from restoring the previous scroll position after reload.
+    if ("scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+    window.scrollTo(0, 0);
+  }, []);
+  useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => { if (!menu.current?.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", close);
