@@ -120,7 +120,7 @@ const LOUNGE_LANE = 9;
 const BOSS_X = 6.67;
 // Plants (x, z, size) and floor lamps: drawn by the scene and kept out of everyone's way.
 const PLANTS: [number, number, number][] = [
-  ...COUNCILS.map((r, i): [number, number, number] => [i === 0 ? -19.3 : r.x1 + 0.7, -13.2, 0.7]),
+  ...COUNCILS.map((r, i): [number, number, number] => i === 0 ? [-23.2, -7.2, 0.8] : [r.x1 + 0.7, -13.2, 0.7]),
   [BOSS_X - 3.3, -13.2, 0.8], [11.4, -13.2, 0.8], [21.6, -12.8, 0.8], [-23, 7, 0.9], [-12.8, 12.6, 1], [22.9, -3.9, 1.0]];
 const FLOOR_LAMPS: V2[] = [[-10.6, 12.8], [6.6, 12.8], [-22.6, 11.4]];
 // Team meeting room: six chairs each side for the agents, the boss at the head of the table and the
@@ -1018,12 +1018,14 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       for (let s = 0; s < 5; s++) { const { pos, face } = councilSeat(roomIndex, s); chair(pos[0], pos[1], face, s < 4 ? "#3b3f47" : "#f07b2b"); }
       const screen = canvasTexture(900, 380);
       const cornerRoom = roomIndex === 0;
-      const frame = cornerRoom ? box(0.08, 1.75, 3.7, -23.85, 2.25, -8.1, metal) : box(3.9, 1.75, 0.08, tx, 2.25, -13.85, metal);
-      const tv = new THREE.Mesh(new THREE.PlaneGeometry(cornerRoom ? 3.55 : 3.75, 1.6), new THREE.MeshBasicMaterial({ map: screen.texture, toneMapped: false }));
-      if (cornerRoom) { tv.position.set(-23.8, 2.25, -8.1); tv.rotation.y = Math.PI / 2; }
-      else tv.position.set(tx, 2.25, -13.8);
+      // Every council screen hangs on the back wall (owner, 10/11/2026). The first room is in the rounded
+      // corner, where the straight back wall is only 2.67 m long: its screen is smaller, same shape, in the middle of that stretch.
+      const tvW = cornerRoom ? 2.4 : 3.75, tvH = tvW * 380 / 900, tvX = cornerRoom ? -18.72 : tx;
+      const frame = box(tvW + 0.15, tvH + 0.15, 0.08, tvX, 2.25, -13.85, metal);
+      const tv = new THREE.Mesh(new THREE.PlaneGeometry(tvW, tvH), new THREE.MeshBasicMaterial({ map: screen.texture, toneMapped: false }));
+      tv.position.set(tvX, 2.25, -13.8);
       scene.add(registerDisplay(tv));
-      (cornerRoom ? leftWall : backWall).items.push(frame, tv);
+      backWall.items.push(frame, tv);
       const bubbleEl = document.createElement("div"); bubbleEl.className = "debate-bubble"; bubbleEl.hidden = true;
       const bubble = new CSS2DObject(bubbleEl); bubble.position.set(tx, 2.2, tz + 2.6); scene.add(bubble);
       return { screen, bubbleEl, key: "" };
@@ -1365,6 +1367,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     }
     // Reception and the left wall by the entrance.
     hang(muralTexture(71, PALETTE), 2.2, 1.3, -23.86, posterY, 8.3, Math.PI / 2, leftWall);
+    // Where the first council room's screen used to hang: a frame, with a plant beside it (see PLANTS).
+    hang(posterTexture("Disciplina vence o medo", "decidir com calma", "#33415c", "#f2b33d"), 1.3, 1.75, -23.86, posterY, -9.0, Math.PI / 2, leftWall);
     // Meeting room: posters beside the screen and the whiteboard with the team's goals.
     hang(posterTexture("Risco controlado", "conselho antes de comprar", "#2e4057", "#22a06b"), meetingArt.posterWidth, meetingArt.height - meetingArt.border, meetingScreenX - meetingPosterOffset, meetingArt.y, -13.86, 0, backWall);
     hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), meetingArt.posterWidth, meetingArt.height - meetingArt.border, meetingScreenX + meetingPosterOffset, meetingArt.y, -13.86, 0, backWall);

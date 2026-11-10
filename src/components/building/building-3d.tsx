@@ -88,7 +88,9 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     const controls = new OrbitControls(camera, labels.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.08;
     controls.enablePan = false;
-    controls.minDistance = 70; controls.maxDistance = 620;
+    // Not as far out as before, and a quicker zoom (owner, 10/11/2026: the camera ended up far from the tower
+    // and took forever to come back close).
+    controls.minDistance = 70; controls.maxDistance = 480; controls.zoomSpeed = 1.6;
     controls.minPolarAngle = 0.35; controls.maxPolarAngle = 1.42;
     controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
     const home = () => {
@@ -378,7 +380,9 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
       goal.target.set(0, floor ? floorLevel(floor) + 1.7 : DEFAULT_TARGET, 0);
       // Zoom right up to the chosen floor (the office page then continues inside); the controls let go meanwhile.
       if (floor) { controls.minDistance = 20; controls.maxPolarAngle = 1.45; controls.enabled = false; }
-      goal.distance = floor ? 38 : camera.position.distanceTo(controls.target);
+      // Entry undone (the office did not open): give the camera back, with the usual limits.
+      else { controls.minDistance = 70; controls.maxPolarAngle = 1.42; controls.enabled = introAt < 0; }
+      goal.distance = floor ? 38 : Math.min(Math.max(camera.position.distanceTo(controls.target), 70), 480);
       goal.active = true;
     };
     if (apiRef) apiRef.current = { reset: () => { goal.active = false; home(); } };

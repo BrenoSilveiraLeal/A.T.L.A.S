@@ -111,6 +111,8 @@ export function BuildingView() {
     // The office page continues the move: its camera starts outside the tower and comes in.
     try { sessionStorage.setItem("atlas-entering", String(office.floor)); } catch { /* storage blocked */ }
     window.setTimeout(() => router.push(office.href!), flat || reduced ? 0 : FLY_MS);
+    // If the office never opens (slow or failed navigation), do not leave the map frozen close to the tower.
+    window.setTimeout(() => { if (window.location.pathname.startsWith("/predio")) setEntering(null); }, FLY_MS + 12000);
   }, [router, flat, night]);
   const remember = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* storage blocked */ } };
   const toggleNight = () => setNight((n) => { remember(NIGHT, n ? "0" : "1"); return !n; });
