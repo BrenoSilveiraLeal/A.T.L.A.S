@@ -36,6 +36,14 @@ export function BuildingView() {
   });
   // Coming back from an office skips the opening shot.
   const [intro] = useState(() => !new URLSearchParams(window.location.search).has("andar"));
+  // The "?andar=" only says where we came from: once read, drop it from the address, so a reload (F5)
+  // is a fresh visit and plays the opening shot down through the clouds (owner, 10/11/2026).
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("andar")) return;
+    url.searchParams.delete("andar");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
   const [night, setNight] = useState(() => {
     try { const saved = localStorage.getItem(NIGHT); if (saved === "1" || saved === "0") return saved === "1"; } catch { /* storage blocked */ }
     const hour = new Date().getHours();

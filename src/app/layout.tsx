@@ -21,6 +21,11 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-BR">
+      <head>
+        {/* Reloading (F5) always starts a page at its top (owner, 10/11/2026): the browser must not bring
+            back the old scroll position, on any page, so this runs before the page is drawn. */}
+        <script dangerouslySetInnerHTML={{ __html: 'try{history.scrollRestoration="manual";scrollTo(0,0)}catch(e){}' }} />
+      </head>
       <body>{children}</body>
     </html>
   );
