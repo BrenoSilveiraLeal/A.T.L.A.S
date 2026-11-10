@@ -43,6 +43,22 @@ export async function bridgeQuote(ticker: string): Promise<{ price: number; at: 
   }
 }
 
+/**
+ * The session's 5-minute closes for the intraday chart (owner, 10/11/2026: the chart only had the
+ * quotes the page itself had seen, a lone dot after the close). Read from the bridge at most once a
+ * minute per stock; an older bridge without the method just gives none.
+ */
+const barsCache = new Map<string, { at: number; bars: { price: number; at: string }[] }>();
+async function intradayBars(gateway: HttpExecutionGateway, ticker: string) {
+  const hit = barsCache.get(ticker);
+  if (hit && Date.now() - hit.at < 60000) return hit.bars;
+  let bars: { price: number; at: string }[] = [];
+  try { bars = (await gateway.getBars(ticker)).map((b) => ({ price: Number(b.close), at: b.at })).filter((b) => b.price > 0); }
+  catch { bars = hit?.bars ?? []; }
+  barsCache.set(ticker, { at: Date.now(), bars });
+  return bars;
+}
+
 export async function loadPrices(db: SupabaseClient, ownerId: string) {
   const assets = await db.from("assets").select("ticker").eq("owner_id", ownerId).eq("active", true);
   if (assets.error) throw new Error("PRICES_DATABASE_UNAVAILABLE");
@@ -53,6 +69,7 @@ export async function loadPrices(db: SupabaseClient, ownerId: string) {
     try {
       const gateway = await HttpExecutionGateway.connect({ url, token, expectedAccountId: accountId, expectedProviderId: providerId, timeoutMs: 6000 });
       const prices: Record<string, { price: number; at: string }> = {};
+      const bars: Record<string, { price: number; at: string }[]> = {};
       // A slow/unavailable symbol must not serialize a timeout for every stock in the team.
       for (let i = 0; i < tickers.length; i += 4) await Promise.all(tickers.slice(i, i + 4).map(async (ticker) => {
         try {
@@ -60,8 +77,10 @@ export async function loadPrices(db: SupabaseClient, ownerId: string) {
           const price = Number(q.last ?? q.bid ?? q.ask);
           if (Number.isFinite(price) && price > 0 && Number.isFinite(Date.parse(q.quotedAt))) prices[ticker] = { price, at: q.quotedAt };
         } catch { /* this stock has no quote right now */ }
+        const day = await intradayBars(gateway, ticker);
+        if (day.length) bars[ticker] = day;
       }));
-      if (Object.keys(prices).length) return { source: "MT5" as const, refreshSeconds: 5, prices };
+      if (Object.keys(prices).length) return { source: "MT5" as const, refreshSeconds: 5, prices, bars };
     } catch { /* bridge off: fall back to brapi */ }
   }
   const vitals = await db.from("paper_agent_vitals").select("agent_id,mark_price,mark_timestamp").eq("owner_id", ownerId);

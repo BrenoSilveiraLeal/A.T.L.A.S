@@ -68,6 +68,16 @@ export function BuildingView() {
   useEffect(() => () => {
     if (officeListTimer.current !== null) window.clearTimeout(officeListTimer.current);
   }, []);
+  // While the owner looks at the map, get the offices' pages and the 3D office code ready, so entering
+  // one does not wait for them (owner, 10/11/2026: "um delay muito grande para abrir o escritório").
+  useEffect(() => {
+    if (flat) return;
+    const timer = window.setTimeout(() => {
+      for (const office of OFFICES) if (office.href && office.status === "ACTIVE") router.prefetch(office.href);
+      void import("../office-3d");
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [router, flat]);
   // The city's sound, on unless turned off (remembered in the browser).
   const [sound, setSound] = useState(() => { try { return localStorage.getItem(SOUND) !== "off"; } catch { return true; } });
   useCitySound(sound && !flat, night);

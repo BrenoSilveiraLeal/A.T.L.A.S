@@ -24,16 +24,22 @@ function ObservedQuotes({ ticker, points, source }: { ticker: string; points: re
   const x = (at: string) => start === end ? 320 : 64 + (Date.parse(at) - start) / (end - start) * 560;
   const y = (price: number) => 100 - (price - min + padding) / (max - min + 2 * padding) * 80;
   const time = (at: string) => new Date(at).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const header = <div><b>Cotação intradiária · {ticker}</b><span>{source === "MT5" ? "MT5 · ao vivo, a cada 5 s" : "Fonte com atraso"}</span></div>;
+  // One quote is not a line (owner, 10/11/2026: a lone dot with the same price and time twice "tá bugado").
+  if (points.length < 2) return <div className="observed-quotes">
+    {header}
+    <small>{brl(last.price)} às {time(last.at)} · {source === "MT5" ? "a linha do dia aparece com as próximas cotações." : "sem gráfico do dia nesta fonte: o intradiário vem do MetaTrader da Genial, com o computador ligado."}</small>
+  </div>;
   return <div className="observed-quotes">
-    <div><b>Cotação intradiária observada · {ticker}</b><span>{source === "MT5" ? "MT5 · consulta a cada 5 s" : "Fonte com atraso"}</span></div>
+    {header}
     <svg viewBox="0 0 640 135" role="img" aria-label={`Cotações observadas de ${ticker}, de ${time(first.at)} a ${time(last.at)}; última ${brl(last.price)}.`}>
       <text x="3" y="30" className="ph-axis">{brl(max)}</text>
-      <text x="3" y="100" className="ph-axis">{brl(min)}</text>
+      {max !== min && <text x="3" y="100" className="ph-axis">{brl(min)}</text>}
       <path d={points.map((point, i) => `${i ? "L" : "M"}${x(point.at)} ${y(point.price)}`).join(" ")} className="ph-observed-line" />
       <circle cx={x(last.at)} cy={y(last.price)} r="4" className="ph-current-dot" />
       <text x="64" y="125" className="ph-axis">{time(first.at)}</text><text x="624" y="125" textAnchor="end" className="ph-axis">{time(last.at)}</text>
     </svg>
-    <small>{new Date(last.at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} · {points.length === 1 ? "Aguardando a próxima cotação do feed." : `${points.length} amostras reais recebidas pelo aplicativo.`} A linha registra o período observado; o histórico completo do dia depende da fonte.</small>
+    <small>{new Date(last.at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} · {time(first.at)} a {time(last.at)} · {source === "MT5" ? "barras de 5 min do MetaTrader e cada cotação ao vivo depois delas." : `${points.length} cotações recebidas pelo aplicativo.`}</small>
   </div>;
 }
 

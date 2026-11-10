@@ -443,6 +443,9 @@ class Gateway:
         if method == "quote":
             object_with(params, {"symbol"})
             return self.quote(identifier(params["symbol"]))
+        if method == "bars":
+            object_with(params, {"symbol"})
+            return self.bars(identifier(params["symbol"]))
         if method == "order":
             object_with(params, {"brokerOrderId"})
             value = self._raw_order(ticket(params["brokerOrderId"]))
@@ -476,6 +479,25 @@ class Gateway:
                 "last": side(get(tick, "last")),
                 "quotedAt": datetime.fromtimestamp(stamp / 1000, UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                 "observedAt": now()}
+
+    def bars(self, symbol: str):
+        """Read only: the latest session's 5-minute closes from the terminal, oldest first, for the
+        intraday chart (owner, 10/11/2026: the chart showed only the quotes the page had seen)."""
+        self._instrument(symbol)
+        rows = self._call("copy_rates_from_pos", symbol, getattr(self.api, "TIMEFRAME_M5", 5), 0, 120)
+        def field(row, name):
+            try:
+                return row[name]
+            except (TypeError, KeyError, IndexError, ValueError):
+                return get(row, name)
+        bars = [(self._utc_ms(integer(int(field(row, "time")) * 1000, positive=True)), field(row, "close")) for row in rows]
+        if not bars:
+            return []
+        session_day = lambda ms: (datetime.fromtimestamp(ms / 1000, UTC) - timedelta(hours=3)).date()
+        last_day = session_day(bars[-1][0])
+        return [{"at": datetime.fromtimestamp(ms / 1000, UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                 "close": amount(close, positive=True)}
+                for ms, close in bars if session_day(ms) == last_day and decimal(close) > 0]
 
     def positions(self):
         positions = {}

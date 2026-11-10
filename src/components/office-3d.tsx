@@ -13,12 +13,13 @@ import { meetingClock } from "@/core/meeting";
 import { B3_CALENDAR, saoPauloClock, sessionEnd } from "@/core/b3-calendar";
 import { NavGrid, type Rect } from "@/core/office-nav";
 import { OfficeMap, type OfficeAgent, type AgentChart } from "./office-map";
+import { FocusCard } from "./office-focus-card";
 import Link from "next/link";
 import { Building, LocateFixed, Maximize2, Minimize2, Moon, PersonStanding, Sun, Volume2, VolumeX } from "lucide-react";
 import { SELLS_NEAR_HIGH } from "@/core/range";
 import { ELEVATOR, OFFICE_GLASS, officeById, TOWER, wallSegments } from "@/core/building";
 import { NIGHT_SKY, prefersNight, roundedRect, setNight as applyNight, SKY } from "./building/city";
-import { buildSurroundings, SHAFT } from "./building/tower";
+import { buildSurroundings, SHAFT, shaftGlass } from "./building/tower";
 import { CITY_NIGHT_STORAGE_KEY } from "./building/time-of-day";
 import { drawOfficePlaque } from "./building/office-plaque";
 
@@ -646,19 +647,43 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<{ sync: (agents: OfficeAgent[], selected: string | null, boss: Money, meeting: Meeting | null) => void;
     tv: (h: typeof tvHeadline, l: typeof tvLines) => void; reset: () => void; sound: (on: boolean) => void; tip: (text: string) => void;
-    firstPerson: (on: boolean) => void; night: (on: boolean) => void } | null>(null);
+    firstPerson: (on: boolean) => void; night: (on: boolean) => void; focus: (id: string | null) => void } | null>(null);
   const [firstPerson, setFirstPerson] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  // Coming in from the map (owner, 10/11/2026): the zoom ends inside the office, filling the window;
+  // leaving full screen shows the rest of the page.
+  const [expanded, setExpanded] = useState(() => { try { return sessionStorage.getItem("atlas-entering") === String(FLOOR); } catch { return false; } });
   const [night, setNightMode] = useState(() => prefersNight());
+  // Clicking a person (owner, 10/11/2026): the camera flies to them and follows, with a card beside them.
+  const [focused, setFocused] = useState<string | null>(null);
+  const focusRef = useRef<(id: string | null) => void>(setFocused);
+  const focusedNow = useRef<string | null>(null);
+  const card = useRef<HTMLDivElement>(null);
   const select = useRef(onSelect);
   const [failed, setFailed] = useState(false);
   const [sound, setSound] = useState(() => { try { return localStorage.getItem("atlas-office-sound") !== "off"; } catch { return true; } });
   useEffect(() => { select.current = onSelect; }, [onSelect]);
   useEffect(() => {
+    focusedNow.current = focused;
+    api.current?.focus(focused);
+    if (!focused) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.pointerLockElement) setFocused(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focused]);
+  useEffect(() => {
     const onChange = () => setFullscreen(document.fullscreenElement === host.current?.parentElement);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
+  useEffect(() => {
+    if (!expanded) return;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.pointerLockElement && !focusedNow.current) setExpanded(false); };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = overflow; window.removeEventListener("keydown", onKey); };
+  }, [expanded]);
 
   useEffect(() => {
     const el = host.current;
@@ -732,25 +757,35 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 22, bottom: -22, near: 1, far: 90 });
     sun.shadow.bias = -0.0004;
     scene.add(sun);
-    // Night on the map is night here too: softer daylight, the city lit outside the windows.
-    if (surroundings.userData.night) { sky.intensity = 0.12; sun.intensity = 0.12; sun.color.set(0x9fb4ff); scene.environmentIntensity = 0.1; renderer.toneMappingExposure = 0.8; }
     // The office's own lights (owner, 01/11/2026: "a luz do escritório apaga quando não tem ninguém"):
-    // on while anyone is in, off when the last one leaves; at night the office then goes dark, by day
-    // only the daylight is left. See `officeLights` in the frame loop.
+    // on while anyone is in, off when the last one leaves. At night, with people working, they light
+    // the whole floor (owner, 10/11/2026: "se tiver gente trabalhando, é para estar com a luz acesa").
+    // See the office lights in the frame loop.
     const officeLight = new THREE.HemisphereLight(0xfff1dc, 0x8a7d6a, 0); scene.add(officeLight);
-    let nightTime = Boolean(surroundings.userData.night), baseSky = sky.intensity;
-    const applyOfficeLighting = (on: boolean) => {
-      nightTime = on;
-      const color = on ? NIGHT_SKY : SKY;
-      scene.background = new THREE.Color(color);
-      if (scene.fog instanceof THREE.Fog) scene.fog.color.setHex(color);
-      applyNight(scene, on ? 1 : 0);
-      sky.intensity = on ? 0.12 : 0.7; baseSky = sky.intensity;
-      sun.intensity = on ? 0.12 : 1.8; sun.color.set(on ? 0x9fb4ff : 0xfff4e6);
-      scene.environmentIntensity = on ? 0.1 : 0.4;
-      renderer.toneMappingExposure = on ? 0.8 : 0.85;
+    const downLight = new THREE.DirectionalLight(0xffe9c8, 0); downLight.position.set(4, 30, 6); scene.add(downLight);
+    // Day to night (0 to 1), with a fade both ways (owner, 10/11/2026: "tem que ter uma transição").
+    // Night on the map is night here too: softer daylight, the city lit outside the windows.
+    const DAY_BG = new THREE.Color(SKY), NIGHT_BG = new THREE.Color(NIGHT_SKY), SUN_DAY = new THREE.Color(0xfff4e6), SUN_NIGHT = new THREE.Color(0x9fb4ff);
+    const NIGHT_FADE = 2.5;
+    let nightTarget = surroundings.userData.night ? 1 : 0, nightAmount = nightTarget, nightFrom = nightAmount, nightAt = -1, baseSky = sky.intensity;
+    const applyOfficeLighting = (k: number) => {
+      if (!(scene.background instanceof THREE.Color)) scene.background = new THREE.Color();
+      scene.background.lerpColors(DAY_BG, NIGHT_BG, k);
+      if (scene.fog instanceof THREE.Fog) scene.fog.color.copy(scene.background);
+      applyNight(scene, k);
+      baseSky = 0.7 - 0.58 * k;
+      sun.intensity = 1.8 - 1.68 * k; sun.color.lerpColors(SUN_DAY, SUN_NIGHT, k);
+      scene.environmentIntensity = 0.4 - 0.3 * k;
+      renderer.toneMappingExposure = 0.85 - 0.05 * k;
+    };
+    applyOfficeLighting(nightAmount);
+    const setNightTarget = (on: boolean) => {
+      const target = on ? 1 : 0;
+      if (target === nightTarget) return;
+      nightTarget = target; nightFrom = nightAmount; nightAt = reduced ? NIGHT_FADE : 0;
     };
     let lightsOn = 1;
+    const lampShades: { mat: THREE.MeshStandardMaterial; base: number }[] = [];
 
     // Furniture helpers.
     const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material, shadow = true) => {
@@ -765,6 +800,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const metal = new THREE.MeshStandardMaterial({ color: 0x2b2e34, roughness: 0.35, metalness: 0.6 });
     const steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.25, metalness: 0.8 });
     const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.18, roughness: 0.05, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
+    // Panes are drawn after everything solid, always in the same order, and never take part in shadows.
+    const glassPane = (pane: THREE.Mesh) => { pane.renderOrder = 2; pane.castShadow = false; pane.receiveShadow = false; return pane; };
     const fabric = (c: string) => matte(c, 0.95);
 
     // Floor: light concrete, carpet under the desks, rugs in the lounges, tiles in the kitchen.
@@ -783,7 +820,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 
     // Walls with The Sims cutaway: `outer` walls drop when the camera is outside them and they
     // face it; interior walls drop whenever they face the camera.
-    interface Wall { mesh: THREE.Mesh; center: THREE.Vector3; normal: THREE.Vector3; outer: boolean; full: number; items: THREE.Object3D[] }
+    interface Wall { mesh: THREE.Mesh; center: THREE.Vector3; normal: THREE.Vector3; outer: boolean; full: number; items: THREE.Object3D[]; cut?: boolean }
     const walls: Wall[] = [];
     const wall = (x1: number, z1: number, x2: number, z2: number, h: number, m: THREE.Material, outer: boolean, normal?: V2) => {
       const len = Math.hypot(x2 - x1, z2 - z1);
@@ -796,7 +833,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     };
     const glassWall = (x1: number, z1: number, x2: number, z2: number, h = 2.6) => {
       const len = Math.hypot(x2 - x1, z2 - z1);
-      const pane = new THREE.Mesh(new THREE.BoxGeometry(len, h, 0.05), glassMat);
+      const pane = glassPane(new THREE.Mesh(new THREE.BoxGeometry(len, h, 0.05), glassMat));
       pane.position.set((x1 + x2) / 2, h / 2, (z1 + z2) / 2); pane.rotation.y = -Math.atan2(z2 - z1, x2 - x1); scene.add(pane);
       const frame = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, 0.08), metal);
       frame.position.set(pane.position.x, h, pane.position.z); frame.rotation.y = pane.rotation.y; scene.add(frame);
@@ -838,12 +875,11 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     [-17.33, -10.67, -4, 2.67, 10.67].forEach((x, i) => wall(x, -14, x, -6, Hi, matte(accents[i % accents.length], 0.8), false));
     for (const r of COUNCILS) { glassWall(r.x1 + 0.1, -6, r.door - 0.8, -6); glassWall(r.door + 0.8, -6, r.x2 - 0.1, -6); }
     glassWall(2.77, -6, BOSS_X - 0.8, -6); glassWall(BOSS_X + 0.8, -6, 10.57, -6);
-    // Meeting room front: glass by the door, then a solid panel for the whiteboard
-    // between that glass partition and the side window of the office.
-    const meetingBoardWallFrom = 19.1, meetingBoardWallTo = 23.9;
-    glassWall(10.77, -6, MEETING_DOOR - 0.8, -6);
-    glassWall(MEETING_DOOR + 0.8, -6, meetingBoardWallFrom, -6);
-    const meetingBoardWall = wall(meetingBoardWallFrom, -6, meetingBoardWallTo, -6, Hi, paint, false, [0, 1]);
+    // Meeting room front: glass with the door, all the way to the side wall (owner, 10/11/2026). The
+    // side wall inside the room is solid and carries the whiteboard (see the outside glass below).
+    glassWall(10.77, -6, MEETING_DOOR - 0.8, -6); glassWall(MEETING_DOOR + 0.8, -6, 23.9, -6);
+    /** The straight stretch of the right wall inside the meeting room (z), kept solid. */
+    const meetingSideWall: V2 = [-10, -6.1];
 
     // Elevator (owner, 01/11/2026: "trocar a porta por um elevador, já que vai ser um prédio"): steel
     // frame and sliding doors in the old doorway, the floor display above, the call buttons beside it
@@ -864,7 +900,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       parts.push(box(0.18, 0.42, 0.04, x0 + half + 0.35, 1.2, z - 0.11, brushed));
       const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe2a8, emissiveIntensity: 0.8 });
       for (const y of [1.29, 1.11]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.02, 16), lit); b.rotation.x = Math.PI / 2; b.position.set(x0 + half + 0.35, y, z - 0.14); scene.add(b); parts.push(b); }
-      const shaft = box(ELEVATOR.width + 0.4, H + 0.45, ELEVATOR.depth, x0, (H - 0.45) / 2, z + ELEVATOR.depth / 2, SHAFT());
+      const shaft = shaftGlass(SHAFT(), x0, -0.45, z + ELEVATOR.depth / 2, H + 0.45, ELEVATOR.width + 0.4); scene.add(shaft);
       parts.push(shaft);
       frontWall.items.push(...parts);
     }
@@ -1310,7 +1346,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     const frontBayCenter = (x: number) => frontWallStart + (Math.floor((x - frontWallStart) / frontBayWidth) + 0.5) * frontBayWidth;
     // Keep the frames visually centred in the façade panels; perspective makes the
     // full-height window wall read top-heavy at the geometric midpoint.
-    const posterY = H / 2 - 0.22;
+    // Same height as the meeting room's frames (owner, 10/11/2026: "todos os quadros no mesmo nível").
+    const posterY = meetingArt.y;
     hang(posterTexture("Compre na baixa, venda na alta", "regra nº 1 do ATLAS", "#1f3b5c", "#f07b2b"), 1.4, 1.75, -10.2, posterY, 13.86, Math.PI, frontWall);
     hang(muralTexture(55, PALETTE), 5.6, 1.1, -2, 2.6, 13.86, Math.PI, frontWall);
     hang(posterTexture("Paciência também é estratégia", "esperar a virada", "#22503f", "#f2b33d", true), 1.4, 1.75, frontBayCenter(6.4), posterY, 13.86, Math.PI, frontWall);
@@ -1327,7 +1364,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       sign.position.set(snackWall.signX, snackWall.y, 13.88); sign.rotation.y = Math.PI; scene.add(sign); frontWall.items.push(sign);
     }
     // Reception and the left wall by the entrance.
-    hang(muralTexture(71, PALETTE), 2.2, 1.3, -23.86, 1.9, 8.3, Math.PI / 2, leftWall);
+    hang(muralTexture(71, PALETTE), 2.2, 1.3, -23.86, posterY, 8.3, Math.PI / 2, leftWall);
     // Meeting room: posters beside the screen and the whiteboard with the team's goals.
     hang(posterTexture("Risco controlado", "conselho antes de comprar", "#2e4057", "#22a06b"), meetingArt.posterWidth, meetingArt.height - meetingArt.border, meetingScreenX - meetingPosterOffset, meetingArt.y, -13.86, 0, backWall);
     hang(posterTexture("Lucro com disciplina", "dados, não palpites", "#3b2a55", "#f07b2b"), meetingArt.posterWidth, meetingArt.height - meetingArt.border, meetingScreenX + meetingPosterOffset, meetingArt.y, -13.86, 0, backWall);
@@ -1339,8 +1376,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       ["1. Comprar perto da mínima de 6 meses", "2. Depois de queda grande, esperar virar", "3. Vender perto da máxima, com lucro", "4. Ganhar do CDI"].forEach((line, i) => g.fillText(line, 50, 130 + i * 90));
       g.strokeStyle = "#d6336c"; g.lineWidth = 6; g.beginPath(); g.arc(880, 470, 50, 0, Math.PI * 1.7); g.stroke();
       board.texture.needsUpdate = true;
-      // Face the meeting room and centre the board on the new solid end panel.
-      hang(board.texture, 2.6, 1.42, (meetingBoardWallFrom + meetingBoardWallTo) / 2, Hi / 2, -6.12, Math.PI, meetingBoardWall);
+      // Centred on the meeting room's solid side wall, facing into the room, level with the other frames.
+      hang(board.texture, 2.6, 1.42, 23.86, posterY, (meetingSideWall[0] + meetingSideWall[1]) / 2, -Math.PI / 2, rightWall);
     }
     const bookshelf = (x: number, z: number, turn: number) => {
       const g = new THREE.Group();
@@ -1366,6 +1403,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       cyl(0.03, 0.03, 1.9, x, 0.95, z, metal); cyl(0.22, 0.22, 0.04, x, 0.02, z, metal);
       const shade = cyl(0.28, 0.36, 0.4, x, 2.0, z, matte("#fff6e5", 0.6));
       (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
+      lampShades.push({ mat: shade.material as THREE.MeshStandardMaterial, base: 0.6 });
     };
     for (const [x, z] of FLOOR_LAMPS) floorLamp(x, z);
     for (const [x, z, size] of PLANTS) plant(x, z, size);
@@ -1376,6 +1414,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       cyl(0.06, 0.08, 0.22, x, 0.68, 1.5, matte("#2b2e34", 0.4));
       const shade = cyl(0.13, 0.17, 0.2, x, 0.88, 1.5, matte("#fff6e5", 0.6));
       (shade.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0xffe2a8); (shade.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.5;
+      lampShades.push({ mat: shade.material as THREE.MeshStandardMaterial, base: 0.5 });
     }
     box(0.4, 1.0, 0.4, 23.4, 0.5, -2.6, white); cyl(0.17, 0.17, 0.42, 23.4, 1.22, -2.6, matte("#9fd3f0", 0.1));
     {
@@ -1429,6 +1468,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         const blocked: [number, number][] = w.items.map((item) => { const a = along(new THREE.Box3().setFromObject(item)); return [a.lo, a.hi]; });
         // Tall furniture against the wall (bookshelves); merged or room-sized meshes are skipped.
         for (const b of blockers) { const a = along(b); if (a.gap < 0.9 && a.hi - a.lo < 6 && a.hi > -len / 2 && a.lo < len / 2) blocked.push([a.lo, a.hi]); }
+        // The meeting room's side wall is solid all along (owner, 10/11/2026: "esses dois vidrões têm que ser parede").
+        if (w === rightWall) blocked.push(meetingSideWall);
         const solid: THREE.BufferGeometry[] = [], panes: THREE.BufferGeometry[] = [], frames: THREE.BufferGeometry[] = [];
         const part = (list: THREE.BufferGeometry[], bw: number, bh: number, d: number, x: number, y: number) => list.push(new THREE.BoxGeometry(bw, bh, d).translate(x, y, 0));
         const kerb = OFFICE_GLASS.from, head = h - OFFICE_GLASS.head, glassH = head - kerb, glassY = (kerb + head) / 2;
@@ -1443,7 +1484,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         if (panes.length) {
           geometry.dispose();
           w.mesh.geometry = mergeGeometries(solid);
-          const pane = new THREE.Mesh(mergeGeometries(panes), glassMat), frame = new THREE.Mesh(mergeGeometries(frames), metal);
+          const pane = glassPane(new THREE.Mesh(mergeGeometries(panes), glassMat)), frame = new THREE.Mesh(mergeGeometries(frames), metal);
           frame.castShadow = true; w.mesh.add(pane, frame);
         }
         [...solid, ...panes, ...frames].forEach((g) => g.dispose());
@@ -1635,7 +1676,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         if (!r) {
           const made = makePerson(lookFor(agent.name, agent.id));
           const labelEl = document.createElement("div");
-          labelEl.addEventListener("pointerdown", (e) => { e.stopPropagation(); select.current(agent.id); });
+          labelEl.addEventListener("pointerdown", (e) => { e.stopPropagation(); select.current(agent.id); focusRef.current(agent.id); });
           const label = new CSS2DObject(labelEl); label.position.set(0, 2.05, 0); made.rig.add(label);
           const bubbleEl = document.createElement("div"); bubbleEl.className = "speech-bubble beep"; bubbleEl.hidden = true;
           const bubble = new CSS2DObject(bubbleEl); bubble.position.set(0, 3.0, 0); made.rig.add(bubble);
@@ -1778,7 +1819,51 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(pointer, camera);
       const hit = raycaster.intersectObjects(pickables, true)[0];
-      if (hit?.object.userData.agentId) select.current(hit.object.userData.agentId);
+      if (hit?.object.userData.agentId) { select.current(hit.object.userData.agentId); focusRef.current(hit.object.userData.agentId); }
+      else focusRef.current(null); // a click on the office lets the person go
+    };
+    // Focus on a person: a short flight to them (from wherever the camera is), then the camera keeps
+    // its angle and distance and moves along as they walk. The card follows them on screen.
+    const focus = { id: null as string | null, at: -1, fromPos: new THREE.Vector3(), fromTarget: new THREE.Vector3(), last: new THREE.Vector3() };
+    const FOCUS_FLY = 1.3, focusHead = new THREE.Vector3(), focusGoal = new THREE.Vector3(), focusCam = new THREE.Vector3(), onScreen = new THREE.Vector3();
+    const setFocus = (id: string | null) => {
+      if (id === focus.id) return;
+      focus.id = id;
+      if (card.current) card.current.style.visibility = "hidden"; // placed again on the next frame
+      if (!id) { focus.at = -1; if (entry.at < 0) controls.enabled = true; return; }
+      focus.at = reduced ? FOCUS_FLY : 0; focus.fromPos.copy(camera.position); focus.fromTarget.copy(controls.target);
+      controls.enabled = false;
+    };
+    /** Each frame: fly in, then follow; place the card beside the person. */
+    const followFocus = (dt: number) => {
+      const r = focus.id ? people.get(focus.id) : undefined;
+      const cardEl = card.current;
+      if (!r) { if (cardEl) cardEl.style.visibility = "hidden"; return; }
+      focusHead.set(r.group.position.x, 1.2, r.group.position.z);
+      if (focus.at >= 0) {
+        focus.at += dt;
+        const k = Math.min(1, focus.at / FOCUS_FLY), smooth = k * k * (3 - 2 * k);
+        // End about 15 m away, on the camera's side of the person, looking down at about 40°.
+        const away = focusCam.copy(focus.fromPos).sub(focus.fromTarget).setY(0);
+        if (away.lengthSq() < 0.01) away.set(0, 0, 1);
+        away.normalize().multiplyScalar(11.5).setY(9.6);
+        focusGoal.copy(focusHead).add(away);
+        camera.position.lerpVectors(focus.fromPos, focusGoal, smooth);
+        controls.target.lerpVectors(focus.fromTarget, focusHead, smooth);
+        if (k >= 1) { focus.at = -1; controls.enabled = entry.at < 0; }
+      } else {
+        // Follow: move camera and target by how far the person walked (the owner can still turn and zoom).
+        const step = focusCam.copy(focusHead).sub(focus.last);
+        camera.position.add(step); controls.target.add(step);
+      }
+      focus.last.copy(focusHead);
+      if (!cardEl) return;
+      onScreen.set(r.group.position.x, 1.6, r.group.position.z).project(camera);
+      const w = el.clientWidth, h = el.clientHeight, x = (onScreen.x + 1) / 2 * w, y = (1 - onScreen.y) / 2 * h;
+      const cw = cardEl.offsetWidth, ch = cardEl.offsetHeight;
+      const left = x + 56 + cw > w - 8 ? x - 56 - cw : x + 56;
+      cardEl.style.visibility = onScreen.z > 1 ? "hidden" : "visible";
+      cardEl.style.transform = `translate(${Math.round(Math.max(8, Math.min(w - cw - 8, left)))}px, ${Math.round(Math.max(56, Math.min(h - ch - 8, y - ch / 2)))}px)`;
     };
     labels.domElement.addEventListener("pointerdown", onDown);
     labels.domElement.addEventListener("pointerup", onUp);
@@ -1891,8 +1976,12 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       view.subVectors(controls.target, camera.position).setY(0).normalize();
       for (const w of walls) {
         toCam.subVectors(camera.position, w.center).setY(0);
-        const facing = Math.abs(w.normal.dot(view)) > 0.35;
-        const cut = facing && (!w.outer || toCam.dot(w.normal) > 0);
+        // With a margin on each test (owner, 10/11/2026: "esse vidro tá piscando"): a wall right at the
+        // limit, as the camera drifts or follows someone, used to drop and rise every frame, and its glass with it.
+        const facingAmount = Math.abs(w.normal.dot(view)), sideOfCamera = toCam.dot(w.normal);
+        const facing = facingAmount > (w.cut ? 0.28 : 0.4);
+        const cut = facing && (!w.outer || sideOfCamera > (w.cut ? -0.6 : 0.6));
+        w.cut = cut;
         const target = cut ? 0.35 / w.full : 1;
         const s = w.mesh.scale.y + (target - w.mesh.scale.y) * Math.min(1, dt * 8);
         w.mesh.scale.y = s;
@@ -2017,9 +2106,19 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
           else { stopAmbience?.(); stopAmbience = null; }
         }
         lightsOn += ((anyone ? 1 : 0) - lightsOn) * Math.min(1, dt * 1.5);
-        officeLight.intensity = lightsOn * (nightTime ? 0.55 : 0.2);
-        sky.intensity = nightTime ? baseSky * (0.25 + 0.75 * lightsOn) : baseSky - 0.25 * (1 - lightsOn);
+        if (nightAt >= 0) {
+          nightAt += dt;
+          const k = Math.min(1, nightAt / NIGHT_FADE), smooth = k * k * (3 - 2 * k);
+          nightAmount = nightFrom + (nightTarget - nightFrom) * smooth;
+          applyOfficeLighting(nightAmount);
+          if (k >= 1) nightAt = -1;
+        }
+        officeLight.intensity = lightsOn * (0.2 + 0.9 * nightAmount);
+        downLight.intensity = lightsOn * 0.9 * nightAmount;
+        const daySky = baseSky - 0.25 * (1 - lightsOn), nightSky = baseSky * (0.25 + 0.75 * lightsOn);
+        sky.intensity = daySky + (nightSky - daySky) * nightAmount;
         ceilingPanel.emissiveIntensity = 0.9 * lightsOn;
+        for (const s of lampShades) s.mat.emissiveIntensity = s.base * (0.15 + 0.85 * lightsOn);
       }
       for (const r of people.values()) {
         if (!present(r)) continue; // gone home, or on the way in or out
@@ -2292,6 +2391,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         camera.lookAt(pos.x + f[0] * Math.cos(pitch), eye + bob + Math.sin(pitch), pos.z + f[1] * Math.cos(pitch));
         for (const w of walls) { w.mesh.scale.y = 1; for (const item of w.items) item.visible = true; }
       } else {
+        followFocus(dt);
         controls.update();
         cutaway(dt);
       }
@@ -2325,7 +2425,8 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     api.current = {
       sync, tv: updateTv, tip: (text) => { tip = text; drawAssistantPc(text); },
       sound: (on) => { soundOn = on; if (on) unlockAudio(); else { stopAmbience?.(); stopAmbience = null; } },
-      night: applyOfficeLighting,
+      night: setNightTarget,
+      focus: setFocus,
       reset: () => { firstPerson(false); camera.position.copy(home).multiplyScalar(el.clientWidth / el.clientHeight < 1.2 ? 1.45 : 1); controls.target.set(0, 0, 0.3); },
       firstPerson,
     };
@@ -2371,7 +2472,7 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
 
   if (failed) return <OfficeMap agents={agents} tvHeadline={tvHeadline} selected={selected} onSelect={onSelect} />;
   return (
-    <div className="office3d">
+    <div className={`office3d ${expanded ? "is-expanded" : ""}`}>
       <div ref={host} className="office3d-canvas" role="img"
         aria-label={`Escritório 3D com ${agents.length} IAs. ${agents.map((a) => `${a.name}: ${a.activity}`).join(" ")}`} />
       {/* Owner, 26/10/2026: the status dots always in the bottom corner; sound and centre top right. */}
@@ -2379,28 +2480,30 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         {buildingLink && <Link className="office3d-map-link" href={`/predio?andar=${FLOOR}`} title="Voltar ao mapa do prédio ATLAS para escolher outro escritório">
           <Building size={16} /> Trocar de escritório
         </Link>}
-        <button type="button" className={`icon-button secondary ${firstPerson ? "active" : ""}`} onClick={() => setFirstPerson((on) => !on)} aria-pressed={firstPerson}
+        <button type="button" className={`icon-button secondary ${firstPerson ? "active" : ""}`} onClick={() => { setFocused(null); setFirstPerson((on) => !on); }} aria-pressed={firstPerson}
           aria-label={firstPerson ? "Sair do modo Chefe" : "Andar pelo escritório como o Chefe"} title={firstPerson ? "Sair do modo Chefe" : "Andar como o Chefe"}>
           <PersonStanding size={18} />
         </button>
         <button type="button" className="icon-button secondary" onClick={() => setNightMode((on) => !on)} aria-pressed={night} aria-label={night ? "Mudar escritório para dia" : "Mudar escritório para noite"} title={night ? "Mudar para dia" : "Mudar para noite"}>
           {night ? <Moon size={18} /> : <Sun size={18} />}
         </button>
-        <button type="button" className="icon-button secondary" onClick={() => { setFirstPerson(false); api.current?.reset(); }} aria-label="Centralizar o escritório" title="Centralizar">
+        <button type="button" className="icon-button secondary" onClick={() => { setFocused(null); setFirstPerson(false); api.current?.reset(); }} aria-label="Centralizar o escritório" title="Centralizar">
           <LocateFixed size={18} />
         </button>
         <button type="button" className="icon-button secondary" onClick={() => {
           const root = host.current?.parentElement;
-          if (document.fullscreenElement === root) void document.exitFullscreen();
+          if (expanded) setExpanded(false);
+          else if (document.fullscreenElement === root) void document.exitFullscreen();
           else void root?.requestFullscreen();
-        }} aria-pressed={fullscreen} aria-label={fullscreen ? "Sair da tela cheia" : "Maximizar escritório"} title={fullscreen ? "Sair da tela cheia" : "Maximizar escritório"}>
-          {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+        }} aria-pressed={fullscreen || expanded} aria-label={fullscreen || expanded ? "Sair da tela cheia" : "Maximizar escritório"} title={fullscreen || expanded ? "Sair da tela cheia (ver as informações)" : "Maximizar escritório"}>
+          {fullscreen || expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
         </button>
         <button type="button" className="icon-button secondary" onClick={() => setSound((on) => !on)} aria-pressed={sound}
           aria-label={sound ? "Desligar o som do escritório" : "Ligar o som do escritório"} title={sound ? "Som ligado" : "Som desligado"}>
           {sound ? <Volume2 size={18} /> : <VolumeX size={18} />}
         </button>
       </div>
+      <FocusCard ref={card} agent={agents.find((a) => a.id === focused) ?? null} onClose={() => setFocused(null)} />
       {firstPerson && <div className="office3d-fp-hint" role="status">
         Você é o Chefe · <b>W A S D</b> para andar · clique na tela e mexa o mouse para olhar · <b>Esc</b> solta o mouse · clique no bonequinho para sair
       </div>}

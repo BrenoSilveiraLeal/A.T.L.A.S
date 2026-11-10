@@ -164,6 +164,15 @@ class GenialProfileTests(unittest.TestCase):
         self.assertIsNone(self.rpc("quote", {"symbol": "TEST3"})["bid"])
         self.fails("UNAPPROVED_INSTRUMENT", lambda: self.rpc("quote", {"symbol": "OTHER3"}))
 
+    def test_intraday_bars_keep_only_the_latest_session(self):
+        day = 1_792_000_000  # server seconds
+        rows = [{"time": day - 86_400, "close": 24.0}, {"time": day, "close": 25.0}, {"time": day + 300, "close": 25.2}]
+        self.api.copy_rates_from_pos = lambda symbol, timeframe, start, count: rows
+        bars = self.rpc("bars", {"symbol": "TEST3"})
+        self.assertEqual(["25", "25.2"], [bar["close"] for bar in bars])
+        self.assertTrue(all(bar["at"].endswith("Z") for bar in bars))
+        self.fails("UNAPPROVED_INSTRUMENT", lambda: self.rpc("bars", {"symbol": "OTHER3"}))
+
     def test_quote_adds_symbol_to_market_watch_when_needed(self):
         tick, self.api.tick = self.api.tick, None
         def select(symbol, enable):

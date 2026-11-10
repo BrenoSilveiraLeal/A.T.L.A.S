@@ -384,6 +384,8 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
     if (apiRef) apiRef.current = { reset: () => { goal.active = false; home(); } };
     const DAY_SKY = new THREE.Color(SKY), NIGHT_SKY = new THREE.Color(0x141c33), SUN_DAY = new THREE.Color(0xfff0d2), SUN_NIGHT = new THREE.Color(0x9fb4ff);
     let nightAmount = dark.current ? 1 : 0;
+    const NIGHT_FADE = 2.5;
+    let nightTarget = nightAmount, nightFrom = nightAmount, nightAt = -1;
     const applyNight = () => {
       (scene.background as THREE.Color).lerpColors(DAY_SKY, NIGHT_SKY, nightAmount);
       scene.fog!.color.copy(scene.background as THREE.Color);
@@ -439,10 +441,15 @@ export function Building3D({ selected, highlight = null, night = false, intro = 
         }
       }
       // Day and night: sky, fog, light and every glow (windows, lamps, headlights, lobby) follow.
+      // A steady fade both ways (owner, 10/11/2026: "tem que ter uma transição do dia para a noite e da
+      // noite para o dia"), eased at both ends.
       const target = dark.current ? 1 : 0;
-      if (nightAmount !== target) {
-        nightAmount += (target - nightAmount) * (reduced ? 1 : Math.min(1, dt * 2.5));
-        if (Math.abs(nightAmount - target) < 0.002) nightAmount = target;
+      if (target !== nightTarget) { nightTarget = target; nightFrom = nightAmount; nightAt = 0; }
+      if (nightAt >= 0) {
+        nightAt += dt;
+        const k = reduced ? 1 : Math.min(1, nightAt / NIGHT_FADE), smooth = k * k * (3 - 2 * k);
+        nightAmount = nightFrom + (nightTarget - nightFrom) * smooth;
+        if (k >= 1) nightAt = -1;
         applyNight();
       }
       staffedCheck -= dt;

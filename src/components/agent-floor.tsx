@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { formatBrl } from "@/core/format";
 import { appendQuotePoint } from "@/core/price-series";
 import { CandleChart, type ChartMarker } from "./candle-chart";
@@ -9,8 +9,19 @@ import { AgentCard, OfficeLegend, Scoreboard, useNow, type AgentChart, type Offi
 
 // three.js is loaded only in the browser, on the office screens.
 const Office3D = dynamic(() => import("./office-3d").then((m) => m.Office3D), {
-  ssr: false, loading: () => <div className="office3d office3d-loading" role="status">Montando o escritório 3D…</div>,
+  ssr: false, loading: () => <EnteringCurtain fallback={<div className="office3d office3d-loading" role="status">Montando o escritório 3D…</div>} />,
 });
+
+/**
+ * Coming in from the map (owner, 10/11/2026): the office must already be open in full screen, with no
+ * stretch of the normal page while it loads. While the "atlas-entering" mark from the map is set, every
+ * loading step of this page is one dark full-window screen; the office replaces it already expanded.
+ */
+const enteringNow = () => { try { return sessionStorage.getItem("atlas-entering") !== null; } catch { return false; } };
+function EnteringCurtain({ fallback }: { fallback: React.ReactNode }) {
+  const entering = useSyncExternalStore(() => () => undefined, enteringNow, () => false);
+  return entering ? <div className="office3d-curtain" role="status">Entrando no escritório…</div> : <>{fallback}</>;
+}
 import { placeAgent } from "@/core/office";
 import { committee } from "@/core/committee";
 import { allocatePot, opportunityScore } from "@/core/boss";
@@ -63,6 +74,7 @@ type Bar6m = { date: string; open: number; high: number; low: number; close: num
  * brapi (refreshed every 30 min on its free plan) elsewhere. Also keeps today's high and low as
  * seen, to draw today's candle.
  */
+const quoteDay = (at: string) => new Date(at).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
 function usePrices(connected: boolean) {
   type Session = Record<string, { day: string; high: number; low: number; points: { price: number; at: string }[] }>;
   type Quotes = Record<string, { price: number; at: string; source: string }>;
@@ -87,7 +99,13 @@ function usePrices(connected: boolean) {
           acceptedPrices.current[ticker] = { ...q, source: b.source };
           const day = new Date(q.at).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
           const seen = session.current[ticker];
-          const points = appendQuotePoint(seen?.points ?? [], q);
+          // The session so far from the bridge's 5-minute bars, then every live quote after the last bar.
+          const day5m = (b.bars?.[ticker] ?? []) as { price: number; at: string }[];
+          const lastBar = day5m.length ? Date.parse(day5m[day5m.length - 1].at) : -Infinity;
+          const base = day5m.length && quoteDay(day5m[0].at) === day
+            ? [...day5m, ...(seen?.day === day ? seen.points : []).filter((p) => Date.parse(p.at) > lastBar)]
+            : seen?.points ?? [];
+          const points = appendQuotePoint(base, q);
           session.current[ticker] = seen && seen.day === day
             ? { day, high: Math.max(seen.high, q.price), low: Math.min(seen.low, q.price), points }
             : { day, high: q.price, low: q.price, points };
@@ -203,7 +221,7 @@ export function AgentFloor({ connected, revision, tv = false, mode }: { connecte
     <Office3D agents={[]} boss={null} tvHeadline={{ title: "Sem banco de dados conectado: o escritório aparece vazio, só o design.", source: "ATLAS" }}
       tvLines={[["Resultado real", "—", "#a9b6cc"], ["CDI no período", "—", "#a9b6cc"]]} selected={null} onSelect={() => undefined} buildingLink />
   );
-  if (floor.loading) return <div className="loading-state" role="status">Abrindo o escritório…</div>;
+  if (floor.loading) return <EnteringCurtain fallback={<div className="loading-state" role="status">Abrindo o escritório…</div>} />;
   if (floor.error) return <div className="notice error-text" role="alert">{floor.error}</div>;
   const agents = paper.agents ?? [], vitals = paper.paper_agent_vitals ?? [];
   if (!agents.length) return (

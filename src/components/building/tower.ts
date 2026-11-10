@@ -207,13 +207,30 @@ export function crownTop(m: TowerMaterials) {
 }
 
 /**
+ * The elevator's glass: a front pane and two side panes, each its own mesh, and no back pane against
+ * the tower (owner, 10/11/2026: the glass "fica piscando"). A transparent box drew its back face on
+ * the façade's own plane and sorted its faces differently every frame, so it flickered.
+ */
+export function shaftGlass(material: THREE.Material, x: number, y0: number, z: number, h: number, width: number = ELEVATOR.width, depth: number = ELEVATOR.depth) {
+  const g = new THREE.Group();
+  const pane = (w: number, px: number, pz: number, turn: number) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), material);
+    mesh.position.set(px, y0 + h / 2, pz); mesh.rotation.y = turn; g.add(mesh);
+  };
+  // Inset a few cm from the posts and the façade so no two surfaces share a plane.
+  pane(width - 0.1, x, z + depth / 2 - 0.03, 0);
+  for (const side of [-1, 1]) pane(depth - 0.1, x + side * (width / 2 - 0.03), z + 0.04, Math.PI / 2);
+  return g;
+}
+
+/**
  * The panoramic elevator up the front of the shaft, from the podium roof to the crown: a glass tube
  * with green posts and a lit cab. The office's elevator doors open into it. Returns the cab, which the
  * building view moves up and down.
  */
 export function elevatorTube(m: TowerMaterials, from = floorLevel(PODIUM_TOP), to = floorLevel(CROWN_FROM)) {
   const g = new THREE.Group(), h = to - from, z = D / 2 + ELEVATOR.depth / 2;
-  const tube = new THREE.Mesh(new THREE.BoxGeometry(ELEVATOR.width, h, ELEVATOR.depth), m.tube); tube.position.set(ELEVATOR.x, from + h / 2, z); g.add(tube);
+  g.add(shaftGlass(m.tube, ELEVATOR.x, from, z, h));
   const posts = new Mass(), rings = new Mass();
   // Slim white posts (they cross the office floors' glass, so they stay discreet).
   for (const dx of [-1, 1]) for (const dz of [-1, 1]) posts.box(ELEVATOR.x + (dx * ELEVATOR.width) / 2, from, z + (dz * ELEVATOR.depth) / 2, 0.16, h, 0.16, false);

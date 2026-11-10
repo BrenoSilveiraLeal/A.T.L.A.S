@@ -139,6 +139,10 @@ export class HttpExecutionGateway implements BrokerProvider {
     if (value.symbol !== symbol) throw new GatewayError("GATEWAY_SYMBOL_MISMATCH");
     return value;
   }
+  /** Read only: the latest session's 5-minute closes from the broker terminal, oldest first. */
+  getBars(symbol: string) {
+    return this.call("bars", { symbol: id.parse(symbol) }, z.array(z.object({ at, close: amount }).strict()).max(200));
+  }
   async getExecutions(cursor: string | null): Promise<{ executions: readonly BrokerExecution[]; nextCursor: string | null }> {
     const result = await this.call("executions", { cursor }, z.object({ executions: z.array(executionSchema), nextCursor: z.string().max(1000).nullable() }).strict());
     return { ...result, executions: result.executions.map((e) => this.account(e)) };
