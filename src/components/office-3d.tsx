@@ -884,25 +884,57 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // Elevator (owner, 01/11/2026: "trocar a porta por um elevador, já que vai ser um prédio"): steel
     // frame and sliding doors in the old doorway, the floor display above, the call buttons beside it
     // and the shaft outside the front wall. They drop with the front wall in the cutaway.
+    // It works (owner, 10/11/2026): a glass cab goes up and down the shaft, the doors slide open, and the
+    // display and the call button follow it (see the elevator in the frame loop).
+    const liftParts = {
+      doors: [] as { mesh: THREE.Mesh; x: number; side: number }[],
+      cab: new THREE.Group(),
+      button: null as THREE.MeshStandardMaterial | null,
+      showDisplay: (() => undefined) as (text: string) => void,
+    };
     {
       const brushed = new THREE.MeshStandardMaterial({ color: 0xc9cdd2, roughness: 0.28, metalness: 0.85 });
       const x0 = ELEVATOR.x, half = ELEVATOR.width / 2, z = TOWER.depth / 2;
       const parts: THREE.Object3D[] = [];
       for (const x of [x0 - half + 0.15, x0 + half - 0.15]) parts.push(box(0.3, H, 0.24, x, H / 2, z, metal));
       parts.push(box(ELEVATOR.width, H - 2.6, 0.24, x0, 2.6 + (H - 2.6) / 2, z, metal));
-      for (const side of [-1, 1]) parts.push(box(half - 0.32, 2.6, 0.06, x0 + side * (half - 0.3) / 2, 1.3, z - 0.06, brushed));
+      for (const side of [-1, 1]) {
+        const door = box(half - 0.32, 2.6, 0.06, x0 + side * (half - 0.3) / 2, 1.3, z - 0.06, brushed);
+        liftParts.doors.push({ mesh: door, x: door.position.x, side }); parts.push(door);
+      }
       const display = canvasTexture(256, 96);
-      display.g.fillStyle = "#0b0d10"; display.g.fillRect(0, 0, 256, 96);
-      display.g.fillStyle = "#ffb347"; display.g.font = "bold 64px sans-serif"; display.g.textAlign = "center"; display.g.textBaseline = "middle";
-      display.g.fillText(`${FLOOR} ▲▼`, 128, 50); display.texture.needsUpdate = true;
+      liftParts.showDisplay = (text: string) => {
+        display.g.fillStyle = "#0b0d10"; display.g.fillRect(0, 0, 256, 96);
+        display.g.fillStyle = "#ffb347"; display.g.font = "bold 64px sans-serif"; display.g.textAlign = "center"; display.g.textBaseline = "middle";
+        display.g.fillText(text, 128, 50); display.texture.needsUpdate = true;
+      };
+      liftParts.showDisplay(`${FLOOR}`);
       const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.34), new THREE.MeshBasicMaterial({ map: display.texture, toneMapped: false }));
       screen.position.set(x0, 3.0, z - 0.13); screen.rotation.y = Math.PI; scene.add(screen); parts.push(screen);
       parts.push(box(0.18, 0.42, 0.04, x0 + half + 0.35, 1.2, z - 0.11, brushed));
       const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe2a8, emissiveIntensity: 0.8 });
+      liftParts.button = lit;
       for (const y of [1.29, 1.11]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.02, 16), lit); b.rotation.x = Math.PI / 2; b.position.set(x0 + half + 0.35, y, z - 0.14); scene.add(b); parts.push(b); }
       const shaft = shaftGlass(SHAFT(), x0, -0.45, z + ELEVATOR.depth / 2, H + 0.45, ELEVATOR.width + 0.4); scene.add(shaft);
       parts.push(shaft);
-      frontWall.items.push(...parts);
+      // The elevator stays up when the front wall drops in the cutaway (owner, 10/11/2026: the doors
+      // opening and the people getting in must show). It stands in the gap between the rounded corner
+      // and the front wall, so it hides nothing.
+      // The cab: steel floor, glass sides and back (a panoramic lift), a lit ceiling. It stays out of the
+      // cutaway, since it is outside the wall.
+      const cab = liftParts.cab, cw = ELEVATOR.width - 0.5, cd = ELEVATOR.depth - 0.5, ch = 2.8;
+      const glass = new THREE.MeshPhysicalMaterial({ color: 0xd8f1ff, transparent: true, opacity: 0.22, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
+      const light = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff1cf, emissiveIntensity: 1.1 });
+      const piece = (w: number, h: number, d: number, x: number, y: number, zz: number, mat: THREE.Material) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); mesh.position.set(x, y, zz); cab.add(mesh);
+        if (mat === glass) mesh.renderOrder = 2; else { mesh.castShadow = true; mesh.receiveShadow = true; }
+      };
+      piece(cw, 0.1, cd, 0, -0.05, 0, metal);
+      piece(cw, 0.08, cd, 0, ch + 0.04, 0, light);
+      piece(cw, ch, 0.04, 0, ch / 2, cd / 2, glass);
+      for (const sx of [-1, 1]) { piece(0.04, ch, cd, sx * cw / 2, ch / 2, 0, glass); piece(0.08, ch, 0.08, sx * cw / 2, ch / 2, cd / 2, metal); }
+      piece(cw, 0.06, 0.06, 0, 1.0, cd / 2 - 0.05, steel); // handrail
+      cab.position.set(x0, 0, z + ELEVATOR.depth / 2); scene.add(cab);
     }
 
     // Room names are painted on each room's own screen or board (no floating signs that turn with the camera).
@@ -2009,11 +2041,35 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
     // evening. Times differ per person and per day but stay fixed within a day. Weekends and B3
     // holidays: nobody comes in. Leaving: to the elevator, and gone; arriving: out of the elevator, to
     // their place. While away or on the way, their usual routine waits.
-    type Commute = { person: Person; id: string; staff: boolean; state: "in" | "leaving" | "away" | "arriving"; path: V2[];
+    // By elevator (owner, 10/11/2026): whoever leaves walks to the elevator, the first one presses the
+    // button, they wait, the cab comes up, the doors open and they get in, up to its capacity; the doors
+    // close and the cab goes down with them. After a short wait it comes back for whoever is left.
+    // Arrivals come up in it the same way and walk out.
+    // States: in -> leaving (to the button or the queue) -> waiting -> boarding -> riding (down) -> away;
+    // away -> queued (downstairs) -> riding (up) -> arriving -> in.
+    type Commute = { person: Person; id: string; staff: boolean; state: "in" | "leaving" | "waiting" | "boarding" | "riding" | "away" | "queued" | "arriving"; path: V2[];
       /** The way from their place to the open floor (rooms have doors), and their place itself. */
-      exit: () => V2[]; place: () => { at: V2; face: number }; onLeave?: () => void; onArrive?: () => void };
+      exit: () => V2[]; place: () => { at: V2; face: number }; onLeave?: () => void; onArrive?: () => void;
+      /** Their spot in the queue by the elevator, their place in the cab, a pause (pressing the button). */
+      spot?: number; seat?: number; press?: boolean; wait?: number };
     const commuters: Commute[] = [], commuteOf = new Map<THREE.Object3D, Commute>();
-    const DOOR: V2 = [ELEVATOR.x, TOWER.depth / 2 - 1.1];
+    const LIFT_X = ELEVATOR.x, LIFT_Z = TOWER.depth / 2 + ELEVATOR.depth / 2;
+    /** Just inside the landing doors, and just outside them. */
+    const SILL_IN: V2 = [LIFT_X, TOWER.depth / 2 + 0.45], SILL_OUT: V2 = [LIFT_X, TOWER.depth / 2 - 0.75];
+    /** Where the button is pressed (beside the doors, on the right). */
+    const BUTTON: V2 = [ELEVATOR.x + ELEVATOR.width / 2 + 0.35, TOWER.depth / 2 - 0.55];
+    /** Six places in the cab, two rows of three, all facing the doors. */
+    const CAB_SEATS: V2[] = [-0.7, 0, 0.7].flatMap((dx) => [-0.55, 0.45].map((dz): V2 => [LIFT_X + dx, LIFT_Z + dz]));
+    /** The queue: free floor in front of the elevator, nearest first. */
+    const QUEUE: V2[] = [];
+    for (const z of [12.5, 11.7, 10.9, 10.2]) for (let x = -20.1; x <= -13.4; x += 0.75) {
+      if (Math.hypot(x - LIFT_X, z - SILL_OUT[1]) < 0.9 || Math.hypot(x - BUTTON[0], z - BUTTON[1]) < 0.7 || nav.blocks(x, z, 0.32)) continue;
+      QUEUE.push([x, z]);
+    }
+    QUEUE.sort((a, b) => Math.hypot(a[0] - LIFT_X, a[1] - SILL_OUT[1]) - Math.hypot(b[0] - LIFT_X, b[1] - SILL_OUT[1]));
+    const LIFT_DOWN = -24, LIFT_TRIP = reduced ? 0.3 : 5.5, LIFT_DOORS = reduced ? 0.1 : 1.3, LIFT_PAUSE = reduced ? 0.2 : 5;
+    const lift = { state: "here" as "here" | "opening" | "open" | "closing" | "down" | "below" | "up", y: 0, doors: 0, t: 0, called: false, riders: [] as Commute[] };
+    let liftShown = `${FLOOR}`;
     const hash = (key: string) => { let h = 2166136261; for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619); return ((h >>> 0) % 10000) / 10000; };
     const minutesOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
     const LEAVE_FROM = minutesOf("17:05"), CLOSES = minutesOf("22:00");
@@ -2028,6 +2084,13 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
       if (now < LEAVE_FROM || inMeeting(meetingData)) return true;
       const late = hash(`${id}:late:${c.date}`) < 0.25, extra = hash(`${id}:out:${c.date}`);
       return now < LEAVE_FROM + 10 + (late ? 120 + extra * 150 : extra * 45);
+    };
+    const faceTowards = (p: Person, at: V2) => { p.group.rotation.y = Math.atan2(at[0] - p.group.position.x, at[1] - p.group.position.z); };
+    const takeSpot = (c: Commute) => {
+      const used = new Set(commuters.map((o) => o.spot).filter((n): n is number => n !== undefined));
+      const free = QUEUE.findIndex((_, i) => !used.has(i));
+      c.spot = free >= 0 ? free : QUEUE.length - 1;
+      return QUEUE[c.spot];
     };
     /** Their usual routine runs only while they are in. */
     const present = (p: Person) => (commuteOf.get(p.group)?.state ?? "in") === "in";
@@ -2048,21 +2111,123 @@ export function Office3D({ agents, boss, assistantTip, tvHeadline, tvLines, sele
         // The boss stays while the owner walks in his shoes (first person).
         if (recheck && !(fp && c.person === bossPerson)) {
           const want = expected(c.id, c.staff);
-          if (want && c.state === "away") {
-            const exit = c.exit(), place = c.place(), start = exit.at(-1) ?? place.at;
-            showPerson(c.person, true); c.person.group.position.set(DOOR[0], 0, DOOR[1]);
-            c.path = [...way(DOOR, start), ...[...exit].reverse(), place.at]; c.state = "arriving";
-          } else if (!want && (c.state === "in" || c.state === "arriving")) {
+          // Downstairs, waiting for the cab to bring them up.
+          if (want && c.state === "away") c.state = "queued";
+          else if (!want && c.state === "queued") c.state = "away";
+          else if (!want && (c.state === "in" || c.state === "arriving")) {
             const exit = c.state === "in" ? c.exit() : [], pos: V2 = [c.person.group.position.x, c.person.group.position.z];
             c.onLeave?.();
-            c.path = [...exit, ...way(exit.at(-1) ?? pos, DOOR), DOOR]; c.state = "leaving";
+            const from = exit.at(-1) ?? pos;
+            // The first to get there presses the button; the others just join the queue.
+            const someoneCalled = lift.called || commuters.some((o) => o !== c && o.state === "leaving" && o.press);
+            c.press = !someoneCalled;
+            const goal = c.press ? BUTTON : takeSpot(c);
+            c.path = [...exit, ...way(from, goal), goal]; c.state = "leaving";
           }
         }
-        if (c.state !== "arriving" && c.state !== "leaving") continue;
-        if (c.path.length) { walk(c.person, c.path, reduced ? 40 : 1.5, dt); pose(c.person, "walk", t, 1); continue; }
-        if (c.state === "leaving") { showPerson(c.person, false); c.state = "away"; continue; }
-        c.person.group.rotation.y = c.place().face; c.state = "in"; c.onArrive?.();
+        if (c.wait !== undefined && c.wait > 0) { c.wait -= dt; pose(c.person, "look", t, 1); continue; }
+        if (c.state === "leaving" || c.state === "arriving" || c.state === "boarding") {
+          if (c.path.length) { walk(c.person, c.path, reduced ? 40 : 1.5, dt); pose(c.person, "walk", t, 1); continue; }
+          if (c.state === "leaving" && c.press) {
+            // At the button: press it (it lights), then take a place in the queue.
+            if (c.wait === undefined) { faceTowards(c.person, [BUTTON[0], BUTTON[1] + 1]); c.wait = reduced ? 0 : 0.9; lift.called = true; continue; }
+            c.wait = undefined; c.press = false;
+            const spot = takeSpot(c);
+            c.path = [...way(BUTTON, spot), spot]; continue;
+          }
+          if (c.state === "leaving") { c.state = "waiting"; faceTowards(c.person, SILL_OUT); lift.called = true; continue; }
+          if (c.state === "boarding") { c.state = "riding"; c.person.group.rotation.y = Math.PI; continue; }
+          c.person.group.rotation.y = c.place().face; c.state = "in"; c.onArrive?.();
+          continue;
+        }
+        if (c.state === "waiting") pose(c.person, "stand", t, 1);
+        if (c.state === "riding") { c.person.group.position.y = lift.y; pose(c.person, "stand", t, 1); }
       }
+      updateLift(dt);
+    };
+    /** The cab: up and down the shaft, the doors, who gets in and out. */
+    const updateLift = (dt: number) => {
+      const waiting = commuters.filter((c) => c.state === "waiting");
+      const room = () => CAB_SEATS.length - lift.riders.length;
+      const ease = (k: number) => k * k * (3 - 2 * k);
+      switch (lift.state) {
+        case "here":
+          if (waiting.length || lift.called) { lift.state = "opening"; lift.t = 0; }
+          else if (commuters.some((c) => c.state === "queued")) { lift.state = "down"; lift.t = 0; }
+          break;
+        case "opening":
+          lift.doors = Math.min(1, lift.doors + dt / LIFT_DOORS);
+          if (lift.doors >= 1) {
+            lift.state = "open"; lift.t = 0;
+            // Who came up walks out to their place.
+            for (const c of lift.riders) {
+              const exit = c.exit(), place = c.place(), start = exit.at(-1) ?? place.at;
+              c.person.group.position.y = 0; c.seat = undefined; c.state = "arriving";
+              c.path = [SILL_IN, SILL_OUT, ...way(SILL_OUT, start), ...[...exit].reverse(), place.at];
+            }
+            lift.riders = [];
+          }
+          break;
+        case "open": {
+          lift.t += dt;
+          // Get in, up to the cab's capacity, the nearest to the doors first.
+          for (const c of waiting.sort((a, b) => (a.spot ?? 0) - (b.spot ?? 0))) {
+            if (room() <= 0) break;
+            const seat = CAB_SEATS.findIndex((_, i) => !lift.riders.some((o) => o.seat === i));
+            c.seat = seat; c.spot = undefined; c.state = "boarding"; lift.riders.push(c);
+            c.path = [SILL_OUT, SILL_IN, CAB_SEATS[seat]];
+          }
+          lift.called = commuters.some((c) => c.state === "waiting");
+          // Someone almost there (they pressed the button and are walking up) is waited for, a little.
+          const coming = room() > 0 && lift.t < 10 && commuters.some((c) => c.state === "leaving"
+            && Math.hypot(c.person.group.position.x - SILL_OUT[0], c.person.group.position.z - SILL_OUT[1]) < 4);
+          const settled = !coming && !commuters.some((c) => c.state === "boarding" || (c.state === "arriving" && c.person.group.position.z > SILL_OUT[1] - 0.2));
+          // Close a moment after the last one is in (or when it is full); never on someone in the doorway.
+          if (settled && (lift.t > (reduced ? 0.2 : 3) || (room() === 0 && lift.t > 1))) { lift.state = "closing"; lift.t = 0; }
+          break;
+        }
+        case "closing":
+          lift.doors = Math.max(0, lift.doors - dt / LIFT_DOORS);
+          // Someone just got there and there is room: open again.
+          if (waiting.length && room() > 0) { lift.state = "opening"; break; }
+          if (lift.doors <= 0) {
+            lift.called = waiting.length > 0;
+            lift.state = lift.riders.length ? "down" : "here"; lift.t = 0;
+          }
+          break;
+        case "down":
+          lift.t = Math.min(1, lift.t + dt / LIFT_TRIP);
+          lift.y = LIFT_DOWN * ease(lift.t);
+          if (lift.t >= 1) {
+            // Downstairs: they are gone.
+            for (const c of lift.riders) { showPerson(c.person, false); c.person.group.position.y = 0; c.seat = undefined; c.state = "away"; }
+            lift.riders = []; lift.state = "below"; lift.t = 0;
+          }
+          break;
+        case "below": {
+          lift.t += dt;
+          const queued = commuters.filter((c) => c.state === "queued");
+          // A short wait downstairs, then back up for whoever called, bringing whoever is arriving.
+          if (lift.t < LIFT_PAUSE || !(queued.length || lift.called || waiting.length)) break;
+          for (const c of queued.slice(0, CAB_SEATS.length)) {
+            const seat = lift.riders.length;
+            c.seat = seat; c.state = "riding"; lift.riders.push(c);
+            showPerson(c.person, true); c.person.group.position.set(CAB_SEATS[seat][0], lift.y, CAB_SEATS[seat][1]); c.person.group.rotation.y = Math.PI;
+          }
+          lift.state = "up"; lift.t = 0;
+          break;
+        }
+        case "up":
+          lift.t = Math.min(1, lift.t + dt / LIFT_TRIP);
+          lift.y = LIFT_DOWN * (1 - ease(lift.t));
+          if (lift.t >= 1) { lift.y = 0; lift.state = "opening"; }
+          break;
+      }
+      liftParts.cab.position.y = lift.y;
+      for (const d of liftParts.doors) d.mesh.position.x = d.x + d.side * lift.doors * (ELEVATOR.width / 2 - 0.4);
+      if (liftParts.button) liftParts.button.emissiveIntensity = lift.called ? 2.6 : 0.8;
+      const shown = lift.state === "down" ? `${FLOOR} ▼` : lift.state === "up" ? `${FLOOR} ▲` : lift.state === "below" ? "T" : `${FLOOR}`;
+      if (shown !== liftShown) { liftShown = shown; liftParts.showDisplay(shown); }
     };
     // The staff: boss, assistant, receptionist, supervisor and the council analysts.
     const officeExit = (x: number): V2[] => [[x, -7.2], [x, CORRIDOR_Z]];

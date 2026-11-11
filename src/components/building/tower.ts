@@ -254,7 +254,9 @@ export function buildSurroundings(scene: THREE.Scene, { floor, mobile = false }:
   below.position.y = street;
   below.add(lobby(m));
   for (let f = 1; f < floor; f++) { const shell = floorShell(f, m); shell.position.y = floorLevel(f); below.add(shell); }
-  below.add(elevatorTube(m, floorLevel(PODIUM_TOP), floorLevel(floor)).group);
+  // The office scene runs its own cab in this tube (it stops at this floor), so the tube's still cab is hidden.
+  const lift = elevatorTube(m, floorLevel(PODIUM_TOP), floorLevel(floor)); lift.cab.visible = false;
+  below.add(lift.group);
   const city = buildCity({ mobile });
   below.add(city);
   group.add(below);

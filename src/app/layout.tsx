@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "@fontsource-variable/manrope";
 import "./globals.css";
 import "./office.css";
@@ -16,15 +17,17 @@ export const metadata: Metadata = {
   },
 };
 export const dynamic = "force-dynamic";
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // The page's security policy only runs scripts carrying this request's nonce (src/proxy.ts).
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="pt-BR">
       <head>
         {/* Reloading (F5) always starts a page at its top (owner, 10/11/2026): the browser must not bring
             back the old scroll position, on any page, so this runs before the page is drawn. */}
-        <script dangerouslySetInnerHTML={{ __html: 'try{history.scrollRestoration="manual";scrollTo(0,0)}catch(e){}' }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: 'try{history.scrollRestoration="manual";scrollTo(0,0)}catch(e){}' }} />
       </head>
       <body>{children}</body>
     </html>
